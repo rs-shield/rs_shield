@@ -1,8 +1,8 @@
+use super::SecureString;
 /// Secure Credentials Manager
 /// Uses OS keyring/secrets to store master password
 /// And AES-256-GCM encryption for data at rest
-use super::encryption::{decrypt_credentials, encrypt_credentials, EncryptedCredentials};
-use super::SecureString;
+use super::encryption::{EncryptedCredentials, decrypt_credentials, encrypt_credentials};
 use crate::utils::ensure_directory_exists;
 use serde::{Deserialize, Serialize};
 use std::env;

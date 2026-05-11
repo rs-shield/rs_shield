@@ -1,10 +1,10 @@
 /// Encryption module for credentials at rest
 /// Uses AES-256-GCM for authenticated encryption
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
     Aes256Gcm, Key, Nonce,
+    aead::{Aead, KeyInit, Payload},
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use pbkdf2::pbkdf2_hmac;
 use rand::Rng;
 use serde::{Deserialize, Serialize};

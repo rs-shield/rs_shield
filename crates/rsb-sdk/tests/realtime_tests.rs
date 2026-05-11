@@ -2,7 +2,7 @@
 
 use chrono::Utc;
 use rsb_sdk::realtime::{
-    sync_all_files, ChangeQueue, ChangeType, FileChange, RealtimeSync, SyncStrategy,
+    ChangeQueue, ChangeType, FileChange, RealtimeSync, SyncStrategy, sync_all_files,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -739,8 +739,10 @@ async fn test_process_batch_filters_correctly() {
 
     // Apenas o arquivo importante.txt deve ser processado
     assert_eq!(processed.len(), 1);
-    assert!(processed[0]
-        .path
-        .to_string_lossy()
-        .contains("important.txt"));
+    assert!(
+        processed[0]
+            .path
+            .to_string_lossy()
+            .contains("important.txt")
+    );
 }

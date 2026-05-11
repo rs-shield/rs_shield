@@ -1,4 +1,4 @@
-use maud::{html, DOCTYPE};
+use maud::{DOCTYPE, html};
 use serde::Serialize;
 use std::time::Duration;
 

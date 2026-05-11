@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use rsb_sdk::{config, core, integrity, perform_verify};
 use std::path::PathBuf;
-use tracing::{info, Level};
+use tracing::{Level, info};
 
 #[derive(Parser)]
 #[command(name = "rsb", version = "0.1.0", about = "Rust Shield Backup")]

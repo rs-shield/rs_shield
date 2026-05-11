@@ -42,10 +42,9 @@ pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
                         "✅ S3 storage backend → bucket: {}, region: {:?}, endpoint: {:?}",
                         bucket, region, endpoint
                     );
-                    Arc::new(
-                        S3Storage::new(&bucket, region, endpoint, credentials)
-                            .await,
-                    )
+                    let s3 = S3Storage::new(&bucket, region, endpoint, credentials).await;
+                    let storage: Arc<dyn Storage> = Arc::new(s3);
+                    storage
                 }
                 Err(e) => {
                     // S3 is configured but credentials failed - this is a HARD ERROR
@@ -83,7 +82,9 @@ pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
 /// 4. Config file (deprecated, not recommended)
 ///
 /// Returns AWS Credentials without modifying environment variables
-async fn load_s3_credentials_securely(config: &Config) -> Result<aws_credential_types::Credentials, String> {
+async fn load_s3_credentials_securely(
+    config: &Config,
+) -> Result<aws_credential_types::Credentials, String> {
     use std::env;
 
     // Option 1: Use environment variables (better for CI/CD)
@@ -118,7 +119,7 @@ async fn load_s3_credentials_securely(config: &Config) -> Result<aws_credential_
                     return Ok(aws_credential_types::Credentials::new(
                         credentials.access_key.as_str(),
                         credentials.secret_key.as_str(),
-                        credentials.session_token.as_ref().map(|t| t.as_str()),
+                        credentials.session_token.as_ref().map(|s| s.to_string()),
                         None,
                         "rsb-encrypted-file",
                     ));
@@ -137,7 +138,7 @@ async fn load_s3_credentials_securely(config: &Config) -> Result<aws_credential_
             return Ok(aws_credential_types::Credentials::new(
                 credentials.access_key.as_str(),
                 credentials.secret_key.as_str(),
-                credentials.session_token.as_ref().map(|t| t.as_str()),
+                credentials.session_token.as_ref().map(|s| s.to_string()),
                 None,
                 "rsb-interactive",
             ));

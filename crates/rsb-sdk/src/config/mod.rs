@@ -231,7 +231,10 @@ pub fn prompt_for_s3_config(config_path: &Path) -> io::Result<()> {
             let endpoint = endpoint.trim().to_string();
 
             if endpoint.is_empty() {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "Endpoint URL cannot be empty.\nExamples:\n  https://s3.amazonaws.com\n  http://localhost:9000 (for MinIO)"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "Endpoint URL cannot be empty.\nExamples:\n  https://s3.amazonaws.com\n  http://localhost:9000 (for MinIO)",
+                ));
             }
 
             let new_bucket = S3BucketConfig {

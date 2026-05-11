@@ -1,5 +1,5 @@
 use super::types::{
-    ChunkMetadata, FileMetadata, FileStatus, ProgressCallback, CHUNK_SIZE, MULTIPART_THRESHOLD,
+    CHUNK_SIZE, ChunkMetadata, FileMetadata, FileStatus, MULTIPART_THRESHOLD, ProgressCallback,
 };
 use crate::crypto::{encrypt_data, hash_file_content};
 use crate::storage::Storage;
@@ -9,7 +9,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{atomic::Ordering, Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::Ordering};
 use tokio::runtime::Handle;
 use tracing::info;
 use zstd::stream::write::Encoder as ZstdEncoder;

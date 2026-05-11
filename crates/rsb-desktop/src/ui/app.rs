@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use dioxus_desktop::{use_window, LogicalSize};
+use dioxus_desktop::{LogicalSize, use_window};
 use tokio::sync::Mutex;
 
 use crate::ui::{
@@ -10,12 +10,12 @@ use crate::ui::{
     config_screen::ConfigScreen,
     create_profile_screen::CreateProfileScreen,
     fido2_manager_view::Fido2ManagerView,
-    i18n::{get_texts, Language, Theme},
+    i18n::{Language, Theme, get_texts},
     integrations_screen::IntegrationScreen,
     login_screen::LoginScreen,
     metrics::{
-        format_bytes_gb, format_percentage_bg, format_percentage_color, get_system_metrics,
-        SystemMetrics,
+        SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
+        get_system_metrics,
     },
     operations::OperationsManager,
     profile_manager_screen::ProfileManagerScreen,

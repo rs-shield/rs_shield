@@ -1,6 +1,6 @@
 use crate::auth::types::SessionClaims;
 use chrono::Utc;
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use uuid::Uuid;
 
 pub struct JwtManager {

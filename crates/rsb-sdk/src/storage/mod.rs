@@ -1,9 +1,9 @@
 use crate::utils::ensure_directory_exists_async;
 use async_trait::async_trait;
-use aws_credential_types::Credentials;
 use aws_config::BehaviorVersion;
-use aws_sdk_s3::config::Region;
+use aws_credential_types::Credentials;
 use aws_sdk_s3::Client;
+use aws_sdk_s3::config::Region;
 use std::io::{self, ErrorKind};
 use std::path::PathBuf;
 use tokio::fs;
@@ -106,10 +106,7 @@ impl S3Storage {
             config_loader = config_loader.endpoint_url(e);
         }
 
-        let sdk_config = config_loader
-            .credentials_provider(credentials)
-            .load()
-            .await;
+        let sdk_config = config_loader.credentials_provider(credentials).load().await;
 
         // Configuração específica para S3
         let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
@@ -125,6 +122,7 @@ impl S3Storage {
             bucket: bucket.to_string(),
         }
     }
+}
 
 #[async_trait]
 impl Storage for S3Storage {
