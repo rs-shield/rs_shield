@@ -1,0 +1,80 @@
+[package]
+name = "rsb-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+# INTERNAL
+
+rsb-sdk = { path = "../rsb-sdk", features = ["cli"] }
+
+# CLI
+
+clap = { workspace = true }
+atty = { workspace = true }
+indicatif = { workspace = true }
+console = { workspace = true }
+rpassword = { workspace = true }
+
+# ASYNC
+
+tokio = { workspace = true }
+async-trait = { workspace = true }
+
+# LOGGING
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# SERIALIZATION
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+
+# TIME / IDS
+
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+# FILESYSTEM
+
+walkdir = { workspace = true }
+dirs = { workspace = true }
+
+# NETWORKING
+
+reqwest = { workspace = true }
+
+# AWS
+
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+
+# WEBAUTHN / FIDO2
+
+webauthn-rs = { workspace = true }
+
+# WEB SERVER
+
+axum = { workspace = true }
+axum-extra = { workspace = true }
+
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+jsonwebtoken = { workspace = true }
+
+# UTILITIES
+
+open = { workspace = true }
+anyhow = { workspace = true }
+
+# TLS
+
+openssl = { workspace = true }

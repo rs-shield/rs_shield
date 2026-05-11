@@ -1,0 +1,23 @@
+// Re-exporta tudo para facilitar uso externo (ex: rsb_sdk::core::perform_backup)
+
+pub mod backup;
+pub mod cancellation;
+pub mod chat_integrations;
+pub mod email_notifications;
+pub mod file_processor;
+pub mod manifest;
+pub mod notification_history;
+pub mod notification_logger;
+pub mod prune;
+pub mod resource_monitor;
+pub mod restore;
+pub mod storage_backend;
+pub mod types;
+
+pub use backup::perform_backup;
+pub use chat_integrations::ChatIntegration;
+pub use email_notifications::{EmailConfig, EmailNotification};
+pub use notification_history::{HistorySummary, NotificationHistory, NotificationHistoryEntry};
+pub use notification_logger::NotificationLogger;
+pub use prune::perform_prune;
+pub use restore::perform_restore;

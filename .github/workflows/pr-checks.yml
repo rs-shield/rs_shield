@@ -1,0 +1,78 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  status:
+    name: Status Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark PR as draft if necessary
+        if: github.event.pull_request.draft
+        run: echo "⚠️ This is a draft PR"
+      
+      - name: Mark PR as ready
+        if: '!github.event.pull_request.draft'
+        run: echo "✅ This is a ready PR"
+
+  comments:
+    name: Check PR Description
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR description
+        if: github.event.pull_request.body == null || github.event.pull_request.body == ''
+        run: |
+          echo "❌ PR description is empty"
+          exit 1
+
+  commits:
+    name: Check Commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      
+      - name: Validate commit messages
+        run: |
+          BASE_COMMIT=$(git merge-base origin/main HEAD)
+          CURRENT_COMMIT=$(git rev-parse HEAD)
+          
+          # Check each commit message
+          git log $BASE_COMMIT..$CURRENT_COMMIT --format=%B | while read -r line; do
+            if [[ -z "$line" ]]; then
+              continue
+            fi
+            # Check if commit follows conventional commits
+            if ! [[ "$line" =~ ^(feat|fix|docs|test|chore|refactor|perf|ci)(\(.+\))?!?:\s ]]; then
+              echo "⚠️ Commit message might not follow conventional commits: $line"
+            fi
+          done
+
+  assignee:
+    name: Check Assignees
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one assignee
+        if: github.event.pull_request.assignees == null
+        run: echo "⚠️ Please assign someone to this PR"
+        continue-on-error: true
+
+  labels:
+    name: Check Labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require at least one label
+        if: github.event.pull_request.labels == null
+        run: echo "⚠️ Please add at least one label to this PR"
+        continue-on-error: true

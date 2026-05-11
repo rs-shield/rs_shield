@@ -1,0 +1,79 @@
+name: Lint & Format
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev pkg-config \
+            libglib2.0-dev libglib2.0-0 \
+            libgtk-3-dev libgdk-pixbuf-2.0-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev
+      
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features
+
+  deny:
+    name: Deny (Dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          log-level: warn
+
+  udeps:
+    name: Unused Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@nightly
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install cargo-udeps
+        run: cargo install cargo-udeps
+      
+      - name: Check for unused dependencies
+        run: cargo +nightly udeps --all-targets
+        continue-on-error: true

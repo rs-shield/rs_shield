@@ -1,0 +1,150 @@
+name: Build & Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            
+          - os: macos-latest
+            target: aarch64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        env:
+          PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            file \
+            libssl-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libglib2.0-dev \
+            libglib2.0-0 \
+            patchelf \
+            pkg-config
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }} --verbose
+
+      - name: Prepare binaries
+        shell: bash
+        run: |
+          mkdir artifacts
+          
+          # Define extensão baseado no OS
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            EXT=".exe"
+          else
+            EXT=""
+          fi
+          
+          # Lista todos os binários compilados
+          echo "=== Binários encontrados ==="
+          ls -la target/${{ matrix.target }}/release/ | grep -E "^-rwx" || true
+          
+          # Processa rsb-cli
+          if [ -f "target/${{ matrix.target }}/release/rsb-cli${EXT}" ]; then
+            echo "Processando rsb-cli..."
+            [ "${{ runner.os }}" != "Windows" ] && strip target/${{ matrix.target }}/release/rsb-cli || true
+            CLI_NAME="rsb-cli-${GITHUB_REF_NAME}-${{ matrix.target }}${EXT}"
+            cp target/${{ matrix.target }}/release/rsb-cli${EXT} artifacts/${CLI_NAME}
+            echo "✓ rsb-cli copiado como ${CLI_NAME}"
+          fi
+          
+          # Processa rsb-desktop
+          if [ -f "target/${{ matrix.target }}/release/rsb-desktop${EXT}" ]; then
+            echo "Processando rsb-desktop..."
+            [ "${{ runner.os }}" != "Windows" ] && strip target/${{ matrix.target }}/release/rsb-desktop || true
+            DESKTOP_NAME="rsb-desktop-${GITHUB_REF_NAME}-${{ matrix.target }}${EXT}"
+            cp target/${{ matrix.target }}/release/rsb-desktop${EXT} artifacts/${DESKTOP_NAME}
+            echo "✓ rsb-desktop copiado como ${DESKTOP_NAME}"
+          fi
+          
+          echo "=== Artifacts gerados ==="
+          ls -lh artifacts/
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: binary-${{ matrix.target }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          
+      - name: Prepare release
+        run: |
+          mkdir release
+          find artifacts -type f -exec cp {} release/ \;
+          echo "=== Arquivos para release ==="
+          ls -lh release/
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            ## 📦 Binários Disponíveis
+            
+            ### Windows
+            - `rsb-cli-*-x86_64-pc-windows-msvc.exe` - Versão linha de comando
+            - `rsb-desktop-*-x86_64-pc-windows-msvc.exe` - Versão com interface gráfica
+            
+            ### Linux
+            - `rsb-cli-*-x86_64-unknown-linux-gnu` - Versão linha de comando
+            - `rsb-desktop-*-x86_64-unknown-linux-gnu` - Versão com interface gráfica
+            
+            ### macOS
+            - `rsb-cli-*-x86_64-apple-darwin` - Versão linha de comando (Intel)
+            - `rsb-desktop-*-x86_64-apple-darwin` - Versão com interface gráfica (Intel)
+            - `rsb-cli-*-aarch64-apple-darwin` - Versão linha de comando (Apple Silicon)
+            - `rsb-desktop-*-aarch64-apple-darwin` - Versão com interface gráfica (Apple Silicon)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

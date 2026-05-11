@@ -1,0 +1,90 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths: ['Cargo.lock', 'Cargo.toml']
+  pull_request:
+    branches: [ main, develop ]
+    paths: ['Cargo.lock', 'Cargo.toml']
+  schedule:
+    # Daily at 00:00 UTC
+    - cron: '0 0 * * *'
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: rustsec/audit-check-action@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  outdated:
+    name: Outdated Dependencies
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev pkg-config \
+            libglib2.0-dev libglib2.0-0 \
+            libgtk-3-dev libgdk-pixbuf-2.0-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated
+      
+      - name: Check for outdated dependencies
+        run: cargo outdated --root-deps-only
+        continue-on-error: true
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev pkg-config \
+            libglib2.0-dev libglib2.0-0 \
+            libgtk-3-dev libgdk-pixbuf-2.0-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install cargo-sbom
+        run: cargo install cargo-sbom
+      
+      - name: Generate SBOM
+        run: cargo sbom > sbom.spdx
+        continue-on-error: true
+      
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: sbom.spdx
+        if: always()

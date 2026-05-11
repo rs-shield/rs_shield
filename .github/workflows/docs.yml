@@ -1,0 +1,63 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths: ['docs/**', 'README.md', '**/*.rs']
+  pull_request:
+    branches: [ main, develop ]
+    paths: ['docs/**', 'README.md']
+
+jobs:
+  docs:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev pkg-config \
+            libglib2.0-dev libglib2.0-0 \
+            libgtk-3-dev libgdk-pixbuf-2.0-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev
+      
+      - name: Build docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --all-features
+
+  markdown-lint:
+    name: Markdown Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: nosborn/github-action-markdown-cli@v3.5.0
+        with:
+          files: .
+          config_file: .markdown-lint.json
+        continue-on-error: true
+
+  link-check:
+    name: Link Checker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      
+      - name: Link Checker
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: true
+          use-verbose-mode: false
+        continue-on-error: true

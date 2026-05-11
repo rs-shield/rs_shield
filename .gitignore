@@ -1,0 +1,43 @@
+# Rust build artifacts
+/target
+/Cargo.lock
+**/*.rs.bk
+*.rlib
+*.rmeta
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+rsb-report-backup-*
+
+# Cache
+.xwin-cache/
+.cargo-ok
+
+# OS specific
+Thumbs.db
+*.orig
+
+# Generated docs
+/coverage/
+/docs/api/
+.docs_not_remote/
+.rsb/
+.rsb-shield/
+*.enc
+*.json

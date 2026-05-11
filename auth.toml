@@ -1,0 +1,7 @@
+source_path = "/Users/marciozebedeu/Documents/termos/docs"
+destination_path = "/Users/marciozebedeu/Desktop/dest"
+exclude_patterns = ["*.tmp", "node_modules"]
+backup_mode = "incremental"
+pause_on_low_battery = 20
+pause_on_high_cpu = 20
+compression_level = 3

@@ -1,0 +1,112 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, beta]
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev pkg-config \
+            libglib2.0-dev libglib2.0-0 \
+            libgtk-3-dev libgdk-pixbuf-2.0-dev \
+            libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev
+      
+      - name: Run tests
+        run: cargo test --workspace --verbose
+        continue-on-error: ${{ matrix.rust == 'beta' }}
+
+  test-features:
+    name: Test Features
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config libglib2.0-dev libglib2.0-0
+      
+      - name: Test all features
+        run: cargo test --all-features --workspace
+      
+      - name: Test no-default-features
+        run: cargo test --no-default-features --workspace
+
+  test-docs:
+    name: Test Documentation
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config libglib2.0-dev libglib2.0-0
+      
+      - name: Test doc examples
+        run: cargo test --doc
+
+  miri:
+    name: Miri (Memory Safety)
+    runs-on: ubuntu-latest
+    env:
+      PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+    steps:
+      - uses: actions/checkout@v6
+      
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config libglib2.0-dev libglib2.0-0
+      
+      - name: Run tests under Miri
+        run: cargo +nightly miri test
+        continue-on-error: true

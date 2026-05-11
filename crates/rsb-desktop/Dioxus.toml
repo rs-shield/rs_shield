@@ -1,0 +1,11 @@
+[application]
+name = "Rust Shield Backup"
+default_platform = "desktop"
+out_dir = "dist"
+asset_dir = "public"
+
+[web.app]
+title = "RSB Desktop"
+
+[web.watcher]
+watch_path = ["src"]

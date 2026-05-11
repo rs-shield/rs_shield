@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RSB FIDO2 - Autenticação Segura</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .container {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+      width: 100%;
+      padding: 40px;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    
+    .header h1 {
+      font-size: 24px;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    
+    .header p {
+      color: #666;
+      font-size: 14px;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 30px;
+      border-bottom: 2px solid #eee;
+    }
+    
+    .tab-button {
+      flex: 1;
+      padding: 12px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 500;
+      color: #999;
+      transition: all 0.3s ease;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+    }
+    
+    .tab-button.active {
+      color: #667eea;
+      border-bottom-color: #667eea;
+    }
+    
+    .tab-content {
+      display: none;
+    }
+    
+    .tab-content.active {
+      display: block;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 12px;
+      border: 2px solid #eee;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s ease;
+    }
+    
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    
+    .form-group input:disabled {
+      background-color: #f5f5f5;
+      cursor: not-allowed;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 30px;
+    }
+    
+    button {
+      flex: 1;
+      padding: 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+    
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+    
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    
+    .btn-secondary:hover {
+      background: #e0e0e0;
+    }
+    
+    .alert {
+      padding: 15px;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+    }
+    
+    .alert.show {
+      display: block;
+    }
+    
+    .alert-success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    
+    .alert-error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    
+    .alert-info {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    
+    .loading {
+      display: none;
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+    }
+    
+    .loading.show {
+      display: block;
+    }
+    
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+      vertical-align: middle;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .credentials-list {
+      background: #f9f9f9;
+      border-radius: 6px;
+      padding: 15px;
+      margin-bottom: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .credential-item {
+      background: white;
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      border: 1px solid #eee;
+    }
+    
+    .credential-item:last-child {
+      margin-bottom: 0;
+    }
+    
+    .credential-info {
+      flex: 1;
+    }
+    
+    .credential-user {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .credential-meta {
+      color: #999;
+      font-size: 12px;
+    }
+    
+    .btn-delete {
+      background: #dc3545;
+      color: white;
+      padding: 6px 12px;
+      font-size: 12px;
+      margin-left: 10px;
+    }
+    
+    .btn-delete:hover {
+      background: #c82333;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>🔐 RSB FIDO2</h1>
+    <p>Autenticação segura com chaves FIDO2</p>
+  </div>
+
+  <div class="alert alert-info" id="alert"></div>
+
+  <div class="tabs">
+    <button class="tab-button active" onclick="switchTab('login')">Fazer Login</button>
+    <button class="tab-button" onclick="switchTab('register')">Registar Chave</button>
+    <button class="tab-button" onclick="switchTab('list')">Minhas Chaves</button>
+  </div>
+
+  <div class="tab-content active" id="login">
+    <form onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label for="login_user_id">ID do Utilizador</label>
+        <input type="text" id="login_user_id" placeholder="user1" required>
+      </div>
+      <div class="loading" id="login_loading">
+        <span class="spinner"></span> A autenticar com a sua chave FIDO2...
+      </div>
+      <div class="button-group">
+        <button type="submit" class="btn-primary" id="login_btn">Autenticar com FIDO2</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="tab-content" id="register">
+    <form onsubmit="handleRegister(event)">
+      <div class="form-group">
+        <label for="reg_user_id">ID do Utilizador</label>
+        <input type="text" id="reg_user_id" placeholder="user1" required>
+      </div>
+      <div class="form-group">
+        <label for="reg_username">Nome de Utilizador</label>
+        <input type="text" id="reg_username" placeholder="o.seu.nome@example.com" required>
+      </div>
+      <div class="form-group">
+        <label for="reg_display_name">Nome para Exibição</label>
+        <input type="text" id="reg_display_name" placeholder="João Silva" required>
+      </div>
+      <div class="loading" id="register_loading">
+        <span class="spinner"></span> Ligue a sua chave FIDO2...
+      </div>
+      <div class="button-group">
+        <button type="submit" class="btn-primary" id="register_btn">Registar Chave FIDO2</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="tab-content" id="list">
+    <div id="credentials_container">
+      <div style="text-align: center; color: #999; padding: 20px;">
+        A carregar as suas chaves...
+      </div>
+    </div>
+    <button type="button" class="btn-secondary" style="width: 100%; margin-top: 20px;" onclick="loadCredentials()">
+      Recarregar Chaves
+    </button>
+  </div>
+</div>
+
+<script>
+// ================= UTILITY FUNCTIONS =================
+function base64urlToBuffer(base64url) {
+  const padding = '='.repeat((4 - base64url.length % 4) % 4);
+  const base64 = (base64url + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
+
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+function bufferToBase64url(buffer) {
+  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
+}
+
+function showAlert(message, type = 'info') {
+  const alert = document.getElementById('alert');
+  alert.textContent = message;
+  alert.className = `alert alert-${type} show`;
+  setTimeout(() => alert.classList.remove('show'), 5000);
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-content').forEach(tab => {
+    tab.classList.remove('active');
+  });
+  document.querySelectorAll('.tab-button').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  document.getElementById(tabName).classList.add('active');
+  
+  if (event && event.target) {
+    event.target.classList.add('active');
+  }
+
+  if (tabName === 'list') {
+    loadCredentials();
+  }
+}
+
+function setLoading(elementId, loading) {
+  const elem = document.getElementById(elementId);
+  if (loading) {
+    elem.classList.add('show');
+  } else {
+    elem.classList.remove('show');
+  }
+}
+
+// ================= REGISTER =================
+
+async function handleRegister(event) {
+  event.preventDefault();
+  
+  const userId = document.getElementById('reg_user_id').value;
+  const username = document.getElementById('reg_username').value;
+  const displayName = document.getElementById('reg_display_name').value;
+
+  if (!userId || !username || !displayName) {
+    showAlert('Preencha todos os campos', 'error');
+    return;
+  }
+
+  try {
+    setLoading('register_loading', true);
+    document.getElementById('register_btn').disabled = true;
+
+    console.log('A iniciar registo de chave FIDO2...');
+
+    const startRes = await fetch('/register/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        user_id: userId,
+        username: username,
+        display_name: displayName
+      })
+    });
+
+    if (!startRes.ok) {
+      throw new Error(await startRes.text());
+    }
+
+    const data = await startRes.json();
+
+    if (data.error) throw new Error(data.error);
+
+    // Extrai o objeto publicKey de dentro da resposta da API
+    const options = data.publicKey || data;
+
+    if (!options.challenge) throw new Error('Challenge não recebido do servidor');
+
+    options.challenge = base64urlToBuffer(options.challenge);
+    
+    if (options.user && options.user.id) {
+      options.user.id = base64urlToBuffer(options.user.id);
+    }
+
+    if (options.excludeCredentials) {
+      options.excludeCredentials = options.excludeCredentials.map(c => ({
+        ...c,
+        id: base64urlToBuffer(c.id)
+      }));
+    }
+
+    console.log('A aguardar interação com a chave FIDO2...');
+    const cred = await navigator.credentials.create({
+      publicKey: options
+    });
+
+    if (!cred) throw new Error('Registo cancelado');
+
+    const response = {
+      id: cred.id,
+      rawId: bufferToBase64url(cred.rawId),
+      type: cred.type,
+      response: {
+        clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
+        attestationObject: bufferToBase64url(cred.response.attestationObject)
+      }
+    };
+
+    const finishRes = await fetch('/register/finish', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(response)
+    });
+
+    if (!finishRes.ok) {
+      throw new Error(await finishRes.text());
+    }
+    
+    const finishJson = await finishRes.json();
+
+    console.log(finishJson)
+    if (!finishJson) {
+      throw new Error(finishJson.error);
+    }
+
+    showAlert('✅ Chave FIDO2 registada com sucesso!', 'success');
+    document.getElementById('reg_user_id').value = '';
+    document.getElementById('reg_username').value = '';
+    document.getElementById('reg_display_name').value = '';
+  } catch (e) {
+    console.error('Erro no registo:', e);
+    showAlert('❌ Erro ao registar: ' + e.message, 'error');
+  } finally {
+    setLoading('register_loading', false);
+    document.getElementById('register_btn').disabled = false;
+  }
+}
+
+// ================= LOGIN =================
+
+async function handleLogin(event) {
+  event.preventDefault();
+  
+  const userId = document.getElementById('login_user_id').value;
+
+  if (!userId) {
+    showAlert('Introduza o seu ID de utilizador', 'error');
+    return;
+  }
+
+  try {
+    setLoading('login_loading', true);
+    document.getElementById('login_btn').disabled = true;
+
+    console.log('A iniciar autenticação...');
+
+    const startRes = await fetch('/auth/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ user_id: userId })
+    });
+
+    if (!startRes.ok) {
+      throw new Error(await startRes.text());
+    }
+
+    const data = await startRes.json();
+    console.log('Resposta do servidor:', data);
+
+    if (data.error) throw new Error(data.error);
+
+    // Extrai o objeto publicKey de dentro da resposta da API
+    const options = data.publicKey || data;
+
+    if (!options.challenge) throw new Error('Challenge de autenticação não recebido');
+
+    options.challenge = base64urlToBuffer(options.challenge);
+
+    if (options.allowCredentials && Array.isArray(options.allowCredentials)) {
+      options.allowCredentials = options.allowCredentials.map(c => ({
+        ...c,
+        id: base64urlToBuffer(c.id)
+      }));
+    }
+
+    console.log('A aguardar interação com a chave FIDO2...');
+    const cred = await navigator.credentials.get({
+      publicKey: options
+    });
+
+    if (!cred) throw new Error('Autenticação cancelada');
+
+    const response = {
+      id: cred.id,
+      rawId: bufferToBase64url(cred.rawId),
+      type: cred.type,
+      response: {
+        clientDataJSON: bufferToBase64url(cred.response.clientDataJSON),
+        authenticatorData: bufferToBase64url(cred.response.authenticatorData),
+        signature: bufferToBase64url(cred.response.signature),
+        userHandle: cred.response.userHandle
+          ? bufferToBase64url(cred.response.userHandle)
+          : null
+      }
+    };
+
+    const finishRes = await fetch('/auth/finish', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(response)
+    });
+
+    if (!finishRes.ok) {
+      throw new Error(await finishRes.text());
+    }
+
+    const finishJson = await finishRes.json();
+
+    if (!finishJson) {
+      throw new Error(finishJson.error);
+    }
+
+    showAlert('✅ Autenticado com sucesso!', 'success');
+    document.getElementById('login_user_id').value = '';
+  } catch (e) {
+    console.error('Erro na autenticação:', e);
+    showAlert('❌ Erro ao autenticar: ' + e.message, 'error');
+  } finally {
+    setLoading('login_loading', false);
+    document.getElementById('login_btn').disabled = false;
+  }
+}
+
+// ================= LIST CREDENTIALS =================
+
+async function loadCredentials() {
+  try {
+    const res = await fetch('/credentials', {
+      method: 'GET',
+      headers: {'Content-Type': 'application/json'}
+    });
+
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    const credentials = await res.json();
+    const container = document.getElementById('credentials_container');
+
+    if (!credentials || credentials.length === 0) {
+      container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">Não tem chaves registadas ainda</div>';
+      return;
+    }
+
+    container.innerHTML = '<div class="credentials-list">' +
+      credentials.map(c => `
+        <div class="credential-item">
+          <div class="credential-info">
+            <div class="credential-user">👤 ${escapeHtml(c.username)}</div>
+            <div class="credential-meta">
+              ID: ${escapeHtml(c.user_id)}<br>
+              Registrada: ${new Date(c.created_at).toLocaleString('pt-PT')}<br>
+              ${c.last_used ? 'Último uso: ' + new Date(c.last_used).toLocaleString('pt-PT') : 'Nunca foi usada'}
+            </div>
+          </div>
+          <button type="button" class="btn-delete" onclick="deleteCredential('${escapeAttr(c.user_id)}')">Eliminar</button>
+        </div>
+      `).join('') +
+      '</div>';
+  } catch (e) {
+    console.error('Erro ao carregar chaves:', e);
+    showAlert('❌ Erro ao carregar chaves: ' + e.message, 'error');
+  }
+}
+
+async function deleteCredential(userId) {
+  if (!confirm('Tem a certeza que deseja eliminar a chave de ' + userId + '?')) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/credentials/' + encodeURIComponent(userId), {
+      method: 'DELETE',
+      headers: {'Content-Type': 'application/json'}
+    });
+
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    showAlert('✅ Chave eliminada com sucesso!', 'success');
+    loadCredentials();
+  } catch (e) {
+    console.error('Erro ao eliminar chave:', e);
+    showAlert('❌ Erro ao eliminar chave: ' + e.message, 'error');
+  }
+}
+
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text ? text.replace(/[&<>"']/g, m => map[m]) : '';
+}
+
+function escapeAttr(text) {
+  return text ? text.replace(/'/g, '&#039;').replace(/"/g, '&quot;') : '';
+}
+
+window.addEventListener('load', () => {
+  console.log('🔐 RSB FIDO2 carregado. Navegador com WebAuthn: ' + (navigator.credentials ? 'Sim' : 'Não'));
+  if (!navigator.credentials) {
+    showAlert('⚠️ O seu navegador não suporta WebAuthn/FIDO2. Utilize um navegador moderno.', 'error');
+  }
+});
+</script>
+
+</body>
+</html>
