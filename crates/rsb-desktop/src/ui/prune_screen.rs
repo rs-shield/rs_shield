@@ -2,7 +2,7 @@ use crate::ui::{
     app::AppConfig,
     i18n::get_texts,
     operations_helpers::record_prune_operation,
-    profile_loader::{load_profile, ProfileData},
+    profile_loader::{ProfileData, load_profile},
 };
 use dioxus::prelude::*;
 use rsb_sdk::{config, core};

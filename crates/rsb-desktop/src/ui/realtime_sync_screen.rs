@@ -447,11 +447,14 @@ pub fn RealtimeSyncScreen() -> Element {
                                                 None
                                             };
                                             send_system_notification(
-                                            "💾 Backup Criado",
-                                            &format!("Backup '{}' criado com sucesso e criptografado", backup_name),
-                                            "success",
-                                            webhook
-                                        );
+                                                "💾 Backup Criado",
+                                                &format!(
+                                                    "Backup '{}' criado com sucesso e criptografado",
+                                                    backup_name
+                                                ),
+                                                "success",
+                                                webhook,
+                                            );
                                         }
                                     } else {
                                         sync_errors.set(sync_errors() + 1);
@@ -478,11 +481,11 @@ pub fn RealtimeSyncScreen() -> Element {
                                                 None
                                             };
                                             send_system_notification(
-                                            "❌ Erro de Backup",
-                                            "Falha ao criar backup automático - verifique as permissões",
-                                            "error",
-                                            webhook
-                                        );
+                                                "❌ Erro de Backup",
+                                                "Falha ao criar backup automático - verifique as permissões",
+                                                "error",
+                                                webhook,
+                                            );
                                         }
                                     }
 

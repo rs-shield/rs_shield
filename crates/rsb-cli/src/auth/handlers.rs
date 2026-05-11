@@ -1,8 +1,8 @@
 use axum::{
+    Json,
     extract::State,
     http::{HeaderMap, StatusCode},
     response::Html,
-    Json,
 };
 use chrono::Utc;
 use rsb_sdk::auth::{

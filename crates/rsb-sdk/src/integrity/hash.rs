@@ -1,6 +1,6 @@
 use zstd::stream::copy_decode;
 
-use crate::{core::types::FileMetadata, crypto::decrypt_data, Config};
+use crate::{Config, core::types::FileMetadata, crypto::decrypt_data};
 
 pub fn verify_content_hash(
     data: &[u8],

@@ -4,8 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::ui::{app::AppConfig, i18n::get_texts};
-use rsb_sdk::credentials::credentials_manager::{CredentialsManager, S3Credentials};
 use rsb_sdk::credentials::SecureString;
+use rsb_sdk::credentials::credentials_manager::{CredentialsManager, S3Credentials};
 use rsb_sdk::utils::ensure_directory_exists;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

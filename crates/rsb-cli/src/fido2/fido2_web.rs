@@ -1,10 +1,10 @@
 use axum::response::Html;
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
-    Json, Router,
 };
 use rsb_sdk::credentials::Fido2Manager;
 use serde::{Deserialize, Serialize};

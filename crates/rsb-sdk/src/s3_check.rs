@@ -1,6 +1,6 @@
 use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
-use aws_sdk_s3::{config::Region, Client};
+use aws_sdk_s3::{Client, config::Region};
 
 /// Verifies the S3 connection by trying to access the bucket's metadata (HeadBucket).
 /// Returns Ok(message) on success, or Err(error_message) on failure.

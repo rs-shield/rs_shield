@@ -42,8 +42,7 @@ pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
                         "✅ S3 storage backend → bucket: {}, region: {:?}, endpoint: {:?}",
                         bucket, region, endpoint
                     );
-                    let s3 = S3Storage::new(&bucket, region, endpoint, credentials)
-                        .await;
+                    let s3 = S3Storage::new(&bucket, region, endpoint, credentials).await;
                     let storage: Arc<dyn Storage> = Arc::new(s3);
                     storage
                 }
@@ -83,7 +82,9 @@ pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
 /// 4. Config file (deprecated, not recommended)
 ///
 /// Returns AWS Credentials without modifying environment variables
-async fn load_s3_credentials_securely(config: &Config) -> Result<aws_credential_types::Credentials, String> {
+async fn load_s3_credentials_securely(
+    config: &Config,
+) -> Result<aws_credential_types::Credentials, String> {
     use std::env;
 
     // Option 1: Use environment variables (better for CI/CD)

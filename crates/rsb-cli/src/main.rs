@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, warn, Level};
+use tracing::{Level, info, warn};
 pub mod auth;
 pub mod config_cmd;
 pub mod fido2;

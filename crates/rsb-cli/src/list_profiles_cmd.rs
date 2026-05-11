@@ -61,7 +61,9 @@ impl ListProfilesCmd {
         if profiles.is_empty() {
             println!("   ℹ️  No profiles found");
             println!("\n   Create a profile with:");
-            println!("   rsb create-profile --name mybackup --source /path/to/source --dest /path/to/dest\n");
+            println!(
+                "   rsb create-profile --name mybackup --source /path/to/source --dest /path/to/dest\n"
+            );
             return Ok(());
         }
 

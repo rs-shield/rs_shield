@@ -40,9 +40,8 @@ pub async fn write_manifest(
     encryption_key: Option<&str>,
     dry_run: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
-
     // timestamp format compatible with Windows (without ":" which is invalid in file names)
-    
+
     let timestamp = Utc::now().format("%Y-%m-%dT%H%M%SZ").to_string();
     let snapshot_path = format!("snapshots/{}.toml", timestamp);
 

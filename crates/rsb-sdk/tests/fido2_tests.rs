@@ -53,7 +53,9 @@ fn test_fido2_error_display() {
         Fido2Error::RegistrationFailed("already exists".into()).to_string(),
         "Registration failed: already exists"
     );
-    assert!(Fido2Error::NoRegistrationInProgress
-        .to_string()
-        .contains("No registration"));
+    assert!(
+        Fido2Error::NoRegistrationInProgress
+            .to_string()
+            .contains("No registration")
+    );
 }

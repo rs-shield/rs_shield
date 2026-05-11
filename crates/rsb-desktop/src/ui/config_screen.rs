@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::ui::{
     app::AppConfig,
-    i18n::{get_texts, Language, Theme},
+    i18n::{Language, Theme, get_texts},
     s3_tester::S3ConnectionTester,
 };
 

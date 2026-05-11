@@ -1,11 +1,11 @@
 use crate::auth::handlers::{
-    auth_finish, auth_localhost_callback, auth_logout, auth_refresh, auth_start, auth_verify,
-    device_flow_lookup_code, device_flow_page, device_flow_start, device_flow_start_api,
-    device_flow_token, device_flow_verify_page, home, AuthHandlerState,
+    AuthHandlerState, auth_finish, auth_localhost_callback, auth_logout, auth_refresh, auth_start,
+    auth_verify, device_flow_lookup_code, device_flow_page, device_flow_start,
+    device_flow_start_api, device_flow_token, device_flow_verify_page, home,
 };
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 use rsb_sdk::auth::SessionStore;
 use std::sync::Arc;

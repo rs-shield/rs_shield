@@ -243,7 +243,6 @@ impl RealtimeSync {
         change: FileChange,
         max_retries: u32,
     ) -> Result<(), String> {
-
         if self.should_ignore(&change.path) {
             return Ok(());
         }
@@ -348,7 +347,6 @@ pub struct SyncStats {
     pub synced: usize,
     pub failed: usize,
 }
-
 
 pub async fn sync_all_files(src: &Path, dst: &Path) -> Result<usize, String> {
     let src = src.to_path_buf();

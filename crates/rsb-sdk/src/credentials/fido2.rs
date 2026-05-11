@@ -1,7 +1,7 @@
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use base64::engine::general_purpose;
 use base64::Engine;
+use base64::engine::general_purpose;
 use keyring::Entry;
 use pbkdf2;
 use rand::prelude::*;

@@ -1,6 +1,6 @@
 // Testes para rsb-core/src/core/types.rs
 
-use rsb_sdk::core::types::{ChunkMetadata, FileMetadata, CHUNK_SIZE, MULTIPART_THRESHOLD};
+use rsb_sdk::core::types::{CHUNK_SIZE, ChunkMetadata, FileMetadata, MULTIPART_THRESHOLD};
 
 #[test]
 fn test_constants() {

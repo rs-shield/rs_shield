@@ -1,6 +1,6 @@
 // src/crypto/mod.rs
 
-use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
+use ring::aead::{AES_256_GCM, Aad, LessSafeKey, NONCE_LEN, Nonce, UnboundKey};
 use ring::pbkdf2;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::io::{self, ErrorKind};
@@ -122,9 +122,9 @@ pub fn decrypt_data(encrypted: &[u8], password: &[u8]) -> io::Result<Vec<u8>> {
 
     let key = LessSafeKey::new(unbound_key);
 
-    let nonce_arr: [u8; NONCE_LEN] = nonce_bytes.try_into().map_err(|_| {
-        io::Error::new(ErrorKind::InvalidData, "Invalid nonce (incorrect size)")
-    })?;
+    let nonce_arr: [u8; NONCE_LEN] = nonce_bytes
+        .try_into()
+        .map_err(|_| io::Error::new(ErrorKind::InvalidData, "Invalid nonce (incorrect size)"))?;
 
     let nonce = Nonce::assume_unique_for_key(nonce_arr);
 
