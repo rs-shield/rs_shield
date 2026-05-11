@@ -125,6 +125,7 @@ impl S3Storage {
             bucket: bucket.to_string(),
         }
     }
+}
 
 #[async_trait]
 impl Storage for S3Storage {
