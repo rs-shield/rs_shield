@@ -991,7 +991,8 @@ pub fn RealtimeSyncScreen() -> Element {
                             p { class: "text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3", "📜 Histórico (Últimos 20 eventos)" }
                             div { class: "max-h-48 overflow-y-auto space-y-2",
                                     {
-                                        sync_history().iter().rev().map(|event| {
+                                        let events: Vec<_> = sync_history().iter().rev().cloned().collect();
+                                        events.into_iter().map(|event| {
                                             let (bg_color, icon, text_color) = match event.event_type.as_str() {
                                                 "file_synced" => ("bg-blue-50 dark:bg-blue-900/30", "📄", "text-blue-900 dark:text-blue-200"),
                                                 "backup_created" => ("bg-green-50 dark:bg-green-900/30", "✅", "text-green-900 dark:text-green-200"),
