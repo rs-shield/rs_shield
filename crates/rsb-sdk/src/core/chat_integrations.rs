@@ -54,7 +54,7 @@ struct SlackAccessory {
     alt_text: Option<String>,
 }
 
-/// Mensagem para Telegram
+/// Telegram Message
 #[derive(Debug, Clone, Serialize)]
 struct TelegramMessage {
     chat_id: String,
@@ -63,7 +63,7 @@ struct TelegramMessage {
     parse_mode: Option<String>,
 }
 
-/// Mensagem para Discord
+/// Discord Message
 #[derive(Debug, Clone, Serialize)]
 struct DiscordMessage {
     content: String,

@@ -548,16 +548,16 @@ pub async fn device_flow_verify_page<S: SessionStore + Clone>(
     #userInfo { display: none; text-align: left; margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; border: 1px solid #e9ecef; }
 </style></head>
 <body><div class="container">
-    <h1>🔐 Verificação de Dispositivo</h1>
-    <p>Insira o código de verificação exibido no seu terminal:</p>
+    <h1>🔐 Device Verification</h1>
+    <p>Enter the verification code displayed on your terminal:</p>
     <div class="input-group" id="lookupSection">
         <input type="text" id="userCodeInput" maxlength="6" placeholder="******" style="text-transform:uppercase;">
-        <button id="lookupButton">Confirmar Código</button>
+        <button id="lookupButton">Confirm Code</button>
     </div>
     <div id="userInfo">
-        <p><strong>Utilizador:</strong> <span id="displayUserId"></span></p>
+        <p><strong>User:</strong> <span id="displayUserId"></span></p>
     </div>
-    <button id="authenticateButton">🔐 Autenticar com FIDO2</button>
+    <button id="authenticateButton">🔐 Click to Authenticate</button>
     <div id="statusMessage" class="message"></div>
 </div>
 <script type="text/javascript">
@@ -580,14 +580,14 @@ pub async fn device_flow_verify_page<S: SessionStore + Clone>(
     }
     document.getElementById('lookupButton').onclick = async () => {
         const userCode = document.getElementById('userCodeInput').value.trim().toUpperCase();
-        if (userCode.length !== 6) { showMessage('Insira um código de 6 caracteres.', 'error'); return; }
+        if (userCode.length !== 6) { showMessage('Please enter a 6-character code.', 'error'); return; }
         try {
             const res = await fetch('/api/auth/device/lookup-code', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_code: userCode })
             });
-            if (!res.ok) throw new Error('Código inválido ou expirado.');
+            if (!res.ok) throw new Error('Invalid or expired code.');
             const data = await res.json();
             deviceCode = data.device_code;
             userId = data.user_id;
@@ -595,11 +595,11 @@ pub async fn device_flow_verify_page<S: SessionStore + Clone>(
             document.getElementById('userInfo').style.display = 'block';
             document.getElementById('lookupSection').style.display = 'none';
             document.getElementById('authenticateButton').style.display = 'block';
-            showMessage('Código validado! Prossiga com FIDO2.', 'success');
+            showMessage('Code validated! Proceed...', 'success');
         } catch (e) { showMessage(e.message, 'error'); }
     };
     document.getElementById('authenticateButton').onclick = async () => {
-        showMessage('Aguardando chave FIDO2...', 'info');
+        showMessage('Waiting for key...', 'info');
         try {
             const startRes = await fetch('/api/auth/start', {
                 method: 'POST',
@@ -628,8 +628,8 @@ pub async fn device_flow_verify_page<S: SessionStore + Clone>(
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ user_id: userId, fido2_response: credentialJson, device_code: deviceCode })
             });
-            if (!finishRes.ok) throw new Error('Falha na autenticação.');
-            showMessage('✅ Sucesso! Pode fechar esta página.', 'success');
+            if (!finishRes.ok) throw new Error('Authentication failed.');
+            showMessage('✅ Success! You can close this page.', 'success');
         } catch (e) { showMessage(e.message, 'error'); }
     };
 </script></body></html>"#.to_string()))
@@ -735,10 +735,10 @@ pub async fn device_flow_page<S: SessionStore + Clone>(
 </head>
 <body>
     <div class="container">
-        <h1>✅ Código de Verificação</h1>
-        <p>Seu código de verificação:</p>
+        <h1>✅ Verification Code</h1>
+        <p>Your verification code:</p>
         <div class="code" id="code" style="display: none;">------</div>
-        <div class="loading"><p>Gerando código...</p></div>
+        <div class="loading"><p>Generating code...</p></div>
     </div>
     <script>
         fetch('/api/auth/device/start', {
@@ -758,7 +758,7 @@ pub async fn device_flow_page<S: SessionStore + Clone>(
         })
         .catch(e => {
             console.error('Error:', e);
-            document.querySelector('.loading').innerText = 'Erro ao gerar código';
+            document.querySelector('.loading').innerText = 'Error generating code';
         });
     </script>
 </body>

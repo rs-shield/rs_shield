@@ -6,7 +6,7 @@ use rsb_sdk::realtime::{create_backup, sync_all_files};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// Event structure para webhook
+/// Event structure for webhook
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct NotificationEvent {
     event_type: String, // "sync_complete", "backup_created", "error", "battery_low"
@@ -16,7 +16,7 @@ struct NotificationEvent {
     status: String, // "success", "error", "warning"
 }
 
-/// Enviar notificação do sistema com fallback e webhook
+/// Send system notification with fallback and webhook
 fn send_system_notification(
     title: &str,
     message: &str,
@@ -45,14 +45,14 @@ fn send_system_notification(
         },
     };
 
-    // Tenta enviar via notify-rust (sistema)
+    // Try sending via notify-rust (system)
     let title = title.to_string();
     let message = message.to_string();
     let icon = icon.to_string();
     let webhook_url = webhook_url.map(|s| s.to_string());
 
     std::thread::spawn(move || {
-        // 1. Tenta notificação do sistema
+        // 1. Try system notification
         let notif_result = Notification::new()
             .summary(&title)
             .body(&message)
@@ -63,12 +63,12 @@ fn send_system_notification(
         match notif_result {
             Ok(_) => {
                 println!(
-                    "✅ [notify-rust] Notificação enviada: {} - {}",
+                    "✅ [notify-rust] Notification sent: {} - {}",
                     title, message
                 );
             }
             Err(e) => {
-                eprintln!("⚠️ [notify-rust] Falhou: {:?}", e);
+                eprintln!("⚠️ [notify-rust] Failed: {:?}", e);
                 #[cfg(target_os = "macos")]
                 {
                     eprintln!("   macOS tip: System Preferences > Notifications > Terminal");
@@ -77,14 +77,14 @@ fn send_system_notification(
             }
         }
 
-        // 2. Enviar para webhook se configurado
+        // 2. Send to webhook if configured
         if let Some(url) = webhook_url {
             send_webhook_notification(&event, &url);
         }
     });
 }
 
-/// Enviar notificação para webhook
+/// Send notification to webhook
 fn send_webhook_notification(event: &NotificationEvent, webhook_url: &str) {
     let event = event.clone();
     let webhook_url = webhook_url.to_string();
@@ -95,19 +95,19 @@ fn send_webhook_notification(event: &NotificationEvent, webhook_url: &str) {
         match client.post(&webhook_url).json(&event).send().await {
             Ok(response) => {
                 if response.status().is_success() {
-                    println!("✅ [Webhook] Enviado com sucesso para {}", webhook_url);
+                    println!("✅ [Webhook] Sent successfully to {}", webhook_url);
                 } else {
                     eprintln!("⚠️ [Webhook] Status {}: {}", response.status(), webhook_url);
                 }
             }
             Err(e) => {
-                eprintln!("⚠️ [Webhook] Erro ao enviar: {:?}", e);
+                eprintln!("⚠️ [Webhook] Error sending: {:?}", e);
             }
         }
     });
 }
 
-/// Verificar estado da bateria
+/// Check battery status
 fn check_battery_status() -> (f32, bool, String) {
     match Manager::new() {
         Ok(manager) => match manager.batteries() {
@@ -124,25 +124,25 @@ fn check_battery_status() -> (f32, bool, String) {
                             return (percent, is_charging, health);
                         }
                         Err(e) => {
-                            eprintln!("⚠️ Erro ao obter info da bateria: {:?}", e);
+                            eprintln!("⚠️ Error getting battery info: {:?}", e);
                         }
                     }
                 }
             }
             Err(e) => {
-                eprintln!("⚠️ Erro ao listar baterias: {:?}", e);
+                eprintln!("⚠️ Error listing batteries: {:?}", e);
             }
         },
         Err(e) => {
-            eprintln!("⚠️ Manager de bateria indisponível: {:?}", e);
+            eprintln!("⚠️ Battery manager unavailable: {:?}", e);
         }
     }
 
-    // Fallback: simular com valores padrão
+    // Fallback: simulate with default values
     (100.0, true, "N/A".to_string())
 }
 
-/// Evento de sincronização para histórico
+/// Sync event for history
 #[derive(Clone, Debug)]
 struct SyncEvent {
     timestamp: String,
@@ -160,14 +160,14 @@ pub fn RealtimeSyncScreen() -> Element {
     let mut backup_path = use_signal(PathBuf::new);
     let mut backup_password = use_signal(String::new);
     let mut is_monitoring = use_signal(|| false);
-    let mut status_msg = use_signal(|| "Pronto para monitorar e fazer backup".to_string());
+    let mut status_msg = use_signal(|| "Ready to monitor and backup".to_string());
 
     let mut files_synced = use_signal(|| 0usize);
     let mut files_changed = use_signal(|| 0usize);
     let mut backups_created = use_signal(|| 0usize);
     let mut sync_errors = use_signal(|| 0usize);
 
-    // Histórico de eventos para dashboard
+    // History events for dashboard
     let mut sync_history = use_signal(Vec::<SyncEvent>::new);
     let mut last_sync_time = use_signal(|| String::from("Nunca"));
     let mut success_rate = use_signal(|| 100.0);
@@ -175,7 +175,7 @@ pub fn RealtimeSyncScreen() -> Element {
     // Notificações do sistema
     let mut notifications_enabled = use_signal(|| true);
 
-    // AlertDialog (fallback visual para notificações)
+    // AlertDialog (visual fallback for notifications)
     let mut show_alert = use_signal(|| false);
     let mut alert_title = use_signal(String::new);
     let mut alert_message = use_signal(String::new);
@@ -192,7 +192,7 @@ pub fn RealtimeSyncScreen() -> Element {
     let mut webhook_url = use_signal(String::new);
     let _show_webhook_config = use_signal(|| false);
 
-    // Configuração de ignores (padrões)
+    // Ignore configuration (patterns)
     let mut ignore_patterns = use_signal(|| {
         vec![
             ".*\\.tmp$".to_string(),
@@ -209,7 +209,7 @@ pub fn RealtimeSyncScreen() -> Element {
     let mut pattern_test_input = use_signal(String::new);
     let mut pattern_test_result = use_signal(String::new);
 
-    // Função para mostrar AlertDialog visual
+    // Function to show visual AlertDialog
     let mut show_dialog = move |title: &str, message: &str, alert_type_str: &str| {
         alert_title.set(title.to_string());
         alert_message.set(message.to_string());
@@ -271,20 +271,15 @@ pub fn RealtimeSyncScreen() -> Element {
         }
 
         is_monitoring.set(true);
-        status_msg.set("🟢 Monitorando e fazendo backup...".to_string());
+        status_msg.set("🟢 Monitoring and backing up...".to_string());
         files_synced.set(0);
         files_changed.set(0);
         backups_created.set(0);
         sync_errors.set(0);
 
-        // Notificar início de monitoramento
+        // Notify monitoring start
         if notifications_enabled() {
-            send_system_notification(
-                "RS Shield",
-                "Monitoramento iniciado com sucesso",
-                "info",
-                None,
-            );
+            send_system_notification("RS Shield", "Monitoring started successfully", "info", None);
         }
 
         let src = source_path();
@@ -296,11 +291,10 @@ pub fn RealtimeSyncScreen() -> Element {
         let webhook_url_val = webhook_url();
 
         spawn(async move {
-            // Sync inicial com timeout
-            println!("[DEBUG] Iniciando sync inicial...");
-            status_msg.set(
-                "⏳ Processando sincronização inicial (pode levar alguns segundos)...".to_string(),
-            );
+            // Initial sync with timeout
+            println!("[DEBUG] Starting initial sync...");
+            status_msg
+                .set("⏳ Processing initial sync (this may take a few seconds)...".to_string());
 
             let sync_result = tokio::time::timeout(
                 tokio::time::Duration::from_secs(30),
@@ -310,23 +304,23 @@ pub fn RealtimeSyncScreen() -> Element {
 
             match sync_result {
                 Ok(Ok(count)) => {
-                    println!("[DEBUG] ✅ Sync inicial completo: {} ficheiros", count);
+                    println!("[DEBUG] ✅ Initial sync complete: {} files", count);
                     files_synced.set(count);
-                    status_msg.set("🟢 Sync inicial ok. Monitorando mudanças...".to_string());
+                    status_msg.set("🟢 Initial sync OK. Monitoring changes...".to_string());
 
-                    // Monitorar alterações
+                    // Monitor changes
                     let mut last_count = count;
                     let mut last_battery_check = 0usize;
                     loop {
                         if !is_monitoring() {
-                            println!("[DEBUG] ⏹️ Monitoramento parado");
-                            status_msg.set("⏹️ Monitoramento parado".to_string());
+                            println!("[DEBUG] ⏹️ Monitoring stopped");
+                            status_msg.set("⏹️ Monitoring stopped".to_string());
                             break;
                         }
 
                         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-                        // Verificar bateria a cada 10 segundos
+                        // Check battery every 10 seconds
                         last_battery_check += 1;
                         if last_battery_check >= 5 {
                             last_battery_check = 0;
@@ -334,19 +328,19 @@ pub fn RealtimeSyncScreen() -> Element {
 
                             battery_percent.set(percent);
                             battery_status.set(if is_charging {
-                                "⚡ Carregando".to_string()
+                                "⚡ Charging".to_string()
                             } else {
-                                "🔋 Bateria".to_string()
+                                "🔋 Battery".to_string()
                             });
                             battery_health.set(health);
 
-                            // Alerta de bateria baixa (< 15%)
+                            // Low battery alert (< 15%)
                             if percent < 15.0 && !is_charging && !show_low_battery_alert() {
                                 show_low_battery_alert.set(true);
                                 show_dialog(
-                                    "⚠️ Bateria Baixa",
+                                    "⚠️ Low Battery",
                                     &format!(
-                                        "Bateria em {:.0}% - Considere conectar o carregador",
+                                        "Battery at {:.0}% - Consider connecting charger",
                                         percent
                                     ),
                                     "warning",
@@ -359,9 +353,9 @@ pub fn RealtimeSyncScreen() -> Element {
                                         None
                                     };
                                     send_system_notification(
-                                        "⚠️ Bateria Baixa",
+                                        "⚠️ Low Battery",
                                         &format!(
-                                            "Bateria em {:.0}% - Sincronização pode ser pausada",
+                                            "Battery at {:.0}% - Synchronization might be paused",
                                             percent
                                         ),
                                         "warning",
@@ -373,25 +367,25 @@ pub fn RealtimeSyncScreen() -> Element {
                             }
                         }
 
-                        // Verificar novas mudanças
+                        // Check for new changes
                         match sync_all_files(&src, &dst).await {
                             Ok(new_count) => {
                                 if new_count > last_count {
                                     let changes = new_count - last_count;
-                                    println!("[DEBUG] 📄 Detectadas {} mudanças", changes);
+                                    println!("[DEBUG] 📄 Detected {} changes", changes);
                                     files_changed.set(files_changed() + changes);
                                     last_count = new_count;
 
-                                    // Adicionar evento ao histórico
+                                    // Add event to history
                                     let timestamp =
                                         chrono::Local::now().format("%H:%M:%S").to_string();
                                     let mut history = sync_history();
                                     history.push(SyncEvent {
                                         timestamp,
                                         event_type: "file_synced".to_string(),
-                                        details: format!("{} arquivo(s) sincronizado(s)", changes),
+                                        details: format!("{} file(s) synchronized", changes),
                                     });
-                                    // Manter apenas os últimos 20 eventos
+                                    // Keep only last 20 events
                                     if history.len() > 20 {
                                         history.remove(0);
                                     }
@@ -399,7 +393,7 @@ pub fn RealtimeSyncScreen() -> Element {
                                     last_sync_time
                                         .set(chrono::Local::now().format("%H:%M:%S").to_string());
 
-                                    // Notificar sincronização
+                                    // Notify synchronization
                                     if notify_enabled {
                                         let webhook = if webhook_enabled_val {
                                             Some(webhook_url_val.as_str())
@@ -407,9 +401,9 @@ pub fn RealtimeSyncScreen() -> Element {
                                             None
                                         };
                                         send_system_notification(
-                                            "📄 Arquivos Sincronizados",
+                                            "📄 Files Synchronized",
                                             &format!(
-                                                "{} arquivo(s) sincronizado(s) com sucesso",
+                                                "{} file(s) successfully synchronized",
                                                 changes
                                             ),
                                             "success",
@@ -417,21 +411,21 @@ pub fn RealtimeSyncScreen() -> Element {
                                         );
                                     }
 
-                                    // Fazer backup automático das mudanças (com criptografia)
+                                    // Automatic backup of changes (with encryption)
                                     if let Ok(backup_name) =
                                         create_backup(&src, &bkp, Some(&pwd)).await
                                     {
                                         backups_created.set(backups_created() + 1);
                                         status_msg.set(format!("✅ {}", backup_name));
 
-                                        // Adicionar evento de backup ao histórico
+                                        // Add backup event to history
                                         let timestamp_bkp =
                                             chrono::Local::now().format("%H:%M:%S").to_string();
                                         let mut history = sync_history();
                                         history.push(SyncEvent {
                                             timestamp: timestamp_bkp,
                                             event_type: "backup_created".to_string(),
-                                            details: "Backup automático criado com sucesso"
+                                            details: "Automatic backup created successfully"
                                                 .to_string(),
                                         });
                                         if history.len() > 20 {
@@ -439,7 +433,7 @@ pub fn RealtimeSyncScreen() -> Element {
                                         }
                                         sync_history.set(history);
 
-                                        // Notificar criação de backup
+                                        // Notify backup creation
                                         if notify_enabled {
                                             let webhook = if webhook_enabled_val {
                                                 Some(webhook_url_val.as_str())
@@ -447,9 +441,9 @@ pub fn RealtimeSyncScreen() -> Element {
                                                 None
                                             };
                                             send_system_notification(
-                                                "💾 Backup Criado",
+                                                "💾 Backup Created",
                                                 &format!(
-                                                    "Backup '{}' criado com sucesso e criptografado",
+                                                    "Backup '{}' created successfully and encrypted",
                                                     backup_name
                                                 ),
                                                 "success",
@@ -459,21 +453,21 @@ pub fn RealtimeSyncScreen() -> Element {
                                     } else {
                                         sync_errors.set(sync_errors() + 1);
 
-                                        // Adicionar evento de erro
+                                        // Add error event
                                         let timestamp_err =
                                             chrono::Local::now().format("%H:%M:%S").to_string();
                                         let mut history = sync_history();
                                         history.push(SyncEvent {
                                             timestamp: timestamp_err,
                                             event_type: "error".to_string(),
-                                            details: "Falha ao criar backup".to_string(),
+                                            details: "Failed to create backup".to_string(),
                                         });
                                         if history.len() > 20 {
                                             history.remove(0);
                                         }
                                         sync_history.set(history);
 
-                                        // Notificar erro
+                                        // Notify error
                                         if notify_enabled {
                                             let webhook = if webhook_enabled_val {
                                                 Some(webhook_url_val.as_str())
@@ -481,15 +475,15 @@ pub fn RealtimeSyncScreen() -> Element {
                                                 None
                                             };
                                             send_system_notification(
-                                                "❌ Erro de Backup",
-                                                "Falha ao criar backup automático - verifique as permissões",
+                                                "❌ Backup Error",
+                                                "Failed to create automatic backup - check permissions",
                                                 "error",
                                                 webhook,
                                             );
                                         }
                                     }
 
-                                    // Atualizar taxa de sucesso
+                                    // Update success rate
                                     let total = backups_created() + sync_errors();
                                     if total > 0 {
                                         let rate =
@@ -499,24 +493,24 @@ pub fn RealtimeSyncScreen() -> Element {
                                 }
                             }
                             Err(e) => {
-                                println!("[DEBUG] ❌ Erro no sync: {}", e);
+                                println!("[DEBUG] ❌ Sync error: {}", e);
                                 sync_errors.set(sync_errors() + 1);
 
-                                // Adicionar evento de erro
+                                // Add error event
                                 let timestamp_err =
                                     chrono::Local::now().format("%H:%M:%S").to_string();
                                 let mut history = sync_history();
                                 history.push(SyncEvent {
                                     timestamp: timestamp_err,
                                     event_type: "error".to_string(),
-                                    details: format!("Erro de sincronização: {}", e),
+                                    details: format!("Synchronization error: {}", e),
                                 });
                                 if history.len() > 20 {
                                     history.remove(0);
                                 }
                                 sync_history.set(history);
 
-                                // Notificar erro
+                                // Notify error
                                 if notify_enabled {
                                     let webhook = if webhook_enabled_val {
                                         Some(webhook_url_val.as_str())
@@ -524,8 +518,8 @@ pub fn RealtimeSyncScreen() -> Element {
                                         None
                                     };
                                     send_system_notification(
-                                        "❌ Erro de Sincronização",
-                                        &format!("Falha na sincronização: {}", e),
+                                        "❌ Synchronization Error",
+                                        &format!("Synchronization failed: {}", e),
                                         "error",
                                         webhook,
                                     );
@@ -535,15 +529,14 @@ pub fn RealtimeSyncScreen() -> Element {
                     }
                 }
                 Ok(Err(e)) => {
-                    println!("[DEBUG] Erro no sync inicial: {}", e);
-                    status_msg.set(format!("❌ Erro no sync inicial: {}", e));
+                    println!("[DEBUG] Initial sync error: {}", e);
+                    status_msg.set(format!("❌ Initial sync error: {}", e));
                     is_monitoring.set(false);
                 }
                 Err(_) => {
-                    println!("[DEBUG] Timeout: Sincronização inicial excedeu 30 segundos");
-                    status_msg.set(
-                        "❌ Tempo limite excedido (30s) - pasta com muitos ficheiros?".to_string(),
-                    );
+                    println!("[DEBUG] Timeout: Initial sync exceeded 30 seconds");
+                    status_msg
+                        .set("❌ Timeout exceeded (30s) - folder with too many files?".to_string());
                     is_monitoring.set(false);
                 }
             }
@@ -552,20 +545,20 @@ pub fn RealtimeSyncScreen() -> Element {
 
     let handle_stop_monitoring = move |_| {
         is_monitoring.set(false);
-        status_msg.set("⏹️ Monitoramento parado".to_string());
+        status_msg.set("⏹️ Monitoring stopped".to_string());
 
-        // Notificar parada de monitoramento
+        // Notify monitoring stop
         if notifications_enabled() {
             send_system_notification(
-                "⏹️ Monitoramento Parado",
-                "O monitoramento foi parado com sucesso",
+                "⏹️ Monitoring Stopped",
+                "Monitoring was stopped successfully",
                 "info",
                 None,
             );
         }
     };
 
-    // Handlers para gerenciar padrões de ignore
+    // Handlers to manage ignore patterns
     let handle_add_pattern = move |_| {
         let pattern = new_pattern().trim().to_string();
         if !pattern.is_empty() {
@@ -574,19 +567,19 @@ pub fn RealtimeSyncScreen() -> Element {
                 patterns.push(pattern);
                 ignore_patterns.set(patterns);
                 new_pattern.set(String::new());
-                status_msg.set("✅ Padrão adicionado com sucesso".to_string());
+                status_msg.set("✅ Pattern added successfully".to_string());
             } else {
-                status_msg.set("❌ Padrão já existe".to_string());
+                status_msg.set("❌ Pattern already exists".to_string());
             }
         } else {
-            status_msg.set("❌ Digite um padrão válido".to_string());
+            status_msg.set("❌ Enter a valid pattern".to_string());
         }
     };
 
     let handle_test_pattern = move |_| {
         let test_input = pattern_test_input().trim().to_string();
         if test_input.is_empty() {
-            pattern_test_result.set("❌ Digite um caminho de arquivo para testar".to_string());
+            pattern_test_result.set("❌ Enter a file path to test".to_string());
             return;
         }
 
@@ -602,10 +595,10 @@ pub fn RealtimeSyncScreen() -> Element {
         }
 
         if matched_patterns.is_empty() {
-            pattern_test_result.set(format!("✅ '{}' NÃO seria ignorado", test_input));
+            pattern_test_result.set(format!("✅ '{}' would NOT be ignored", test_input));
         } else {
             pattern_test_result.set(format!(
-                "🚫 '{}' seria ignorado por: {}",
+                "🚫 '{}' would be ignored by: {}",
                 test_input,
                 matched_patterns.join(", ")
             ));
@@ -622,24 +615,24 @@ pub fn RealtimeSyncScreen() -> Element {
             "node_modules".to_string(),
             "target".to_string(),
         ]);
-        status_msg.set("✅ Padrões restaurados para padrão".to_string());
+        status_msg.set("✅ Patterns restored to default".to_string());
     };
 
     rsx! {
         div { class: "card",
-            h2 { class: "page-title", "⚡ Real-Time Sync com Backup" }
+            h2 { class: "page-title", "⚡ Real-Time Sync with Backup" }
 
             p { class: "hint mb-4",
-                "Monitore uma pasta, sincronize em tempo real E crie backups automáticos das mudanças."
+                "Monitor a folder, sync in real-time AND create automatic backups of changes."
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Pasta a Monitorar (Origem)" }
+                label { class: "label-text", "Folder to Monitor (Source)" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Clique para selecionar",
+                        placeholder: "Click to select",
                         value: "{source_path.read().to_string_lossy()}",
                         readonly: true,
                         disabled: is_monitoring()
@@ -654,12 +647,12 @@ pub fn RealtimeSyncScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Pasta de Sincronização (Destino)" }
+                label { class: "label-text", "Synchronization Folder (Destination)" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Clique para selecionar",
+                        placeholder: "Click to select",
                         value: "{dest_path.read().to_string_lossy()}",
                         readonly: true,
                         disabled: is_monitoring()
@@ -674,12 +667,12 @@ pub fn RealtimeSyncScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Pasta de Backup (Automático)" }
+                label { class: "label-text", "Backup Folder (Automatic)" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Clique para selecionar",
+                        placeholder: "Click to select",
                         value: "{backup_path.read().to_string_lossy()}",
                         readonly: true,
                         disabled: is_monitoring()
@@ -694,11 +687,11 @@ pub fn RealtimeSyncScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "🔐 Senha para Criptografia" }
+                label { class: "label-text", "🔐 Encryption Password" }
                 input {
                     class: "input-field",
                     r#type: "password",
-                    placeholder: "Digite uma senha forte",
+                    placeholder: "Enter a strong password",
                     value: "{backup_password()}",
                     oninput: move |evt| backup_password.set(evt.value()),
                     disabled: is_monitoring()
@@ -713,15 +706,15 @@ pub fn RealtimeSyncScreen() -> Element {
                 }
             }
 
-            // Configurações de notificações
+            // Notification settings
             div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 mb-4 border border-slate-200 dark:border-slate-700",
                 div { class: "flex items-center justify-between",
                     div { class: "flex items-center gap-3",
                         span { class: "text-lg", "🔔" }
                         div {
-                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "Notificações do Sistema" }
+                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "System Notifications" }
                             p { class: "text-xs text-slate-600 dark:text-slate-400",
-                                if notifications_enabled() { "Ativadas" } else { "Desativadas" }
+                                if notifications_enabled() { "Enabled" } else { "Disabled" }
                             }
                         }
                     }
@@ -733,21 +726,21 @@ pub fn RealtimeSyncScreen() -> Element {
                             "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
                         },
                         onclick: move |_| notifications_enabled.set(!notifications_enabled()),
-                        if notifications_enabled() { "✅ Ativo" } else { "❌ Inativo" }
+                        if notifications_enabled() { "✅ Active" } else { "❌ Inactive" }
                     }
                 }
                 div { class: "mt-3 text-xs text-slate-600 dark:text-slate-400 space-y-1",
-                    p { "📨 Você receberá notificações para:" }
+                    p { "📨 You will receive notifications for:" }
                     ul { class: "list-disc list-inside ml-1",
-                        li { "Início e parada do monitoramento" }
-                        li { "Arquivos sincronizados com sucesso" }
-                        li { "Backups criados e criptografados" }
-                        li { "Erros durante o processo" }
+                        li { "Start and stop monitoring" }
+                        li { "Files successfully synchronized" }
+                        li { "Backups created and encrypted" }
+                        li { "Errors during the process" }
                     }
                 }
             }
 
-            // Configuração de Webhook Notifications
+            // Webhook Notifications Configuration
             div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 mb-4 border border-slate-200 dark:border-slate-700",
                 div { class: "flex items-center justify-between mb-4",
                     div { class: "flex items-center gap-3",
@@ -755,7 +748,7 @@ pub fn RealtimeSyncScreen() -> Element {
                         div {
                             p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "Webhook Notifications" }
                             p { class: "text-xs text-slate-600 dark:text-slate-400",
-                                if webhook_enabled() { "Ativado" } else { "Desativado" }
+                                if webhook_enabled() { "Enabled" } else { "Disabled" }
                             }
                         }
                     }
@@ -767,18 +760,18 @@ pub fn RealtimeSyncScreen() -> Element {
                             "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
                         },
                         onclick: move |_| webhook_enabled.set(!webhook_enabled()),
-                        if webhook_enabled() { "✅ Ativo" } else { "❌ Inativo" }
+                        if webhook_enabled() { "✅ Active" } else { "❌ Inactive" }
                     }
                 }
 
                 if webhook_enabled() {
                     div { class: "space-y-3 border-t border-slate-200 dark:border-slate-600 pt-4",
                         div { class: "form-group",
-                            label { class: "label-text text-xs", "URL do Webhook (ex: https://webhook.site/abc123)" }
+                            label { class: "label-text text-xs", "Webhook URL (e.g., https://webhook.site/abc123)" }
                             input {
                                 class: "input-field",
                                 r#type: "text",
-                                placeholder: "https://seu-webhook.com/notify",
+                                placeholder: "https://your-webhook.com/notify",
                                 value: "{webhook_url()}",
                                 oninput: move |evt| webhook_url.set(evt.value()),
                                 disabled: is_monitoring()
@@ -786,12 +779,12 @@ pub fn RealtimeSyncScreen() -> Element {
                         }
 
                         div { class: "bg-blue-50 dark:bg-blue-900/20 rounded p-3 text-xs text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 space-y-2",
-                            p { class: "font-semibold", "📤 Estrutura do JSON enviado:" }
+                            p { class: "font-semibold", "📤 JSON payload structure:" }
                             pre { class: "block font-mono text-xs overflow-auto bg-white dark:bg-slate-800 p-2 rounded border border-blue-200 dark:border-blue-700 text-left",
     r#"{{"#
     r#"  "event_type": "sync_complete","#
-    r#"  "title": "Arquivos Sincronizados","#
-    r#"  "message": "5 arquivo(s) sincronizado(s) com sucesso","#
+    r#"  "title": "Files Synchronized","#
+    r#"  "message": "5 file(s) synchronized successfully","#
     r#"  "timestamp": "2026-02-07 14:30:45","#
     r#"  "status": "success""#
     r#"}}"#
@@ -801,15 +794,15 @@ pub fn RealtimeSyncScreen() -> Element {
                 }
             }
 
-            // Configuração de padrões de ignore
+            // Ignore patterns configuration
             div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 mb-4 border border-slate-200 dark:border-slate-700",
                 div { class: "flex items-center justify-between mb-4",
                     div { class: "flex items-center gap-3",
                         span { class: "text-lg", "🚫" }
                         div {
-                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "Padrões de Ignore" }
+                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "Ignore Patterns" }
                             p { class: "text-xs text-slate-600 dark:text-slate-400",
-                                "{ignore_patterns().len()} padrões configurados"
+                                "{ignore_patterns().len()} patterns configured"
                             }
                         }
                     }
@@ -820,14 +813,14 @@ pub fn RealtimeSyncScreen() -> Element {
                     }
                 }
 
-                // Editor de padrões (colapsável)
+                // Patterns editor (collapsible)
                 if show_ignore_editor() {
                     div { class: "space-y-3 border-t border-slate-200 dark:border-slate-600 pt-4",
-                        // Adicionar novo padrão
+                        // Add new pattern
                         div { class: "flex gap-2",
                             input {
                                 class: "input-field flex-1",
-                                placeholder: "Ex: .*\\.temp$ ou node_modules",
+                                placeholder: "e.g., .*\\.temp$ or node_modules",
                                 value: "{new_pattern()}",
                                 oninput: move |evt| new_pattern.set(evt.value()),
                                 disabled: is_monitoring()
@@ -840,13 +833,13 @@ pub fn RealtimeSyncScreen() -> Element {
                             }
                         }
 
-                        // Testar padrão
+                        // Test pattern
                         div { class: "bg-white dark:bg-slate-800 rounded p-3 border border-slate-200 dark:border-slate-600",
-                            p { class: "text-xs font-medium text-slate-700 dark:text-slate-300 mb-2", "🧪 Testar Padrão" }
+                            p { class: "text-xs font-medium text-slate-700 dark:text-slate-300 mb-2", "🧪 Test Pattern" }
                             div { class: "flex gap-2 mb-2",
                                 input {
                                     class: "input-field flex-1 text-sm",
-                                    placeholder: "Digite um caminho (ex: /home/user/.tmp/file.txt)",
+                                    placeholder: "Enter a path (e.g., /home/user/.tmp/file.txt)",
                                     value: "{pattern_test_input()}",
                                     oninput: move |evt| pattern_test_input.set(evt.value()),
                                 }
@@ -861,7 +854,7 @@ pub fn RealtimeSyncScreen() -> Element {
                             }
                         }
 
-                        // Lista de padrões
+                        // Patterns list
                         div { class: "space-y-1",
                             for pattern in ignore_patterns() {
                                 div { class: "flex items-center justify-between bg-white dark:bg-slate-800 p-2 rounded border border-slate-200 dark:border-slate-600",
@@ -872,7 +865,7 @@ pub fn RealtimeSyncScreen() -> Element {
                                             let mut patterns = ignore_patterns();
                                             patterns.retain(|p| p != &pattern);
                                             ignore_patterns.set(patterns);
-                                            status_msg.set(format!("✅ Padrão '{}' removido", pattern));
+                                            status_msg.set(format!("✅ Pattern '{}' removed", pattern));
                                         },
                                         disabled: is_monitoring(),
                                         "✕"
@@ -881,16 +874,16 @@ pub fn RealtimeSyncScreen() -> Element {
                             }
                         }
 
-                        // Botão restaurar padrões
+                        // Restore patterns button
                         button {
                             class: "w-full px-3 py-2 rounded text-sm font-medium bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600",
                             onclick: handle_reset_patterns,
                             disabled: is_monitoring(),
-                            "🔄 Restaurar Padrões"
+                            "🔄 Restore Patterns"
                         }
                     }
                 } else {
-                    // Pré-visualização dos padrões (quando colapsado)
+                    // Patterns preview (when collapsed)
                     div { class: "flex flex-wrap gap-2",
                         for pattern in ignore_patterns().iter().take(5) {
                             div { class: "px-2 py-1 rounded text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300",
@@ -911,45 +904,45 @@ pub fn RealtimeSyncScreen() -> Element {
                     class: "btn-primary flex-1",
                     onclick: handle_start_monitoring,
                     disabled: is_monitoring() || source_path().as_os_str().is_empty(),
-                    if is_monitoring() { "🔴 Monitorando..." } else { "▶️ Iniciar" }
+                    if is_monitoring() { "🔴 Monitoring..." } else { "▶️ Start" }
                 }
                 button {
                     class: "btn-secondary flex-1",
                     onclick: handle_stop_monitoring,
                     disabled: !is_monitoring(),
-                    "⏹️ Parar"
+                    "⏹️ Stop"
                 }
             }
 
-            // Painel de estatísticas
+            // Statistics panel
             div { class: "grid grid-cols-4 gap-3 mb-4",
                 div { class: "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4",
-                    p { class: "text-xs text-blue-600 dark:text-blue-400 font-medium", "Ficheiros Sincronizados" }
+                    p { class: "text-xs text-blue-600 dark:text-blue-400 font-medium", "Files Synced" }
                     p { class: "text-2xl font-bold text-blue-900 dark:text-blue-300", "{files_synced}" }
                 }
                 div { class: "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4",
-                    p { class: "text-xs text-green-600 dark:text-green-400 font-medium", "Mudanças Detectadas" }
+                    p { class: "text-xs text-green-600 dark:text-green-400 font-medium", "Changes Detected" }
                     p { class: "text-2xl font-bold text-green-900 dark:text-green-300", "{files_changed}" }
                 }
                 div { class: "bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4",
-                    p { class: "text-xs text-purple-600 dark:text-purple-400 font-medium", "Backups Criados" }
+                    p { class: "text-xs text-purple-600 dark:text-purple-400 font-medium", "Backups Created" }
                     p { class: "text-2xl font-bold text-purple-900 dark:text-purple-300", "{backups_created}" }
                 }
                 div { class: "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4",
-                    p { class: "text-xs text-red-600 dark:text-red-400 font-medium", "Erros" }
+                    p { class: "text-xs text-red-600 dark:text-red-400 font-medium", "Errors" }
                     p { class: "text-2xl font-bold text-red-900 dark:text-red-300", "{sync_errors}" }
                 }
             }
 
-            // Dashboard visual com gráficos
+            // Visual dashboard with graphs
             if is_monitoring() {
                 div { class: "card-section mb-4",
-                    h3 { class: "section-title", "📊 Dashboard em Tempo Real" }
+                    h3 { class: "section-title", "📊 Real-Time Dashboard" }
 
-                    // Taxa de sucesso visual
+                    // Visual success rate
                     div { class: "mb-6",
                         div { class: "flex justify-between items-center mb-2",
-                            span { class: "text-sm font-medium text-slate-700 dark:text-slate-300", "Taxa de Sucesso" }
+                            span { class: "text-sm font-medium text-slate-700 dark:text-slate-300", "Success Rate" }
                             span { class: "text-sm font-bold text-slate-900 dark:text-slate-100", "{(success_rate() as i32)}%" }
                         }
                         div { class: "w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden",
@@ -961,14 +954,14 @@ pub fn RealtimeSyncScreen() -> Element {
                         }
                     }
 
-                    // Último sync
+                    // Last sync
                     div { class: "grid grid-cols-2 gap-4 mb-6",
                         div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700",
-                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "⏱️ Último Sync" }
+                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "⏱️ Last Sync" }
                             p { class: "text-lg font-bold text-slate-900 dark:text-slate-100", "{last_sync_time}" }
                         }
                         div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700",
-                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "📈 Taxa" }
+                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "📈 Ratio" }
                             {
                                 let total = backups_created() + sync_errors();
                                 if total > 0 {
@@ -980,7 +973,7 @@ pub fn RealtimeSyncScreen() -> Element {
                                 } else {
                                     rsx! {
                                         p { class: "text-lg font-bold text-slate-900 dark:text-slate-100",
-                                            "Aguardando eventos"
+                                            "Waiting for events"
                                         }
                                     }
                                 }
@@ -988,10 +981,10 @@ pub fn RealtimeSyncScreen() -> Element {
                         }
                     }
 
-                    // Histórico de eventos
+                    // History events
                     if !sync_history().is_empty() {
                         div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700",
-                            p { class: "text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3", "📜 Histórico (Últimos 20 eventos)" }
+                            p { class: "text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3", "📜 History (Last 20 events)" }
                             div { class: "max-h-48 overflow-y-auto space-y-2",
                                     {
                                         let events: Vec<_> = sync_history().iter().rev().cloned().collect();
@@ -1025,20 +1018,20 @@ pub fn RealtimeSyncScreen() -> Element {
                 }
             }
 
-            // Informações
+            // Information
             div { class: "card-section",
-                h3 { class: "section-title", "ℹ️ Como Funciona" }
+                h3 { class: "section-title", "ℹ️ How it Works" }
                 div { class: "space-y-2 text-sm text-slate-700 dark:text-slate-300",
-                    p { "🔍 Monitora pasta em tempo real (a cada 2 segundos)" }
-                    p { "✅ Sincroniza ficheiros novos/modificados para destino" }
-                    p { "💾 Cria backup automático (.tar.gz) a cada mudança detectada" }
-                    p { "📊 Mostra estatísticas: ficheiros, mudanças, backups" }
-                    p { "🔴 Deixe aberto para funcionar continuamente" }
+                    p { "🔍 Monitors folder in real-time (every 2 seconds)" }
+                    p { "✅ Syncs new/modified files to destination" }
+                    p { "💾 Creates automatic backup (.tar.gz) upon each detected change" }
+                    p { "📊 Shows statistics: files, changes, backups" }
+                    p { "🔴 Keep open for continuous operation" }
                 }
             }
 
 
-            // AlertDialog Modal (Notificação Visual)
+            // AlertDialog Modal (Visual Notification)
             if show_alert() {
                 div { class: "fixed inset-0 bg-black/50 flex items-center justify-center z-50",
                     div { class: "bg-white dark:bg-slate-900 rounded-lg shadow-xl max-w-md w-full mx-4 border border-slate-200 dark:border-slate-700",
@@ -1066,7 +1059,7 @@ pub fn RealtimeSyncScreen() -> Element {
                             button {
                                 class: "flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600",
                                 onclick: move |_| show_alert.set(false),
-                                "Fechar"
+                                "Close"
                             }
                         }
                     }

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-PT">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>RSB FIDO2 - Autenticação Segura</title>
+  <title>RSB - Secure Authentication</title>
   <style>
     * {
       margin: 0;
@@ -268,29 +268,29 @@
 
 <div class="container">
   <div class="header">
-    <h1>🔐 RSB FIDO2</h1>
-    <p>Autenticação segura com chaves FIDO2</p>
+    <h1>🔐 RSB </h1>
+    <p>Secure authentication with keys</p>
   </div>
 
   <div class="alert alert-info" id="alert"></div>
 
   <div class="tabs">
-    <button class="tab-button active" onclick="switchTab('login')">Fazer Login</button>
-    <button class="tab-button" onclick="switchTab('register')">Registar Chave</button>
-    <button class="tab-button" onclick="switchTab('list')">Minhas Chaves</button>
+    <button class="tab-button active" onclick="switchTab('login')">Login</button>
+    <button class="tab-button" onclick="switchTab('register')">Register Key</button>
+    <button class="tab-button" onclick="switchTab('list')">My Keys</button>
   </div>
 
   <div class="tab-content active" id="login">
     <form onsubmit="handleLogin(event)">
       <div class="form-group">
-        <label for="login_user_id">ID do Utilizador</label>
+        <label for="login_user_id">User ID</label>
         <input type="text" id="login_user_id" placeholder="user1" required>
       </div>
       <div class="loading" id="login_loading">
-        <span class="spinner"></span> A autenticar com a sua chave FIDO2...
+        <span class="spinner"></span> Authenticating with your key...
       </div>
       <div class="button-group">
-        <button type="submit" class="btn-primary" id="login_btn">Autenticar com FIDO2</button>
+        <button type="submit" class="btn-primary" id="login_btn">Authenticate </button>
       </div>
     </form>
   </div>
@@ -298,22 +298,22 @@
   <div class="tab-content" id="register">
     <form onsubmit="handleRegister(event)">
       <div class="form-group">
-        <label for="reg_user_id">ID do Utilizador</label>
+        <label for="reg_user_id">User ID</label>
         <input type="text" id="reg_user_id" placeholder="user1" required>
       </div>
       <div class="form-group">
-        <label for="reg_username">Nome de Utilizador</label>
-        <input type="text" id="reg_username" placeholder="o.seu.nome@example.com" required>
+        <label for="reg_username">Username</label>
+        <input type="text" id="reg_username" placeholder="your.name@example.com" required>
       </div>
       <div class="form-group">
-        <label for="reg_display_name">Nome para Exibição</label>
-        <input type="text" id="reg_display_name" placeholder="João Silva" required>
+        <label for="reg_display_name">Display Name</label>
+        <input type="text" id="reg_display_name" placeholder="John Doe" required>
       </div>
       <div class="loading" id="register_loading">
-        <span class="spinner"></span> Ligue a sua chave FIDO2...
+        <span class="spinner"></span> Connect your key...
       </div>
       <div class="button-group">
-        <button type="submit" class="btn-primary" id="register_btn">Registar Chave FIDO2</button>
+        <button type="submit" class="btn-primary" id="register_btn">Register Key</button>
       </div>
     </form>
   </div>
@@ -321,11 +321,11 @@
   <div class="tab-content" id="list">
     <div id="credentials_container">
       <div style="text-align: center; color: #999; padding: 20px;">
-        A carregar as suas chaves...
+        Loading your keys...
       </div>
     </div>
     <button type="button" class="btn-secondary" style="width: 100%; margin-top: 20px;" onclick="loadCredentials()">
-      Recarregar Chaves
+      Reload Keys
     </button>
   </div>
 </div>
@@ -394,7 +394,7 @@ async function handleRegister(event) {
   const displayName = document.getElementById('reg_display_name').value;
 
   if (!userId || !username || !displayName) {
-    showAlert('Preencha todos os campos', 'error');
+    showAlert('Please fill in all fields', 'error');
     return;
   }
 
@@ -402,7 +402,7 @@ async function handleRegister(event) {
     setLoading('register_loading', true);
     document.getElementById('register_btn').disabled = true;
 
-    console.log('A iniciar registo de chave FIDO2...');
+    console.log('Starting key registration...');
 
     const startRes = await fetch('/register/start', {
       method: 'POST',
@@ -440,12 +440,12 @@ async function handleRegister(event) {
       }));
     }
 
-    console.log('A aguardar interação com a chave FIDO2...');
+    console.log('Waiting for key interaction...');
     const cred = await navigator.credentials.create({
       publicKey: options
     });
 
-    if (!cred) throw new Error('Registo cancelado');
+    if (!cred) throw new Error('Registration cancelled');
 
     const response = {
       id: cred.id,
@@ -474,13 +474,13 @@ async function handleRegister(event) {
       throw new Error(finishJson.error);
     }
 
-    showAlert('✅ Chave FIDO2 registada com sucesso!', 'success');
+    showAlert('✅ Key registered successfully!', 'success');
     document.getElementById('reg_user_id').value = '';
     document.getElementById('reg_username').value = '';
     document.getElementById('reg_display_name').value = '';
   } catch (e) {
-    console.error('Erro no registo:', e);
-    showAlert('❌ Erro ao registar: ' + e.message, 'error');
+    console.error('Registration error:', e);
+    showAlert('❌ Error registering: ' + e.message, 'error');
   } finally {
     setLoading('register_loading', false);
     document.getElementById('register_btn').disabled = false;
@@ -495,7 +495,7 @@ async function handleLogin(event) {
   const userId = document.getElementById('login_user_id').value;
 
   if (!userId) {
-    showAlert('Introduza o seu ID de utilizador', 'error');
+    showAlert('Enter your User ID', 'error');
     return;
   }
 
@@ -503,7 +503,7 @@ async function handleLogin(event) {
     setLoading('login_loading', true);
     document.getElementById('login_btn').disabled = true;
 
-    console.log('A iniciar autenticação...');
+    console.log('Starting authentication...');
 
     const startRes = await fetch('/auth/start', {
       method: 'POST',
@@ -534,12 +534,12 @@ async function handleLogin(event) {
       }));
     }
 
-    console.log('A aguardar interação com a chave FIDO2...');
+    console.log('Waiting for key interaction...');
     const cred = await navigator.credentials.get({
       publicKey: options
     });
 
-    if (!cred) throw new Error('Autenticação cancelada');
+    if (!cred) throw new Error('Authentication cancelled');
 
     const response = {
       id: cred.id,
@@ -571,11 +571,11 @@ async function handleLogin(event) {
       throw new Error(finishJson.error);
     }
 
-    showAlert('✅ Autenticado com sucesso!', 'success');
+    showAlert('✅ Authenticated successfully!', 'success');
     document.getElementById('login_user_id').value = '';
   } catch (e) {
-    console.error('Erro na autenticação:', e);
-    showAlert('❌ Erro ao autenticar: ' + e.message, 'error');
+    console.error('Authentication error:', e);
+    showAlert('❌ Error authenticating: ' + e.message, 'error');
   } finally {
     setLoading('login_loading', false);
     document.getElementById('login_btn').disabled = false;
@@ -599,7 +599,7 @@ async function loadCredentials() {
     const container = document.getElementById('credentials_container');
 
     if (!credentials || credentials.length === 0) {
-      container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">Não tem chaves registadas ainda</div>';
+      container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No keys registered yet</div>';
       return;
     }
 
@@ -610,22 +610,22 @@ async function loadCredentials() {
             <div class="credential-user">👤 ${escapeHtml(c.username)}</div>
             <div class="credential-meta">
               ID: ${escapeHtml(c.user_id)}<br>
-              Registrada: ${new Date(c.created_at).toLocaleString('pt-PT')}<br>
-              ${c.last_used ? 'Último uso: ' + new Date(c.last_used).toLocaleString('pt-PT') : 'Nunca foi usada'}
+              Registered: ${new Date(c.created_at).toLocaleString('en-US')}<br>
+              ${c.last_used ? 'Last use: ' + new Date(c.last_used).toLocaleString('en-US') : 'Never used'}
             </div>
           </div>
-          <button type="button" class="btn-delete" onclick="deleteCredential('${escapeAttr(c.user_id)}')">Eliminar</button>
+          <button type="button" class="btn-delete" onclick="deleteCredential('${escapeAttr(c.user_id)}')">Delete</button>
         </div>
       `).join('') +
       '</div>';
   } catch (e) {
-    console.error('Erro ao carregar chaves:', e);
-    showAlert('❌ Erro ao carregar chaves: ' + e.message, 'error');
+    console.error('Error loading keys:', e);
+    showAlert('❌ Error loading keys: ' + e.message, 'error');
   }
 }
 
 async function deleteCredential(userId) {
-  if (!confirm('Tem a certeza que deseja eliminar a chave de ' + userId + '?')) {
+  if (!confirm('Are you sure you want to delete the key for ' + userId + '?')) {
     return;
   }
 
@@ -639,11 +639,11 @@ async function deleteCredential(userId) {
       throw new Error(await res.text());
     }
 
-    showAlert('✅ Chave eliminada com sucesso!', 'success');
+    showAlert('✅ Key deleted successfully!', 'success');
     loadCredentials();
   } catch (e) {
-    console.error('Erro ao eliminar chave:', e);
-    showAlert('❌ Erro ao eliminar chave: ' + e.message, 'error');
+    console.error('Error deleting key:', e);
+    showAlert('❌ Error deleting key: ' + e.message, 'error');
   }
 }
 
@@ -663,9 +663,9 @@ function escapeAttr(text) {
 }
 
 window.addEventListener('load', () => {
-  console.log('🔐 RSB FIDO2 carregado. Navegador com WebAuthn: ' + (navigator.credentials ? 'Sim' : 'Não'));
+  console.log('🔐 RSB  loaded. Browser with WebAuthn: ' + (navigator.credentials ? 'Yes' : 'No'));
   if (!navigator.credentials) {
-    showAlert('⚠️ O seu navegador não suporta WebAuthn/FIDO2. Utilize um navegador moderno.', 'error');
+    showAlert('⚠️ Your browser does not support WebAuthn. Please use a modern browser.', 'error');
   }
 });
 </script>

@@ -59,16 +59,16 @@ pub fn ScheduleScreen() -> Element {
         }
 
         is_loading.set(true);
-        status_message.set("⏳ Agendando backup...".to_string());
+        status_message.set("⏳ Scheduling backup...".to_string());
 
         spawn(async move {
             match execute_schedule(&cfg_path).await {
                 Ok(_) => {
-                    status_message.set("✅ Agendamento criado com sucesso!".to_string());
+                    status_message.set("✅ Schedule created successfully!".to_string());
                     record_schedule_operation(true, None, None).await.ok();
                 }
                 Err(e) => {
-                    status_message.set(format!("❌ Erro ao agendar: {}", e));
+                    status_message.set(format!("❌ Error scheduling: {}", e));
                     record_schedule_operation(false, Some(e.to_string()), None)
                         .await
                         .ok();
@@ -119,7 +119,7 @@ pub fn ScheduleScreen() -> Element {
                     oninput: move |evt| key.set(evt.value()),
                     disabled: is_loading()
                 }
-                p { class: "hint", "Deixe em branco se o backup não for criptografado" }
+                p { class: "hint", "Leave blank if backup is not encrypted" }
             }
 
             div { class: "form-group",
@@ -133,9 +133,9 @@ pub fn ScheduleScreen() -> Element {
                     option { value: "systemd", "🐧 Systemd Service (Linux)" }
                 }
                 p { class: "hint", if format() == "cron" {
-                    "Execute este comando no seu crontab para agendar o backup"
+                    "Execute this command in your crontab to schedule the backup"
                 } else {
-                    "Copie este conteúdo para um ficheiro .service"
+                    "Copy this content to a .service file"
                 }}
             }
 
@@ -152,22 +152,22 @@ pub fn ScheduleScreen() -> Element {
                     class: "btn-primary flex-1",
                     onclick: handle_generate,
                     disabled: is_loading() || config_path().as_os_str().is_empty(),
-                    "🔧 Gerar Comando"
+                    "🔧 Generate Command"
                 }
                 button {
                     class: "btn-secondary flex-1",
                     onclick: handle_execute_schedule,
                     disabled: is_loading() || config_path().as_os_str().is_empty(),
                     if is_loading() {
-                        "⏳ Agendando..."
+                        "⏳ Scheduling..."
                     } else {
-                        "⏰ Agendar Agora"
+                        "⏰ Schedule Now"
                     }
                 }
             }
 
             div { class: "form-group",
-                label { class: "label-text", "📝 Comandos Agendados" }
+                label { class: "label-text", "📝 Scheduled Commands" }
                 textarea {
                     class: "textarea-field",
                     readonly: true,
@@ -177,16 +177,16 @@ pub fn ScheduleScreen() -> Element {
             }
 
             div { class: "info-box",
-                h4 { class: "font-semibold mb-2", if format() == "cron" { "Instruções Cron:" } else { "Instruções Systemd:" }}
+                h4 { class: "font-semibold mb-2", if format() == "cron" { "Cron Instructions:" } else { "Systemd Instructions:" }}
                 if format() == "cron" {
-                    p { class: "text-xs mb-2", "1. Abra o seu crontab: crontab -e" }
-                    p { class: "text-xs mb-2", "2. Cole o comando acima na última linha" }
-                    p { class: "text-xs", "3. Guarde e saia (Ctrl+X, Y, Enter no nano)" }
+                    p { class: "text-xs mb-2", "1. Open your crontab: crontab -e" }
+                    p { class: "text-xs mb-2", "2. Paste the command above into the last line" }
+                    p { class: "text-xs", "3. Save and exit (Ctrl+X, Y, Enter in nano)" }
                 } else {
-                    p { class: "text-xs mb-2", "1. Crie um ficheiro em /etc/systemd/system/rsb-backup.service" }
-                    p { class: "text-xs mb-2", "2. Cole o conteúdo acima no ficheiro" }
-                    p { class: "text-xs mb-2", "3. Execute: sudo systemctl enable rsb-backup.timer" }
-                    p { class: "text-xs", "4. Inicie com: sudo systemctl start rsb-backup.timer" }
+                    p { class: "text-xs mb-2", "1. Create a file at /etc/systemd/system/rsb-backup.service" }
+                    p { class: "text-xs mb-2", "2. Paste the content above into the file" }
+                    p { class: "text-xs mb-2", "3. Run: sudo systemctl enable rsb-backup.timer" }
+                    p { class: "text-xs", "4. Start with: sudo systemctl start rsb-backup.timer" }
                 }
                 p { class: "text-xs mt-3 text-slate-600 dark:text-slate-400",
                     "ℹ️ {texts.schedule_hint}"
@@ -197,8 +197,8 @@ pub fn ScheduleScreen() -> Element {
 }
 
 async fn execute_schedule(config_path: &std::path::Path) -> Result<(), String> {
-    // Este função seria implementada com chamadas ao rsb-cli via sistema
-    // Por enquanto, apenas registra a execução
-    tracing::info!("Agendando backup com configuração: {:?}", config_path);
+    // This function would be implemented with system calls to rsb-cli
+    // For now, it only logs the execution
+    tracing::info!("Scheduling backup with config: {:?}", config_path);
     Ok(())
 }

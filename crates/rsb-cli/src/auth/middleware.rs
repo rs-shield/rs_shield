@@ -10,7 +10,7 @@ use rsb_sdk::auth::{JwtManager, SessionClaims, SessionStore};
 use std::sync::Arc;
 use tracing::{error, warn};
 
-/// Extrator customizado para validar JWT do header Authorization
+/// Custom extractor to validate JWT from the Authorization header
 #[derive(Clone, Debug)]
 pub struct AuthenticatedUser {
     pub user_id: String,
@@ -69,7 +69,7 @@ where
     }
 }
 
-/// Middleware para validar JWT em requests autenticadas
+/// Middleware to validate JWT in authenticated requests
 pub async fn require_auth_middleware<S: SessionStore + Clone + 'static>(
     State(state): State<AuthHandlerState<S>>,
     headers: HeaderMap,
@@ -98,7 +98,7 @@ pub async fn require_auth_middleware<S: SessionStore + Clone + 'static>(
 
     let token = &auth_header[7..];
 
-    // Verificar token JWT
+    // Verify JWT token
     let claims = state.jwt_manager.verify_token(token).map_err(|e| {
         warn!("JWT verification failed: {:?}", e);
         (
@@ -107,7 +107,7 @@ pub async fn require_auth_middleware<S: SessionStore + Clone + 'static>(
         )
     })?;
 
-    // Verificar se sessão ainda existe
+    // Check if session still exists
     let jti = state
         .jwt_manager
         .extract_jti(token)
@@ -137,7 +137,7 @@ pub async fn require_auth_middleware<S: SessionStore + Clone + 'static>(
     }
 }
 
-/// Middleware para logar informações da request
+/// Middleware to log request information
 pub async fn log_request_middleware(request: Request<axum::body::Body>, next: Next) -> Response {
     let method = request.method().clone();
     let uri = request.uri().clone();
@@ -147,7 +147,7 @@ pub async fn log_request_middleware(request: Request<axum::body::Body>, next: Ne
     next.run(request).await
 }
 
-/// Middleware para adicionar cabeçalhos de segurança
+/// Middleware to add security headers
 pub async fn security_headers_middleware(
     request: Request<axum::body::Body>,
     next: Next,
@@ -155,41 +155,41 @@ pub async fn security_headers_middleware(
     let mut response = next.run(request).await;
 
     // Strict-Transport-Security (HSTS)
-    // Força o navegador a usar HTTPS para o domínio por um longo período.
-    // max-age=31536000 (1 ano), inclui subdomínios, e pré-carregamento.
-    // Deve ser usado apenas em produção com HTTPS.
+    // Forces the browser to use HTTPS for the domain for a long period.
+    // max-age=31536000 (1 year), includes subdomains, and preloading.
+    // Should only be used in production with HTTPS.
     response.headers_mut().insert(
         "Strict-Transport-Security",
         HeaderValue::from_static("max-age=31536000; includeSubDomains; preload"),
     );
 
     // X-Content-Type-Options: nosniff
-    // Previne que o navegador "adivinhe" o tipo MIME do conteúdo,
-    // o que pode levar a vulnerabilidades de XSS.
+    // Prevents the browser from "guessing" the content MIME type,
+    // which can lead to XSS vulnerabilities.
     response.headers_mut().insert(
         "X-Content-Type-Options",
         HeaderValue::from_static("nosniff"),
     );
 
     // X-Frame-Options: DENY
-    // Previne que a página seja incorporada em um <frame>, <iframe>, <embed> ou <object>,
-    // protegendo contra ataques de clickjacking.
+    // Prevents the page from being embedded in a <frame>, <iframe>, <embed>, or <object>,
+    // protecting against clickjacking attacks.
     response
         .headers_mut()
         .insert("X-Frame-Options", HeaderValue::from_static("DENY"));
 
     // Content-Security-Policy (CSP)
-    // Controla quais recursos o navegador tem permissão para carregar.
-    // Este é um exemplo básico. Em produção, deve ser ajustado para os domínios específicos
-    // de scripts, estilos, imagens, etc.
-    // 'unsafe-inline' para script-src e style-src é usado aqui devido ao JS/CSS embutido no HTML.
+    // Controls which resources the browser is permitted to load.
+    // This is a basic example. In production, it should be adjusted for specific domains
+    // for scripts, styles, images, etc.
+    // 'unsafe-inline' for script-src and style-src is used here due to inline JS/CSS in the HTML.
     response.headers_mut().insert(
         "Content-Security-Policy",
         HeaderValue::from_static("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' http://localhost:3000;"),
     );
 
     // Referrer-Policy: no-referrer-when-downgrade
-    // Controla a quantidade de informação de referência enviada com as requisições.
+    // Controls the amount of referrer information sent with requests.
     response.headers_mut().insert(
         "Referrer-Policy",
         HeaderValue::from_static("no-referrer-when-downgrade"),
