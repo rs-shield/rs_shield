@@ -38,7 +38,7 @@ pub async fn perform_verify(
     for (current_files, (rel_path, metadata)) in manifest.into_iter().enumerate() {
         if let Some(token) = &cancellation_token {
             if token.is_cancelled() {
-                info!("⏹️ Verificação cancelada pelo usuário");
+                info!("⏹️ Verification cancelled by the user");
                 break;
             }
         }
@@ -52,7 +52,7 @@ pub async fn perform_verify(
             );
         }
 
-        // Determinar os itens a verificar (chunks ou ficheiro único)
+        // Determine items to verify (chunks or single file)
         let items_to_verify = if let Some(chunks) = &metadata.chunks {
             chunks
                 .iter()
@@ -130,7 +130,7 @@ pub async fn perform_verify(
     .to_string();
 
     if !quiet {
-        info!("✅ Arquivos verificados com sucesso: {}", stats_ok);
+        info!("✅ Files successfully verified: {}", stats_ok);
     }
 
     let report_data = ReportData {
