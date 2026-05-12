@@ -48,24 +48,24 @@ impl fmt::Debug for SecureString {
     }
 }
 
-/// Implementar Display seguro (também oculta)
+/// Implement safe Display (also hides)
 impl fmt::Display for SecureString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "***REDACTED***")
     }
 }
 
-/// Convertê de &str
+/// Convert from &str
 impl From<&str> for SecureString {
     fn from(s: &str) -> Self {
         SecureString::new(s.to_string())
     }
 }
 
-/// Comparação segura (resistente a timing attacks por usar constante-time)
+/// Secure comparison (resistant to timing attacks by using constant-time)
 impl PartialEq for SecureString {
     fn eq(&self, other: &Self) -> bool {
-        // Usar comparação timing-safe se possível
+        // Use timing-safe comparison if possible
         self.value.len() == other.value.len()
             && self
                 .value

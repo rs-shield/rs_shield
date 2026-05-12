@@ -89,7 +89,7 @@ impl Fido2Manager {
             .ok_or_else(|| "Could not determine HOME directory".to_string())
     }
 
-    /// Obtém a DEK (Data Encryption Key) do Keyring ou gera uma nova se não existir.
+    /// Gets the DEK (Data Encryption Key) from the Keyring or generates a new one if it doesn't exist.
     fn get_or_create_dek() -> Result<Vec<u8>, Fido2Error> {
         let entry = Entry::new(KEYRING_SERVICE_NAME, KEYRING_USERNAME)
             .map_err(|e| Fido2Error::EncryptionError(format!("Keyring error: {}", e)))?;
@@ -124,38 +124,38 @@ impl Fido2Manager {
             .map_err(|e| Fido2Error::EncryptionError(format!("Serialize error: {}", e)))?;
         let mut rng = rand::rng();
 
-        // 1. Gerar Salt aleatório (16 bytes)
+        // 1. Generate random Salt (16 bytes)
         let mut salt = [0u8; 16];
         rng.fill_bytes(&mut salt);
 
-        // 2. Derivar chave de 32 bytes (256 bits) usando PBKDF2-HMAC-SHA256
+        // 2. Derive 32-byte key (256 bits) using PBKDF2-HMAC-SHA256
         let dek = Self::get_or_create_dek()?;
         let mut key = [0u8; 32];
         let iterations = 600_000;
         pbkdf2::pbkdf2_hmac::<Sha256>(&dek, &salt, iterations, &mut key);
 
-        // Segurança Enterprise: Limpa a DEK da memória após derivação
+        // Enterprise Security: Clear DEK from memory after derivation
         let mut zeroized_dek = dek;
         zeroized_dek.zeroize();
 
-        // 3. Inicializar AES-256-GCM
+        // 3. Initialize AES-256-GCM
         let cipher = Aes256Gcm::new_from_slice(&key)
             .map_err(|e| Fido2Error::EncryptionError(e.to_string()))?;
 
-        // Limpa a chave derivada após inicializar o cipher
+        // Clear derived key after initializing cipher
         key.zeroize();
 
-        // 4. Gerar Nonce (IV) aleatório de 12 bytes
+        // 4. Generate random Nonce (IV) of 12 bytes
         let mut nonce_bytes = [0u8; 12];
         rng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        // 5. Criptografar
+        // 5. Encrypt
         let ciphertext = cipher
             .encrypt(nonce, plaintext.as_slice())
             .map_err(|e| Fido2Error::EncryptionError(format!("Encryption failed: {}", e)))?;
 
-        // 6. Concatenar Salt + Nonce + Ciphertext
+        // 6. Concatenate Salt + Nonce + Ciphertext
         let mut final_payload =
             Vec::with_capacity(salt.len() + nonce_bytes.len() + ciphertext.len());
         final_payload.extend_from_slice(&salt);
@@ -168,35 +168,35 @@ impl Fido2Manager {
         }
 
         fs::write(path, final_payload)
-            .map_err(|e| Fido2Error::EncryptionError(format!("Falha ao gravar arquivo: {}", e)))?;
+            .map_err(|e| Fido2Error::EncryptionError(format!("Failed to write file: {}", e)))?;
         Ok(())
     }
 
-    /// Carrega e descriptografa as credenciais do disco.
+    /// Loads and decrypts credentials from disk.
     pub fn load_from_file(&mut self, path: &Path) -> Result<(), Fido2Error> {
         if path.exists() {
             let encrypted_data = fs::read(path)
-                .map_err(|e| Fido2Error::EncryptionError(format!("Falha ao ler arquivo: {}", e)))?;
+                .map_err(|e| Fido2Error::EncryptionError(format!("Failed to read file: {}", e)))?;
 
             if encrypted_data.len() < 28 {
                 // 16 (salt) + 12 (nonce)
                 return Err(Fido2Error::EncryptionError(
-                    "Arquivo de credenciais corrompido ou muito curto".into(),
+                    "Credential file corrupted or too short".into(),
                 ));
             }
 
-            // Extrair metadados
+            // Extract metadata
             let (salt, rest) = encrypted_data.split_at(16);
             let (nonce_bytes, ciphertext) = rest.split_at(12);
 
-            // Derivar a mesma chave
+            // Derive the same key
             let dek = Self::get_or_create_dek()?;
 
             let mut key = [0u8; 32];
             let iterations = 600_000;
             pbkdf2::pbkdf2_hmac::<Sha256>(&dek, salt, iterations, &mut key);
 
-            // Segurança Enterprise: Limpa a DEK da memória após uso
+            // Enterprise Security: Clear DEK from memory after use
             let mut zeroized_dek = dek;
             zeroized_dek.zeroize();
 
@@ -207,21 +207,21 @@ impl Fido2Manager {
 
             let nonce = Nonce::from_slice(nonce_bytes);
 
-            // Descriptografar e validar integridade (GCM falha se os dados foram alterados)
+            // Decrypt and validate integrity (GCM fails if data was altered)
             let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|_| {
                 Fido2Error::EncryptionError(
-                    "Falha na descriptografia: senha incorreta ou dados violados".into(),
+                    "Decryption failed: incorrect password or tampered data".into(),
                 )
             })?;
 
             let creds: HashMap<String, Fido2Credential> = serde_json::from_slice(&plaintext)
                 .map_err(|e| {
-                    Fido2Error::EncryptionError(format!("Falha na desserialização: {}", e))
+                    Fido2Error::EncryptionError(format!("Deserialization failure: {}", e))
                 })?;
             self.credentials = creds;
 
             info!(
-                "Carregadas {} credenciais de forma segura",
+                "Securely loaded {} credentials",
                 self.credentials.len()
             );
         }
@@ -286,7 +286,7 @@ impl Fido2Manager {
                 .map_err(|e| Fido2Error::RegistrationFailed(e.to_string()))?,
             created_at: chrono::Local::now().to_rfc3339(),
             last_used: None,
-            counter: 0, // ✅ correto
+            counter: 0, // ✅ correct
         };
 
         self.credentials
@@ -347,7 +347,7 @@ impl Fido2Manager {
             credential.counter = new_counter;
             credential.last_used = Some(chrono::Local::now().to_rfc3339());
 
-            // Atualiza contador dentro do JSON armazenado
+            // Update counter within stored JSON
             let mut passkey_json: serde_json::Value =
                 serde_json::from_slice(&credential.credential_data).map_err(|e| {
                     Fido2Error::AuthenticationFailed(format!("Corrupted data: {}", e))
