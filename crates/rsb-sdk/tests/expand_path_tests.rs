@@ -8,7 +8,7 @@ mod tests_expand_path {
         let path = "~/backups";
         let expanded = expand_path(path);
 
-        // Deve começar com o home directory
+        // Must start with the home directory
         if let Some(home) = dirs::home_dir() {
             assert!(
                 expanded.starts_with(&home),
@@ -56,7 +56,7 @@ mod tests_expand_path {
 
     #[test]
     fn test_expand_home_env_var() {
-        // Se HOME está definido
+        // If HOME is defined
         if let Ok(home) = std::env::var("HOME") {
             let path = "$HOME/backups";
             let expanded = expand_path(path);
@@ -69,7 +69,7 @@ mod tests_expand_path {
 
     #[test]
     fn test_expand_home_env_var_braces() {
-        // Se HOME está definido
+        // If HOME is defined
         if let Ok(home) = std::env::var("HOME") {
             let path = "${HOME}/backups";
             let expanded = expand_path(path);
@@ -105,7 +105,7 @@ mod tests_expand_path {
     #[test]
     #[cfg(windows)]
     fn test_windows_userprofile_expansion() {
-        // No Windows, USERPROFILE deve ser expandido
+        // On Windows, USERPROFILE should be expanded
         if let Ok(userprofile) = std::env::var("USERPROFILE") {
             let path = "$USERPROFILE/backups";
             let expanded = expand_path(path);
@@ -122,8 +122,8 @@ mod tests_expand_path {
     #[test]
     #[cfg(windows)]
     fn test_windows_home_fallback_to_userprofile() {
-        // No Windows, se HOME não está definido mas USERPROFILE está,
-        // $HOME deve fazer fallback a USERPROFILE
+        // On Windows, if HOME is not defined but USERPROFILE is,
+        // $HOME should fallback to USERPROFILE
         let path = "$HOME/backups";
         let expanded = expand_path(path);
 
@@ -131,7 +131,7 @@ mod tests_expand_path {
             let home_str = home.to_string_lossy().to_string();
             let expanded_str = expanded.to_string_lossy().to_string();
 
-            // Deve expandir para o mesmo que home_dir() retorna
+            // Should expand to the same as home_dir() returns
             assert!(
                 expanded_str.starts_with(&home_str),
                 "Should expand HOME to user home on Windows"
@@ -175,7 +175,7 @@ mod tests_expand_path {
 
     #[test]
     fn test_multiple_env_vars() {
-        // Teste com múltiplas variáveis
+        // Test with multiple variables
         std::env::set_var("TEST_VAR1", "value1");
         std::env::set_var("TEST_VAR2", "value2");
 
@@ -208,7 +208,7 @@ mod tests_expand_path {
         let expanded = expand_path(path);
         let expanded_str = expanded.to_string_lossy().to_string();
 
-        // Variável não definida deve ser mantida como está
+        // Undefined variable should be kept as-is
         assert!(
             expanded_str.contains("UNDEFINED_VAR_12345"),
             "Undefined var should be kept as-is"

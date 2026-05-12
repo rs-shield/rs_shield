@@ -24,7 +24,7 @@ fn test_fido2_storage_path() {
     let mut manager =
         Fido2Manager::new("http://localhost:3000", "localhost", "Test FIDO2").unwrap();
 
-    // Salva o estado atual primeiro para garantir que o arquivo não esteja vazio/inválido para leitura
+    // Save the current state first to ensure the file is not empty/invalid for reading
     manager
         .save_to_file(&path)
         .expect("Failed to initialize storage file");

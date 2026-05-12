@@ -1,4 +1,4 @@
-// Testes para rsb-core/src/realtime.rs
+// Tests for rsb-core/src/realtime.rs
 
 use chrono::Utc;
 use rsb_sdk::realtime::{
@@ -231,9 +231,9 @@ async fn test_change_queue_max_size() {
     }
 
     let changes = queue.get_changes().await;
-    // Queue tem max_size=3, então deve manter apenas os últimos 3
+    // Queue has max_size=3, so it should keep only the last 3
     assert_eq!(changes.len(), 3);
-    // O primeiro (file0.txt) deve ter sido removido
+    // The first one (file0.txt) should have been removed
     assert_eq!(changes[0].path, PathBuf::from("/file2.txt"));
     assert_eq!(changes[2].path, PathBuf::from("/file4.txt"));
 }
@@ -366,18 +366,18 @@ async fn test_sync_strategy_custom() {
     assert_eq!(strategy.direction, "bi");
 }
 
-// Testes de integração com sistema de ficheiros
+// File system integration tests
 
 #[tokio::test]
 async fn test_file_sync_basic() {
     let src_dir = TempDir::new().expect("Failed to create source dir");
     let _dst_dir = TempDir::new().expect("Failed to create destination dir");
 
-    // Criar um ficheiro de teste
+    // Create a test file
     let test_file = src_dir.path().join("test.txt");
     fs::write(&test_file, "test content").expect("Failed to write test file");
 
-    // Usar o RealtimeSync num modo simples
+    // Use RealtimeSync in a simple mode
     let queue = ChangeQueue::new(100);
 
     let change = FileChange {
@@ -395,24 +395,24 @@ async fn test_file_sync_basic() {
     assert_eq!(changes[0].size, 12);
 }
 
-// Testes para sync_all_files
+// Tests for sync_all_files
 
 #[tokio::test]
 async fn test_sync_all_files_single_file() {
     let src_dir = TempDir::new().expect("Failed to create source dir");
     let dst_dir = TempDir::new().expect("Failed to create destination dir");
 
-    // Criar um ficheiro de teste
+    // Create a test file
     let test_file = src_dir.path().join("test.txt");
     fs::write(&test_file, "test content").expect("Failed to write test file");
 
-    // Sincronizar
+    // Synchronize
     let result = sync_all_files(src_dir.path(), dst_dir.path()).await;
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 1);
 
-    // Verificar que o ficheiro foi copiado
+    // Verify that the file was copied
     let dst_file = dst_dir.path().join("test.txt");
     assert!(dst_file.exists());
     let content = fs::read_to_string(&dst_file).expect("Failed to read destination file");
@@ -424,7 +424,7 @@ async fn test_sync_all_files_multiple_files() {
     let src_dir = TempDir::new().expect("Failed to create source dir");
     let dst_dir = TempDir::new().expect("Failed to create destination dir");
 
-    // Criar múltiplos ficheiros
+    // Create multiple files
     fs::write(src_dir.path().join("file1.txt"), "content1").expect("Failed to write file1");
     fs::write(src_dir.path().join("file2.txt"), "content2").expect("Failed to write file2");
     fs::write(src_dir.path().join("file3.txt"), "content3").expect("Failed to write file3");
@@ -434,7 +434,7 @@ async fn test_sync_all_files_multiple_files() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 3);
 
-    // Verificar que todos os ficheiros foram copiados
+    // Verify that all files were copied
     assert!(dst_dir.path().join("file1.txt").exists());
     assert!(dst_dir.path().join("file2.txt").exists());
     assert!(dst_dir.path().join("file3.txt").exists());
@@ -445,7 +445,7 @@ async fn test_sync_all_files_nested_directories() {
     let src_dir = TempDir::new().expect("Failed to create source dir");
     let dst_dir = TempDir::new().expect("Failed to create destination dir");
 
-    // Criar estrutura aninhada
+    // Create nested structure
     fs::create_dir_all(src_dir.path().join("subdir/nested")).expect("Failed to create dirs");
     fs::write(src_dir.path().join("file.txt"), "root").expect("Failed to write root file");
     fs::write(src_dir.path().join("subdir/file.txt"), "sub").expect("Failed to write sub file");
@@ -457,7 +457,7 @@ async fn test_sync_all_files_nested_directories() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 3);
 
-    // Verificar estrutura replicada
+    // Verify replicated structure
     assert!(dst_dir.path().join("file.txt").exists());
     assert!(dst_dir.path().join("subdir/file.txt").exists());
     assert!(dst_dir.path().join("subdir/nested/file.txt").exists());
@@ -495,33 +495,33 @@ async fn test_sync_all_files_empty_directory() {
     let src_dir = TempDir::new().expect("Failed to create source dir");
     let dst_dir = TempDir::new().expect("Failed to create destination dir");
 
-    // Criar uma subpasta vazia
+    // Create an empty subfolder
     fs::create_dir(src_dir.path().join("empty_subdir")).expect("Failed to create subdir");
 
     let result = sync_all_files(src_dir.path(), dst_dir.path()).await;
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 0); // Sem ficheiros, apenas pastas vazias
+    assert_eq!(result.unwrap(), 0); // No files, only empty folders
 }
 
-// Testes para processamento automático com notify
+// Tests for automatic processing with notify
 
 #[tokio::test]
 async fn test_realtime_sync_start_processing() {
     let strategy = SyncStrategy::default();
     let sync = std::sync::Arc::new(RealtimeSync::new(strategy));
 
-    // Verificar que não está processando inicialmente
+    // Verify it is not processing initially
     assert!(!sync.is_processing().await);
 
-    // Iniciar processamento
+    // Start processing
     let sync_clone = sync.clone();
     sync_clone.start_processing_loop().await;
 
-    // Dar um pouco de tempo para a task iniciar
+    // Give some time for the task to start
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // Parar processamento
+    // Stop processing
     sync.stop_processing().await;
     assert!(!sync.is_processing().await);
 }
@@ -532,7 +532,7 @@ async fn test_process_single_change_valid_file() {
     let test_file = src_dir.path().join("test.txt");
     fs::write(&test_file, "content").expect("Failed to write file");
 
-    // Verificar que o arquivo existe e tem o tamanho correto
+    // Verify that the file exists and has the correct size
     let metadata = std::fs::metadata(&test_file).expect("File should exist");
     assert_eq!(metadata.len(), 7);
 
@@ -596,7 +596,7 @@ async fn test_process_single_change_with_ignore_pattern() {
     let result = sync.process_single_change(change, 2).await;
     assert!(result.is_ok());
 
-    // Deve ignorar o padrão, então não deve incrementar synced
+    // Should ignore the pattern, so synced should not increment
     let stats = sync.get_stats().await;
     assert_eq!(stats.synced, 0);
 }
@@ -617,11 +617,11 @@ async fn test_peek_pending_changes() {
 
     sync.queue.add_change(change.clone()).await;
 
-    // Peek não deve remover
+    // Peek should not remove
     let pending = sync.peek_pending_changes().await;
     assert_eq!(pending.len(), 1);
 
-    // Peek novamente deve retornar a mesma mudança
+    // Peek again should return the same change
     let pending2 = sync.peek_pending_changes().await;
     assert_eq!(pending2.len(), 1);
 }
@@ -662,7 +662,7 @@ async fn test_multiple_changes_sequential() {
     let strategy = SyncStrategy::default();
     let sync = RealtimeSync::new(strategy);
 
-    // Adicionar múltiplas mudanças
+    // Add multiple changes
     for i in 0..3 {
         let file_path = src_dir.path().join(format!("file{}.txt", i));
         fs::write(&file_path, format!("content{}", i)).expect("Failed to write file");
@@ -696,7 +696,7 @@ async fn test_process_batch_filters_correctly() {
     };
     let sync = RealtimeSync::new(strategy);
 
-    // Adicionar mudanças
+    // Add changes
     let file1 = src_dir.path().join("important.txt");
     let file2 = src_dir.path().join("cache.lock");
     let file3 = src_dir.path().join("temp.tmp");
@@ -737,7 +737,7 @@ async fn test_process_batch_filters_correctly() {
 
     let processed = sync.process_batch().await;
 
-    // Apenas o arquivo importante.txt deve ser processado
+    // Only the important.txt file should be processed
     assert_eq!(processed.len(), 1);
     assert!(
         processed[0]

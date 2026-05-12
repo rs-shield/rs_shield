@@ -235,28 +235,28 @@ pub fn get_file_priority(path: &Path) -> u8 {
         Some(ext) => {
             let ext_lower = ext.to_lowercase();
             match ext_lower.as_str() {
-                // Documentos e texto - prioridade máxima
+                // Documents and text - maximum priority
                 "txt" | "md" | "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt"
                 | "ods" | "rtf" | "csv" | "json" | "toml" | "xml" | "yaml" | "yml" => 0,
 
-                // Código fonte e scripts
+                // Source code and scripts
                 "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "java" | "go" | "html" | "css"
                 | "sql" | "sh" | "bat" | "ps1" => 1,
 
-                // Imagens
+                // Images
                 "jpg" | "jpeg" | "png" | "gif" | "bmp" | "svg" | "webp" | "tiff" | "heic" => 2,
 
-                // Áudio
+                // Audio
                 "mp3" | "wav" | "aac" | "flac" | "ogg" | "m4a" | "wma" => 3,
 
-                // Vídeo
+                // Video
                 "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" | "mpeg" | "mpg" => 4,
 
-                // Arquivos compactados e binários
+                // Compressed and binary files
                 "zip" | "tar" | "gz" | "7z" | "rar" | "iso" | "bin" | "exe" | "dll" | "so"
                 | "dmg" | "apk" | "deb" | "rpm" => 5,
 
-                _ => 10, // Outros ficheiros (baixa prioridade)
+                _ => 10, // Other files (low priority)
             }
         }
         None => 10,
