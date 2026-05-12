@@ -68,7 +68,7 @@ base64 = "0.22"
 rand = "0.10"
 
 # Security
-keyring = "3.6.3"
+keyring = "2.3.3"
 jsonwebtoken = "9.2"
 
 # WebAuthn / FIDO2
