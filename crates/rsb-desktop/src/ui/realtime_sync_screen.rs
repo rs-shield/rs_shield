@@ -279,12 +279,7 @@ pub fn RealtimeSyncScreen() -> Element {
 
         // Notify monitoring start
         if notifications_enabled() {
-            send_system_notification(
-                "RS Shield",
-                "Monitoring started successfully",
-                "info",
-                None,
-            );
+            send_system_notification("RS Shield", "Monitoring started successfully", "info", None);
         }
 
         let src = source_path();
@@ -298,9 +293,8 @@ pub fn RealtimeSyncScreen() -> Element {
         spawn(async move {
             // Initial sync with timeout
             println!("[DEBUG] Starting initial sync...");
-            status_msg.set(
-                "⏳ Processing initial sync (this may take a few seconds)...".to_string(),
-            );
+            status_msg
+                .set("⏳ Processing initial sync (this may take a few seconds)...".to_string());
 
             let sync_result = tokio::time::timeout(
                 tokio::time::Duration::from_secs(30),
@@ -541,9 +535,8 @@ pub fn RealtimeSyncScreen() -> Element {
                 }
                 Err(_) => {
                     println!("[DEBUG] Timeout: Initial sync exceeded 30 seconds");
-                    status_msg.set(
-                        "❌ Timeout exceeded (30s) - folder with too many files?".to_string(),
-                    );
+                    status_msg
+                        .set("❌ Timeout exceeded (30s) - folder with too many files?".to_string());
                     is_monitoring.set(false);
                 }
             }

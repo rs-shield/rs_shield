@@ -220,10 +220,7 @@ impl Fido2Manager {
                 })?;
             self.credentials = creds;
 
-            info!(
-                "Securely loaded {} credentials",
-                self.credentials.len()
-            );
+            info!("Securely loaded {} credentials", self.credentials.len());
         }
         Ok(())
     }
