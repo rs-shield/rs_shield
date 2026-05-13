@@ -1,3 +1,4 @@
+// config.rs - Versão limpa, extensível e focada em performance
 use crate::utils::expand_path;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -24,27 +25,87 @@ pub struct S3BucketConfig {
 pub struct Config {
     pub source_path: String,
     pub destination_path: String,
+
+    #[serde(default)]
     pub exclude_patterns: Vec<String>,
+
     pub encryption_key: Option<String>,
-    pub backup_mode: String, // "full" or "incremental"
+
+    #[serde(default = "default_backup_mode")]
+    pub backup_mode: String,
+
+    // S3 Configuration
     pub s3_bucket: Option<String>,
     pub s3_region: Option<String>,
     pub s3_endpoint: Option<String>,
     pub s3: Option<S3Config>,
-    pub s3_buckets: Option<Vec<S3BucketConfig>>, // List of known S3 buckets
+    pub s3_buckets: Option<Vec<S3BucketConfig>>,
+
+    // Encryption
     pub encrypt_patterns: Option<Vec<String>>,
+
+    // Resource monitoring
     pub pause_on_low_battery: Option<u8>,
     pub pause_on_high_cpu: Option<u8>,
+
+    // Performance & Compression
     pub compression_level: Option<u8>,
+    
+    /// **Novo**: Controle fino de paralelismo (importante para performance)
+    pub max_threads: Option<usize>,
+
+    /// Buffer size for channel (manifest updates)
+    #[serde(default = "default_channel_buffer")]
+    pub channel_buffer_size: usize,
+}
+
+fn default_backup_mode() -> String {
+    "incremental".to_string()
+}
+
+fn default_channel_buffer() -> usize {
+    8192
+}
+
+impl Config {
+    /// Retorna o número de threads a usar (com fallback inteligente)
+    pub fn get_max_threads(&self) -> usize {
+        if let Some(threads) = self.max_threads {
+            if threads > 0 {
+                return threads.min(32);
+            }
+        }
+        // Lógica automática
+        let cores = num_cpus::get();
+        if cores <= 4 {
+            cores
+        } else {
+            (cores * 3 / 4).max(4).min(16)
+        }
+    }
+
+    /// Retorna CPU threshold mais realista para backups
+    pub fn get_effective_cpu_threshold(&self) -> u8 {
+        self.pause_on_high_cpu.unwrap_or(65).max(60)
+    }
 }
 
 pub fn create_profile(name: &str, source: &Path, dest: &Path) -> io::Result<()> {
     create_profile_with_options(
-        name, source, dest, None, None, false, None, None, None, None, None,
+        name,
+        source,
+        dest,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
 }
 
-/// Create a profile with all configurable options
 #[allow(clippy::too_many_arguments)]
 pub fn create_profile_with_options(
     name: &str,
@@ -59,14 +120,20 @@ pub fn create_profile_with_options(
     s3_region: Option<&str>,
     s3_endpoint: Option<&str>,
 ) -> io::Result<()> {
-    // Parse exclude patterns
     let exclude_patterns = if let Some(patterns_str) = exclude {
         patterns_str
             .split(',')
             .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
             .collect()
     } else {
-        vec!["*.tmp".to_string(), "node_modules".to_string()]
+        vec![
+            "*.tmp".to_string(),
+            "*.log".to_string(),
+            "node_modules".to_string(),
+            "target".to_string(),
+            ".git".to_string(),
+        ]
     };
 
     let config = Config {
@@ -74,35 +141,42 @@ pub fn create_profile_with_options(
         destination_path: dest.to_string_lossy().into_owned(),
         exclude_patterns,
         encryption_key: password.map(|p| p.to_string()),
-        backup_mode: mode.unwrap_or("incremental").to_string(),
+        backup_mode: mode.unwrap_or("full").to_string(),
+        
         s3_bucket: s3_bucket.map(|s| s.to_string()),
         s3_region: s3_region.map(|s| s.to_string()),
         s3_endpoint: s3_endpoint.map(|s| s.to_string()),
-        s3: if s3_bucket.is_some() {
-            Some(S3Config {
-                bucket: s3_bucket.map(|s| s.to_string()),
-                region: s3_region.map(|s| s.to_string()),
-                endpoint: s3_endpoint.map(|s| s.to_string()),
-                access_key: None,
-                secret_key: None,
-            })
-        } else {
-            None
-        },
+        
+        s3: s3_bucket.map(|bucket| S3Config {
+            bucket: Some(bucket.to_string()),
+            region: s3_region.map(|s| s.to_string()),
+            endpoint: s3_endpoint.map(|s| s.to_string()),
+            access_key: None,
+            secret_key: None,
+        }),
+        
         s3_buckets: None,
         encrypt_patterns: if encrypt {
             Some(vec!["*".to_string()])
         } else {
             None
         },
+        
         pause_on_low_battery: Some(20),
-        pause_on_high_cpu: Some(20),
+        pause_on_high_cpu: Some(65),           // valor mais realista
         compression_level: compression.or(Some(3)),
+        max_threads: None,                     // usar automático
+        channel_buffer_size: 8192,
     };
 
-    let toml_str = toml::to_string(&config).map_err(io::Error::other)?;
+    let toml_str = toml::to_string_pretty(&config).map_err(io::Error::other)?;
     let filename = format!("{}.toml", name);
-    fs::write(filename, toml_str)?;
+    
+    fs::write(&filename, toml_str)?;
+    println!("✅ Profile '{}' created successfully!", name);
+    println!("   Source: {}", config.source_path);
+    println!("   Dest:   {}", config.destination_path);
+
     Ok(())
 }
 
@@ -111,7 +185,7 @@ pub fn load_config(path: &Path) -> io::Result<Config> {
     let mut config: Config =
         toml::from_str(&content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
-    // Expand special paths like ~ and environment variables
+    // Expand ~ and environment variables
     config.source_path = expand_path(&config.source_path)
         .to_string_lossy()
         .into_owned();
@@ -121,6 +195,8 @@ pub fn load_config(path: &Path) -> io::Result<Config> {
 
     Ok(config)
 }
+
+
 
 /// Prompt user for S3 configuration and save to TOML file
 /// Allows selecting an existing bucket or creating a new one

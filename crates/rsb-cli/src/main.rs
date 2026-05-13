@@ -96,7 +96,7 @@ enum Commands {
         no_compress: bool,
         /// Number of parallel threads [default: 4]
         #[arg(long, default_value = "4")]
-        threads: usize,
+        threads: Option<usize>,
         /// Generate an HTML report of the operation.
         #[arg(long)]
         report: bool,
@@ -416,8 +416,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Log thread count parameter (future enhancement for SDK parallelization)
-            if threads > 4 {
-                info!("📊 Using {} parallel threads for backup", threads);
+            if let Some(threads) = threads {
+                if threads > 4 {
+                    info!("📊 Using {} parallel threads for backup", threads);
+                }
             }
 
             let mut report_data = match core::perform_backup(
@@ -426,6 +428,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 key.as_deref(),
                 dry_run,
                 resume,
+                threads,
                 None,
             )
             .await
@@ -697,6 +700,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Some(cfg.encryption_key.as_ref().unwrap()),
                                 false,
                                 false,
+                                None,
                                 None,
                             )
                             .await
