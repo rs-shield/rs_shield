@@ -157,8 +157,6 @@ pub fn BackupScreen() -> Element {
         } else {
             Some(s3_secret_key)
         };
-       
- 
 
         let s3_config = if s3_bucket_opt.is_some() {
             Some(config::S3Config {

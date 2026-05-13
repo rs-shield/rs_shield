@@ -42,10 +42,7 @@ pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
             }
         }
         _ => {
-            info!(
-                "📁 Using Local storage → path: {}",
-                config.destination_path
-            );
+            info!("📁 Using Local storage → path: {}", config.destination_path);
             Arc::new(LocalStorage::new(&config.destination_path))
         }
     }
@@ -85,7 +82,7 @@ async fn load_s3_credentials_securely(
                     return Ok(aws_credential_types::Credentials::new(
                         creds.access_key.as_str(),
                         creds.secret_key.as_str(),
-                creds.session_token.as_ref().map(|s| s.to_string()),
+                        creds.session_token.as_ref().map(|s| s.to_string()),
                         None,
                         "rsb-encrypted",
                     ));

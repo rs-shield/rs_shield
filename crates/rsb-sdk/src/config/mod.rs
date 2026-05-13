@@ -50,7 +50,7 @@ pub struct Config {
 
     // Performance & Compression
     pub compression_level: Option<u8>,
-    
+
     /// **Novo**: Controle fino de paralelismo (importante para performance)
     pub max_threads: Option<usize>,
 
@@ -92,17 +92,7 @@ impl Config {
 
 pub fn create_profile(name: &str, source: &Path, dest: &Path) -> io::Result<()> {
     create_profile_with_options(
-        name,
-        source,
-        dest,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
-        None,
-        None,
+        name, source, dest, None, None, false, None, None, None, None, None,
     )
 }
 
@@ -142,11 +132,11 @@ pub fn create_profile_with_options(
         exclude_patterns,
         encryption_key: password.map(|p| p.to_string()),
         backup_mode: mode.unwrap_or("full").to_string(),
-        
+
         s3_bucket: s3_bucket.map(|s| s.to_string()),
         s3_region: s3_region.map(|s| s.to_string()),
         s3_endpoint: s3_endpoint.map(|s| s.to_string()),
-        
+
         s3: s3_bucket.map(|bucket| S3Config {
             bucket: Some(bucket.to_string()),
             region: s3_region.map(|s| s.to_string()),
@@ -154,24 +144,24 @@ pub fn create_profile_with_options(
             access_key: None,
             secret_key: None,
         }),
-        
+
         s3_buckets: None,
         encrypt_patterns: if encrypt {
             Some(vec!["*".to_string()])
         } else {
             None
         },
-        
+
         pause_on_low_battery: Some(20),
-        pause_on_high_cpu: Some(65),           // valor mais realista
+        pause_on_high_cpu: Some(65), // valor mais realista
         compression_level: compression.or(Some(3)),
-        max_threads: None,                     // usar automático
+        max_threads: None, // usar automático
         channel_buffer_size: 8192,
     };
 
     let toml_str = toml::to_string_pretty(&config).map_err(io::Error::other)?;
     let filename = format!("{}.toml", name);
-    
+
     fs::write(&filename, toml_str)?;
     println!("✅ Profile '{}' created successfully!", name);
     println!("   Source: {}", config.source_path);
@@ -195,8 +185,6 @@ pub fn load_config(path: &Path) -> io::Result<Config> {
 
     Ok(config)
 }
-
-
 
 /// Prompt user for S3 configuration and save to TOML file
 /// Allows selecting an existing bucket or creating a new one

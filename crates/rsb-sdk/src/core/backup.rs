@@ -74,7 +74,8 @@ pub async fn perform_backup_with_cancellation(
     let previous_metadata_cache = load_previous_metadata(&*storage, encryption_key).await?;
 
     // ====================== SHARED STATE ======================
-    let snapshot_manifest: Arc<Mutex<HashMap<PathBuf, FileMetadata>>> = Arc::new(Mutex::new(HashMap::new()));
+    let snapshot_manifest: Arc<Mutex<HashMap<PathBuf, FileMetadata>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let (tx, mut rx) = mpsc::channel::<(PathBuf, FileMetadata)>(8192);
 
     let stats = Arc::new(Stats::default());
@@ -112,20 +113,22 @@ pub async fn perform_backup_with_cancellation(
     let rt_handle = tokio::runtime::Handle::current();
 
     // ⚡ OPTIMIZATION: Pre-derive encryption key ONCE (not per-file)
-    let encryption_key_cached = encryption_key_owned.as_deref()
-        .and_then(|pwd| {
-            match crate::crypto::EncryptionKey::new(pwd.as_bytes()) {
-                Ok(key) => {
-                    info!("✅ Pre-derived encryption key (saved {:?} PBKDF2 iterations per file)", 600_000 * files_len);
-                    Some(Arc::new(key))
-                }
-                Err(e) => {
-                    error!("Failed to pre-derive encryption key: {}", e);
-                    None
-                }
+    let encryption_key_cached = encryption_key_owned.as_deref().and_then(|pwd| {
+        match crate::crypto::EncryptionKey::new(pwd.as_bytes()) {
+            Ok(key) => {
+                info!(
+                    "✅ Pre-derived encryption key (saved {:?} PBKDF2 iterations per file)",
+                    600_000 * files_len
+                );
+                Some(Arc::new(key))
             }
-        });
-    
+            Err(e) => {
+                error!("Failed to pre-derive encryption key: {}", e);
+                None
+            }
+        }
+    });
+
     let encryption_key_cached_clone = encryption_key_cached.clone();
 
     // ====================== PROCESSING ======================
@@ -145,7 +148,7 @@ pub async fn perform_backup_with_cancellation(
                 full_path,
                 &storage_clone,
                 rel_path,
-                encryption_key_cached_clone.clone(),  // ⚡ Pass pre-derived key
+                encryption_key_cached_clone.clone(), // ⚡ Pass pre-derived key
                 &previous_cache,
                 dry_run,
                 &rt_handle,
@@ -205,7 +208,12 @@ pub async fn perform_backup_with_cancellation(
         snapshot_path, stats_final.processed, stats_final.skipped, stats_final.errors
     );
 
-    Ok(build_report_data(start_time, mode, stats_final, errors_list))
+    Ok(build_report_data(
+        start_time,
+        mode,
+        stats_final,
+        errors_list,
+    ))
 }
 
 // ====================== PARALLELISM HELPER ======================
@@ -220,12 +228,15 @@ fn determine_optimal_threads(config: &Config, max_threads: Option<usize>) -> usi
 
     // 2. Lógica automática baseada em núcleos
     let cores = num_cpus::get();
-    
+
     // Aumenta threads para I/O-bound operations como backup com criptografia
     // Fórmula: 2x cores para não sobrecarregar, mas permitir paralelismo máximo de I/O
     let optimal = (cores * 2).min(256);
-    
-    info!("📊 System has {} cores, using {} threads for optimal backup parallelism", cores, optimal);
+
+    info!(
+        "📊 System has {} cores, using {} threads for optimal backup parallelism",
+        cores, optimal
+    );
     optimal
 }
 
@@ -266,9 +277,15 @@ struct Stats {
 }
 
 impl Stats {
-    fn inc_processed(&self) { self.processed.fetch_add(1, Ordering::Relaxed); }
-    fn inc_skipped(&self) { self.skipped.fetch_add(1, Ordering::Relaxed); }
-    fn inc_error(&self) { self.errors.fetch_add(1, Ordering::Relaxed); }
+    fn inc_processed(&self) {
+        self.processed.fetch_add(1, Ordering::Relaxed);
+    }
+    fn inc_skipped(&self) {
+        self.skipped.fetch_add(1, Ordering::Relaxed);
+    }
+    fn inc_error(&self) {
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
     fn finalize(&self) -> StatsSummary {
         StatsSummary {
             processed: self.processed.load(Ordering::Relaxed),
@@ -325,7 +342,11 @@ fn update_progress(
         let current = stats.processed.load(Ordering::Relaxed)
             + stats.skipped.load(Ordering::Relaxed)
             + stats.errors.load(Ordering::Relaxed);
-        cb(current, total, format!("Processing: {}", rel_path.display()));
+        cb(
+            current,
+            total,
+            format!("Processing: {}", rel_path.display()),
+        );
     }
 }
 
@@ -347,7 +368,11 @@ fn build_report_data(
         files_skipped: stats.skipped,
         files_with_errors: stats.errors,
         total_files: stats.processed + stats.skipped + stats.errors,
-        status: if has_errors { "Failure with errors".to_string() } else { "Success".to_string() },
+        status: if has_errors {
+            "Failure with errors".to_string()
+        } else {
+            "Success".to_string()
+        },
         errors,
     }
 }

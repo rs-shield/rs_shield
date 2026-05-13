@@ -5,8 +5,8 @@ use crate::storage::Storage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use tracing::{debug, error, info};
 use zstd::stream::{copy_decode, copy_encode};
 
@@ -51,8 +51,12 @@ pub async fn write_manifest(
     };
 
     storage.write(&snapshot_path, &final_bytes).await?;
-    info!("📸 Snapshot manifest written: {} ({} bytes → {} bytes)", 
-          snapshot_path, content_str.len(), final_bytes.len());
+    info!(
+        "📸 Snapshot manifest written: {} ({} bytes → {} bytes)",
+        snapshot_path,
+        content_str.len(),
+        final_bytes.len()
+    );
 
     Ok(snapshot_path)
 }
@@ -120,15 +124,14 @@ pub async fn find_latest_snapshot(
 
 // ====================== UTILITÁRIO (opcional) ======================
 #[allow(dead_code)]
-pub fn log_chunk_metadata(
-    file_path: &Path,
-    chunks: &[ChunkMetadata],
-) {
+pub fn log_chunk_metadata(file_path: &Path, chunks: &[ChunkMetadata]) {
     if chunks.len() > 8 {
-        info!("📦 {}: {} chunks (total {} bytes)", 
-              file_path.display(), 
-              chunks.len(),
-              chunks.iter().map(|c| c.stored_size).sum::<u64>());
+        info!(
+            "📦 {}: {} chunks (total {} bytes)",
+            file_path.display(),
+            chunks.len(),
+            chunks.iter().map(|c| c.stored_size).sum::<u64>()
+        );
     } else {
         let report = ChunkReport {
             file_path: file_path.to_path_buf(),

@@ -418,7 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // ⚡ CLI option priority: CLI args > Config file > Default
             // Merge CLI options with config, allowing CLI to override config
             let effective_threads = threads.or(cfg.max_threads);
-            
+
             if let Some(t) = effective_threads {
                 if t > 4 {
                     info!("📊 Using {} parallel threads for backup", t);
@@ -431,7 +431,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 key.as_deref(),
                 dry_run,
                 resume,
-                effective_threads,  // ⚡ Use merged option
+                effective_threads, // ⚡ Use merged option
                 None,
             )
             .await
@@ -706,7 +706,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Some(cfg.encryption_key.as_ref().unwrap()),
                                 false,
                                 false,
-                                watch_threads,  // ⚡ Use config value instead of None
+                                watch_threads, // ⚡ Use config value instead of None
                                 None,
                             )
                             .await

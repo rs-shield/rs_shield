@@ -1,7 +1,5 @@
 // file_processor.rs - Versão performática com EncryptionKey
-use super::types::{
-    CHUNK_SIZE, ChunkMetadata, FileMetadata, FileStatus, MULTIPART_THRESHOLD,
-};
+use super::types::{CHUNK_SIZE, ChunkMetadata, FileMetadata, FileStatus, MULTIPART_THRESHOLD};
 use crate::crypto::{EncryptionKey, hash_file_content};
 use crate::storage::Storage;
 use crate::utils::mmap_file;
@@ -18,7 +16,7 @@ pub fn process_file(
     src: &Path,
     storage: &Arc<dyn Storage>,
     rel_path: &Path,
-    encryption_key: Option<Arc<EncryptionKey>>,  // ⚡ Pre-derived EncryptionKey instead of password
+    encryption_key: Option<Arc<EncryptionKey>>, // ⚡ Pre-derived EncryptionKey instead of password
     previous_metadata_cache: &HashMap<String, FileMetadata>,
     dry_run: bool,
     rt_handle: &Handle,
@@ -59,12 +57,14 @@ pub fn process_file(
     );
 
     if rt_handle.block_on(storage.exists(&data_path))? {
-        let metadata = build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
+        let metadata =
+            build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
         return Ok((FileStatus::Skipped, metadata));
     }
 
     if dry_run {
-        let metadata = build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
+        let metadata =
+            build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
         return Ok((FileStatus::Processed, metadata));
     }
 
@@ -73,7 +73,7 @@ pub fn process_file(
         &mapped,
         compression_level,
         should_encrypt,
-        encryption_key.as_deref(),  // ⚡ Dereference Arc to get Option<&EncryptionKey>
+        encryption_key.as_deref(), // ⚡ Dereference Arc to get Option<&EncryptionKey>
     )?;
 
     let stored_size = final_data.len() as u64;
@@ -99,7 +99,7 @@ fn process_file_multipart_optimized(
     mapped: &[u8],
     file_hash: String,
     should_encrypt: bool,
-    encryption_key: Option<Arc<EncryptionKey>>,  // ⚡ Pre-derived key
+    encryption_key: Option<Arc<EncryptionKey>>, // ⚡ Pre-derived key
     dry_run: bool,
     rt_handle: &Handle,
     compression_level: u8,
@@ -163,11 +163,9 @@ fn should_encrypt_file(
         return false;
     }
     match encrypt_patterns {
-        Some(patterns) if !patterns.is_empty() => {
-            patterns.iter().any(|p| {
-                Pattern::new(p).is_ok_and(|pat| pat.matches_path(rel_path))
-            })
-        }
+        Some(patterns) if !patterns.is_empty() => patterns
+            .iter()
+            .any(|p| Pattern::new(p).is_ok_and(|pat| pat.matches_path(rel_path))),
         _ => true, // encripta tudo se tiver chave mas sem padrões específicos
     }
 }
@@ -176,7 +174,7 @@ fn compress_and_encrypt(
     data: &[u8],
     compression_level: u8,
     should_encrypt: bool,
-    encryption_key: Option<&EncryptionKey>,  // ⚡ Pre-derived key instead of password
+    encryption_key: Option<&EncryptionKey>, // ⚡ Pre-derived key instead of password
 ) -> io::Result<Vec<u8>> {
     let compressed = if compression_level > 0 {
         let mut compressed = Vec::with_capacity(data.len() * 2 / 3);
@@ -190,7 +188,7 @@ fn compress_and_encrypt(
 
     if should_encrypt {
         if let Some(key) = encryption_key {
-            key.encrypt(&compressed)  // ✅ No PBKDF2 - key already derived!
+            key.encrypt(&compressed) // ✅ No PBKDF2 - key already derived!
         } else {
             Ok(compressed)
         }

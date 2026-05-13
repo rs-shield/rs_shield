@@ -34,8 +34,9 @@ impl EncryptionKey {
             &mut derived_key,
         );
 
-        let unbound_key = UnboundKey::new(&AES_256_GCM, &derived_key)
-            .map_err(|_| io::Error::new(ErrorKind::InvalidInput, "Failed to create encryption key"))?;
+        let unbound_key = UnboundKey::new(&AES_256_GCM, &derived_key).map_err(|_| {
+            io::Error::new(ErrorKind::InvalidInput, "Failed to create encryption key")
+        })?;
 
         debug!("🔑 Encryption key derived successfully (PBKDF2 executed only once)");
 
@@ -56,7 +57,8 @@ impl EncryptionKey {
         let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
         let mut in_out = data.to_vec();
-        let tag = self.key
+        let tag = self
+            .key
             .seal_in_place_separate_tag(nonce, Aad::empty(), &mut in_out)
             .map_err(|e| io::Error::other(format!("Encryption failed: {:?}", e)))?;
 
@@ -73,7 +75,9 @@ impl EncryptionKey {
 
 /// Legacy function - kept for backward compatibility (slow)
 pub fn encrypt_data(data: &[u8], password: &[u8]) -> io::Result<Vec<u8>> {
-    warn!("Using legacy encrypt_data (per-file key derivation). Use EncryptionKey for better performance.");
+    warn!(
+        "Using legacy encrypt_data (per-file key derivation). Use EncryptionKey for better performance."
+    );
     let key = EncryptionKey::new(password)?;
     key.encrypt(data)
 }
@@ -92,7 +96,11 @@ pub fn decrypt_data(encrypted: &[u8], password: &[u8]) -> io::Result<Vec<u8>> {
     if encrypted.len() < min_len {
         return Err(io::Error::new(
             ErrorKind::InvalidData,
-            format!("Invalid encrypted data size: {} bytes (minimum: {})", encrypted.len(), min_len),
+            format!(
+                "Invalid encrypted data size: {} bytes (minimum: {})",
+                encrypted.len(),
+                min_len
+            ),
         ));
     }
 
@@ -114,7 +122,8 @@ pub fn decrypt_data(encrypted: &[u8], password: &[u8]) -> io::Result<Vec<u8>> {
 
     let key = LessSafeKey::new(unbound_key);
 
-    let nonce_arr: [u8; NONCE_LEN] = nonce_bytes.try_into()
+    let nonce_arr: [u8; NONCE_LEN] = nonce_bytes
+        .try_into()
         .map_err(|_| io::Error::new(ErrorKind::InvalidData, "Invalid nonce size"))?;
 
     let nonce = Nonce::assume_unique_for_key(nonce_arr);

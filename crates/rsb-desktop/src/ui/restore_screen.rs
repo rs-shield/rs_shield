@@ -182,7 +182,7 @@ pub fn RestoreScreen() -> Element {
                     pause_on_high_cpu: None,
                     compression_level: Some(3),
                     max_threads: None,
-                    channel_buffer_size: 8192,  // ⚡ Default buffer size for manifest updates
+                    channel_buffer_size: 8192, // ⚡ Default buffer size for manifest updates
                 };
 
                 let target = if rst.as_os_str().is_empty() {

@@ -12,8 +12,8 @@ pub fn spawn_resource_monitor(
     battery_threshold: Option<u8>,
     cpu_threshold: Option<u8>,
 ) -> (
-    Arc<AtomicBool>,  // should_pause
-    Arc<AtomicBool>,  // running
+    Arc<AtomicBool>, // should_pause
+    Arc<AtomicBool>, // running
     std::thread::JoinHandle<()>,
 ) {
     let should_pause = Arc::new(AtomicBool::new(false));
@@ -23,7 +23,9 @@ pub fn spawn_resource_monitor(
     let running_clone = running.clone();
 
     let handle = thread::spawn(move || {
-        let mut system = System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_cpu_usage()));
+        let mut system = System::new_with_specifics(
+            RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_cpu_usage()),
+        );
         let battery_manager = battery::Manager::new().ok();
 
         system.refresh_cpu_all();
