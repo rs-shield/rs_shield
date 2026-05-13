@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             dry_run,
         } => {
             let cfg = config::load_config(&config)?;
-            core::perform_backup(&cfg, &mode, key.as_deref(), dry_run, true, None).await?;
+            core::perform_backup(&cfg, &mode, key.as_deref(), dry_run, true, None, None).await?;
             info!("Backup completed.");
         }
         Commands::Restore {

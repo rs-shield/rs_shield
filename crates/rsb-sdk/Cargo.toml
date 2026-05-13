@@ -16,6 +16,8 @@ clap = { workspace = true }
 
 tokio = { workspace = true }
 async-trait = { workspace = true }
+crossbeam-channel =  "0.5"
+jwalk = "0.8"
 
 # LOGGING
 
@@ -44,8 +46,9 @@ notify = { workspace = true }
 # PERFORMANCE
 
 rayon = { workspace = true }
+dashmap = "6.1"
 zstd = { workspace = true }
-
+num_cpus = "1.17.0"
 # NETWORKING
 
 reqwest = { workspace = true }

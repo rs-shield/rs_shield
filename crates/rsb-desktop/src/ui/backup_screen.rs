@@ -208,6 +208,8 @@ pub fn BackupScreen() -> Element {
                     s3_buckets: None,
                     pause_on_high_cpu,
                     compression_level,
+                    channel_buffer_size: 8192,
+                    max_threads: None,
                 };
 
                 let token = cancellation_token();
@@ -217,6 +219,7 @@ pub fn BackupScreen() -> Element {
                     key_opt.as_deref(),
                     dry_run_mode,
                     true,
+                    None,
                     Some(progress_cb),
                     Some(token),
                 )

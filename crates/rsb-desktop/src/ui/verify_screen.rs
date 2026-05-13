@@ -170,6 +170,8 @@ pub fn VerifyScreen() -> Element {
                     s3_buckets: None,
                     pause_on_high_cpu: None,
                     compression_level: Some(3),
+                    max_threads: None,
+                    channel_buffer_size: 8192,
                 };
 
                 let token = cancellation_token();

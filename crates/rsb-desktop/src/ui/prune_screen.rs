@@ -131,6 +131,8 @@ pub fn PruneScreen() -> Element {
             s3_buckets: None,
             pause_on_high_cpu: None,
             compression_level: None,
+            max_threads: None,
+            channel_buffer_size: 8192, // ⚡ Default buffer size for manifest updates
         };
 
         spawn(async move {
