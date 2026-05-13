@@ -131,6 +131,9 @@ pub fn PruneScreen() -> Element {
             s3_buckets: None,
             pause_on_high_cpu: None,
             compression_level: None,
+            max_threads: None,
+            channel_buffer_size: None,
+            
         };
 
         spawn(async move {

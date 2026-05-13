@@ -181,6 +181,8 @@ pub fn RestoreScreen() -> Element {
                     s3_buckets: None,
                     pause_on_high_cpu: None,
                     compression_level: Some(3),
+                    channel_buffer_size: None,
+                    max_threads: None,
                 };
 
                 let target = if rst.as_os_str().is_empty() {

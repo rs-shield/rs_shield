@@ -415,10 +415,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cfg.compression_level = Some(0);
             }
 
-            // Log thread count parameter (future enhancement for SDK parallelization)
-            if let Some(threads) = threads {
-                if threads > 4 {
-                    info!("📊 Using {} parallel threads for backup", threads);
+            // ⚡ CLI option priority: CLI args > Config file > Default
+            // Merge CLI options with config, allowing CLI to override config
+            let effective_threads = threads.or(cfg.max_threads);
+            
+            if let Some(t) = effective_threads {
+                if t > 4 {
+                    info!("📊 Using {} parallel threads for backup", t);
                 }
             }
 
@@ -428,7 +431,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 key.as_deref(),
                 dry_run,
                 resume,
-                threads,
+                effective_threads,  // ⚡ Use merged option
                 None,
             )
             .await
@@ -694,13 +697,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             total_changes += copied_count;
                             println!("✅ Sync: {} new/modified files synchronized.", copied_count);
 
+                            // ⚡ Use config max_threads for watch mode
+                            let watch_threads = cfg.max_threads;
+
                             match core::perform_backup(
                                 &cfg,
                                 "incremental",
                                 Some(cfg.encryption_key.as_ref().unwrap()),
                                 false,
                                 false,
-                                None,
+                                watch_threads,  // ⚡ Use config value instead of None
                                 None,
                             )
                             .await
