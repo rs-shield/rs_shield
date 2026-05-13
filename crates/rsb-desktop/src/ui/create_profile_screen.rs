@@ -346,6 +346,8 @@ async fn create_profile_async(
         pause_on_low_battery: Some(20),
         pause_on_high_cpu: Some(20),
         compression_level: Some(3),
+        //max_threads: None,
+       // channel_buffer_size: 8192,  // ⚡ Default buffer size
     };
 
     let toml_str =

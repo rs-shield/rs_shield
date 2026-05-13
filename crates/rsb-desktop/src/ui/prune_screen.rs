@@ -132,7 +132,7 @@ pub fn PruneScreen() -> Element {
             pause_on_high_cpu: None,
             compression_level: None,
             max_threads: None,
-            channel_buffer_size: None,
+            channel_buffer_size: 8192,  // ⚡ Default buffer size for manifest updates
             
         };
 
