@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, anyhow};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::info;
-
 /// Manages the integrated login flow: server + browser + auth + shutdown
 pub struct LoginFlow {
     server_handle: Option<tokio::task::JoinHandle<()>>,
@@ -65,16 +65,16 @@ impl LoginFlow {
         // 5. Build auth URL without user_code
         let auth_url = "http://localhost:3000/auth/device/verify".to_string();
 
-        println!("\n🔐 FIDO2 Authentication Required");
+        println!("\n🔐 Authentication Required");
         println!("════════════════════════════════════════════");
         println!("📌 User Code: {}", user_code);
         println!("🔗 Opening browser: {}", auth_url);
-        println!("⏳ Waiting for FIDO2 authentication...\n");
+        println!("⏳ Waiting for authentication...\n");
 
         // 6. Open browser automatically
         if let Err(e) = open::that(&auth_url) {
             eprintln!("⚠️  Could not open browser: {}", e);
-            println!("Por favor, abra o navegador manualmente e navegue para:");
+            println!("Please open the browser manually and navigate to:");
             println!("   {}", auth_url);
         }
 
@@ -89,21 +89,46 @@ impl LoginFlow {
 
     /// Wait for server to be ready with manual connection retry
     async fn wait_for_server_ready(&self) -> Result<()> {
+        println!("⏳ Starting authentication server...");
+
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+        );
+
+        pb.set_message("Waiting for authentication server to start...");
+
+        let start = std::time::Instant::now();
+
         for attempt in 0..120 {
             match self.client.get("http://localhost:3000/").send().await {
                 Ok(_) => {
-                    println!("✅ Server is responding!");
+                    pb.finish_with_message("✅ Server is responding!");
+                    println!("   Server ready in {:.1}s", start.elapsed().as_secs_f32());
                     return Ok(());
                 }
                 Err(_) => {
-                    if attempt < 119 {
-                        eprintln!("⏳ Waiting for server... (attempt {}/120)", attempt + 1);
-                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    // Atualiza a mensagem apenas a cada 8 tentativas para não poluir
+                    if attempt % 8 == 0 && attempt > 0 {
+                        pb.set_message(format!(
+                            "Waiting for server... ({:.0}s)",
+                            start.elapsed().as_secs_f32()
+                        ));
                     }
+
+                    tokio::time::sleep(Duration::from_millis(450)).await;
                 }
             }
         }
-        Err(anyhow!("Server failed to start after 10 seconds"))
+
+        pb.finish_with_message("❌ Server startup timeout");
+        Err(anyhow::anyhow!(
+            "Server failed to start after {} seconds",
+            start.elapsed().as_secs()
+        ))
     }
 
     /// Initiate device flow with server

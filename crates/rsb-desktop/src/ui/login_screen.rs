@@ -43,7 +43,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await; // Simula tempo de interação com a chave
 
-            // --- SIMULAÇÃO DE FLUXO FIDO2 ---
+            // --- SIMULAÇÃO DE FLUXO Security Key ---
             // Agora que confirmamos que o usuário existe, permitimos o login.
             // Futuramente, aqui chamaremos mgr.start_authentication(&id)
             if true {

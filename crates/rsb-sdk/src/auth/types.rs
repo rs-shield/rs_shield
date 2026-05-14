@@ -12,7 +12,7 @@ pub struct SessionClaims {
     pub aud: String,         // "rsb-shield"
 }
 
-/// Credenciais para FIDO2 unlock
+/// Credenciais para Security Keyunlock
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthRequest {
     pub user_id: String,
