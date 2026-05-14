@@ -234,8 +234,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
-    info!("Starting RSB");
+    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
 
     let cli = Cli::parse();
 
@@ -340,9 +339,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 s3_endpoint.as_deref(),
             )?;
             let config_file = format!("{}.toml", name);
-            info!("✅ Profile '{}' created: {}", name, config_file);
-            info!("📋 Next step, execute backup:");
-            info!("   rsb backup {}", config_file);
+            println!("✅ Profile '{}' created: {}", name, config_file);
+            println!("📋 Next step, execute backup:");
+            println!("   rsb backup {}", config_file);
         }
         Commands::Backup {
             config,
@@ -421,7 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Some(t) = effective_threads {
                 if t > 4 {
-                    info!("📊 Using {} parallel threads for backup", t);
+                    println!("📊 Using {} parallel threads for backup", t);
                 }
             }
 
@@ -445,10 +444,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Verify backup if requested
             if verify && !dry_run {
-                info!("🔍 Verifying backup integrity...");
+                println!("🔍 Verifying backup integrity...");
                 match perform_verify(&cfg, None, false, false, None, None).await {
                     Ok(verify_report) => {
-                        info!(
+                        println!(
                             "✅ Verification passed: {} files verified",
                             verify_report.total_files
                         );
@@ -461,7 +460,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             send_healthcheck(&healthcheck_url, "").await;
-            info!("Backup completed.");
+            println!("✅ Backup completed.");
 
             if report {
                 report_data.profile_path = config.to_string_lossy().to_string();
@@ -471,7 +470,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Local::now().format("%Y%m%d-%H%M%S")
                 ));
                 fs::write(&filename, html)?;
-                info!("Report generated at: {}", filename.display());
+                println!("📄 Report generated at: {}", filename.display());
             }
         }
 
@@ -495,10 +494,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Log file pattern and date filtering (future enhancements)
             if let Some(ref pattern) = files {
-                info!("📋 File pattern: {} (selective restore pending)", pattern);
+                println!("📋 File pattern: {} (selective restore pending)", pattern);
             }
             if let Some(ref date_str) = date {
-                info!(
+                println!(
                     "📅 Restoring from date: {} (date-based snapshot selection pending)",
                     date_str
                 );
@@ -519,7 +518,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Verify restored files if requested
             if verify {
-                info!("🔍 Verifying restored files integrity...");
+                println!("🔍 Verifying restored files integrity...");
                 // Create a temporary config for verification pointing to restored location
                 let restored_path = target_for_verify
                     .unwrap_or_else(|| PathBuf::from(format!("{}_restored", cfg.source_path)));
@@ -529,7 +528,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
-            info!("Restore completed.");
+            println!("✅ Restore completed.");
 
             if report {
                 report_data.profile_path = config.to_string_lossy().to_string();
@@ -539,7 +538,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Local::now().format("%Y%m%d-%H%M%S")
                 ));
                 fs::write(&filename, html)?;
-                info!("Report generated at: {}", filename.display());
+                println!("📄 Report generated at: {}", filename.display());
             }
         }
         Commands::Verify {
@@ -561,16 +560,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Use quick mode if requested (quick takes precedence over fast)
             let use_fast = quick || fast;
             if quick && fast {
-                info!("Using quick verification (--quick takes precedence)");
+                println!("Using quick verification (--quick takes precedence)");
             } else if quick {
-                info!("Using quick verification mode");
+                println!("Using quick verification mode");
             } else if fast {
-                info!("Using fast verification mode (hash only, no decryption)");
+                println!("Using fast verification mode (hash only, no decryption)");
             }
 
             let mut report_data =
                 perform_verify(&cfg, snapshot.as_deref(), quiet, use_fast, None, None).await?;
-            info!("Verification completed.");
+            println!("✅ Verification completed.");
 
             if report {
                 report_data.profile_path = config.to_string_lossy().to_string();
@@ -580,7 +579,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Local::now().format("%Y%m%d-%H%M%S")
                 ));
                 fs::write(&filename, html)?;
-                info!("Report generated at: {}", filename.display());
+                println!("📄 Report generated at: {}", filename.display());
             }
         }
         Commands::Prune {
@@ -614,9 +613,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             if dry_run {
-                info!("DRY RUN MODE: Would keep last {} backups", keep_count);
+                println!("DRY RUN MODE: Would keep last {} backups", keep_count);
             } else {
-                info!("Keeping last {} backups...", keep_count);
+                println!("🧹 Keeping last {} backups...", keep_count);
             }
 
             if !dry_run {
