@@ -95,7 +95,7 @@ impl Fido2Manager {
                 std::fs::write(path, json).map_err(|e| {
                     Fido2Error::Registration(format!("Failed to save credentials: {}", e))
                 })?;
-                tracing::info!("Saved FIDO2 credentials to {:?}", path);
+                tracing::info!("Saved Key credentials to {:?}", path);
                 Ok(())
             }
             Err(e) => Err(Fido2Error::Registration(format!(

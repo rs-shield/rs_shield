@@ -257,7 +257,6 @@ impl Fido2Manager {
             display_name: display_name.to_string(),
         });
 
-        println!("{:?}", challenge);
         Ok(challenge)
     }
 

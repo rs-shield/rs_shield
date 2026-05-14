@@ -714,8 +714,8 @@ pub async fn home<S: SessionStore + Clone>(
 <body>
     <div class="container">
         <h1>🔐 RSB Shield</h1>
-        <p>Sistema seguro de backup com autenticação FIDO2</p>
-        <a href="/auth/device/start">Iniciar Autenticação</a>
+        <p>Security system for secure backup with Security Key authentication</p>
+        <a href="/auth/device/start">Start Authentication</a>
     </div>
 </body>
 </html>"#,

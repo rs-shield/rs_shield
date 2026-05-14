@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use battery::units::ratio::percent;
 use sysinfo::{CpuRefreshKind, RefreshKind, System};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 pub fn spawn_resource_monitor(
     battery_threshold: Option<u8>,
@@ -76,9 +76,9 @@ pub fn spawn_resource_monitor(
             let was_paused = pause_clone.swap(pause, Ordering::Relaxed);
 
             if pause && !was_paused {
-                warn!("⏸️  {} → Pausing backup...", reason);
+                debug!("⏸️  {} → Pausing backup...", reason);
             } else if !pause && was_paused {
-                info!("▶️  Resources OK → Resuming backup.");
+                debug!("▶️  Resources OK → Resuming backup.");
             }
 
             thread::sleep(Duration::from_secs(4));

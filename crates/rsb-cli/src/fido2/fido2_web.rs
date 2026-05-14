@@ -112,7 +112,7 @@ async fn register_finish(
 
     match m.finish_registration(res) {
         Ok(_) => {
-            // 🔐 salvar em disco
+            // 🔐 save credentials to file
             let path = Fido2Manager::default_storage_path().map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -258,7 +258,7 @@ pub async fn run_server(
         let mut m = manager.lock().await;
 
         if let Ok(path) = Fido2Manager::default_storage_path() {
-            println!("📂 Loading credentials from: {:?}", path);
+            println!("📂 Loading credentials");
 
             if let Err(e) = m.load_from_file(&path) {
                 eprintln!("⚠️ Failed to load credentials: {}", e);
@@ -272,8 +272,8 @@ pub async fn run_server(
 
     let url = "http://localhost:3000";
 
-    info!("🌐 FIDO2 Server running at {}", url);
-    println!("🌐 FIDO2 Server: {}", url);
+    info!("🌐 Server running at {}", url);
+    println!("🌐 Server: {}", url);
 
     // abre browser
     let _ = open::that(url);
