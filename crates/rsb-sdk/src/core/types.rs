@@ -1,47 +1,47 @@
-// types.rs - Versão limpa, performática e bem documentada
+// types.rs - Clean, performant, and well-documented version
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
 
-/// Tamanho máximo antes de usar processamento multipart (4GB)
+/// Maximum size before using multipart processing (4GB)
 pub const MULTIPART_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
 
-/// Tamanho ideal de chunk para ficheiros grandes (512MB - bom equilíbrio entre memória e performance)
+/// Ideal chunk size for large files (512MB - good balance between memory and performance)
 pub const CHUNK_SIZE: usize = 512 * 1024 * 1024;
 
-/// Metadados de cada chunk (usado em ficheiros muito grandes)
+/// Metadata for each chunk (used for very large files)
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ChunkMetadata {
-    /// Hash do conteúdo original do chunk
+    /// Hash of the original chunk content
     pub hash: String,
-    /// Tamanho após compressão + encriptação
+    /// Size after compression + encryption
     pub stored_size: u64,
-    /// Hash do conteúdo armazenado (após compressão/encriptação)
+    /// Hash of the stored content (after compression/encryption)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored_hash: Option<String>,
 }
 
-/// Metadados completos de um ficheiro no snapshot
+/// Full metadata of a file in the snapshot
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FileMetadata {
-    /// Hash do conteúdo original do ficheiro
+    /// Hash of the original file content
     pub hash: String,
 
-    /// Se o ficheiro foi encriptado
+    /// Whether the file was encrypted
     pub encrypted: bool,
 
-    /// Hash do conteúdo final armazenado (compressão + encriptação)
+    /// Hash of the final stored content (compression + encryption)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored_hash: Option<String>,
 
-    /// Tamanho final armazenado (após compressão + encriptação)
+    /// Final stored size (after compression + encryption)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored_size: Option<u64>,
 
-    /// Chunks (apenas para ficheiros > MULTIPART_THRESHOLD)
+    /// Chunks (only for files > MULTIPART_THRESHOLD)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chunks: Option<Vec<ChunkMetadata>>,
 
-    /// Indica se compressão foi aplicada
+    /// Indicates if compression was applied
     #[serde(default = "default_true")]
     pub compressed: bool,
 }
@@ -61,7 +61,7 @@ fn default_true() -> bool {
 }
 
 impl FileMetadata {
-    /// Cria um novo FileMetadata para ficheiros normais
+    /// Creates a new FileMetadata for normal files
     pub fn new(hash: String, encrypted: bool, compressed: bool) -> Self {
         Self {
             hash,
@@ -73,7 +73,7 @@ impl FileMetadata {
         }
     }
 
-    /// Cria metadados para ficheiros grandes (multipart)
+    /// Creates metadata for large files (multipart)
     pub fn new_multipart(
         hash: String,
         encrypted: bool,
@@ -91,7 +91,7 @@ impl FileMetadata {
         }
     }
 
-    /// Retorna o tamanho total armazenado (suporta ambos os formatos)
+    /// Returns the total stored size (supports both formats)
     pub fn total_stored_size(&self) -> u64 {
         if let Some(size) = self.stored_size {
             size

@@ -1,4 +1,4 @@
-// manifest.rs - Versão performance + confiabilidade
+// manifest.rs - Performance + reliability version
 use super::types::{ChunkMetadata, FileMetadata};
 use crate::crypto::{decrypt_data, encrypt_data};
 use crate::storage::Storage;
@@ -18,7 +18,7 @@ pub struct ChunkReport {
     pub total_chunks: usize,
 }
 
-/// Escreve o manifest de forma otimizada (compressão + encriptação)
+/// Writes the manifest in an optimized way (compression + encryption)
 pub async fn write_manifest(
     storage: &dyn Storage,
     manifest: &HashMap<PathBuf, FileMetadata>,
@@ -33,17 +33,17 @@ pub async fn write_manifest(
         return Ok(snapshot_path);
     }
 
-    // Serialização TOML
+    // TOML Serialization
     let content_str = toml::to_string(manifest)?;
 
-    // Compressão Zstd (muito mais rápida e eficiente que sem compressão)
+    // Zstd Compression (much faster and more efficient than without compression)
     let mut compressed = Vec::new();
     {
-        let mut encoder = zstd::Encoder::new(&mut compressed, 3)?; // nível 3 = bom equilí   encoder.write_all(content_str.as_bytes())?;
+        let mut encoder = zstd::Encoder::new(&mut compressed, 3)?; // level 3 = good balance
         encoder.finish()?;
     }
 
-    // Encriptação (se aplicável)
+    // Encryption (if applicable)
     let final_bytes = if let Some(key) = encryption_key {
         encrypt_data(&compressed, key.as_bytes())?
     } else {
@@ -61,7 +61,7 @@ pub async fn write_manifest(
     Ok(snapshot_path)
 }
 
-/// Lê o manifest com suporte a encriptação + compressão
+/// Reads the manifest with support for encryption + compression
 pub async fn read_manifest(
     storage: &dyn Storage,
     path: &str,
@@ -81,17 +81,17 @@ pub async fn read_manifest(
         raw
     };
 
-    // Tenta descomprimir (Zstd)
+    // Tries to decompress (Zstd)
     let mut decompressed = Vec::new();
     if copy_decode(&decrypted[..], &mut decompressed).is_ok() {
         return Ok(String::from_utf8(decompressed)?);
     }
 
-    // Fallback: não estava comprimido
+    // Fallback: it wasn't compressed
     Ok(String::from_utf8(decrypted)?)
 }
 
-/// Encontra o snapshot mais recente de forma eficiente
+/// Efficiently finds the most recent snapshot
 pub async fn find_latest_snapshot(
     storage: &dyn Storage,
     snapshot_id: Option<&str>,
@@ -106,7 +106,7 @@ pub async fn find_latest_snapshot(
         return Err("Snapshot ID not found".into());
     }
 
-    // Listagem + sort otimizado
+    // Optimized listing + sorting
     let mut snapshots = storage.list("snapshots/").await?;
     snapshots.retain(|s| s.ends_with(".toml"));
 
@@ -114,15 +114,15 @@ pub async fn find_latest_snapshot(
         return Err("No snapshots found".into());
     }
 
-    // Ordenação reversa (mais recente primeiro)
-    snapshots.sort_by(|a, b| b.cmp(a)); // lexicographical funciona por causa do timestamp
+    // Reverse sorting (most recent first)
+    snapshots.sort_by(|a, b| b.cmp(a)); // lexicographical works due to timestamp
     let latest = snapshots.into_iter().next().unwrap();
 
     let content = read_manifest(storage, &latest, key).await?;
     Ok((latest, content))
 }
 
-// ====================== UTILITÁRIO (opcional) ======================
+// ====================== UTILITY (optional) ======================
 #[allow(dead_code)]
 pub fn log_chunk_metadata(file_path: &Path, chunks: &[ChunkMetadata]) {
     if chunks.len() > 8 {

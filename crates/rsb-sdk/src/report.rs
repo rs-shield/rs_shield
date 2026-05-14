@@ -53,7 +53,7 @@ pub fn generate_html(data: &ReportData) -> String {
                         tr { th { "Mode" } td { (mode) } }
                     }
                     tr { th { "Duration" } td { (format!("{:.2?}", data.duration)) } }
-                    // Alterado para "Success" no check e no texto
+                    // Changed to "Success" in the check and text
                     tr { th { "Status" } td class=(if data.status == "Success" { "status-ok" } else { "status-fail" }) { (data.status) } }
                 }
 

@@ -1,4 +1,4 @@
-// resource_monitor.rs - Versão ajustada para backups reais
+// resource_monitor.rs - Adjusted version for real backups
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -57,14 +57,14 @@ pub fn spawn_resource_monitor(
                 }
             }
 
-            // ==================== CPU - THRESHOLDS MAIS REALISTAS ====================
+            // ==================== CPU - MORE REALISTIC THRESHOLDS ====================
             if !pause {
                 if let Some(threshold) = cpu_threshold {
                     system.refresh_cpu_all();
                     let usage = system.global_cpu_usage();
 
-                    // Threshold mais sensato para backups intensivos
-                    let effective_threshold = threshold.max(65); // mínimo 65% se o usuário definiu algo baixo
+                    // More sensible threshold for intensive backups
+                    let effective_threshold = threshold.max(65); // minimum 65% if the user defined something low
 
                     if usage > effective_threshold as f32 {
                         pause = true;

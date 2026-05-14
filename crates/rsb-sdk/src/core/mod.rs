@@ -1,4 +1,4 @@
-// Re-exporta tudo para facilitar uso externo (ex: rsb_sdk::core::perform_backup)
+// Re-exports everything for easier external use (e.g., rsb_sdk::core::perform_backup)
 
 pub mod backup;
 pub mod cancellation;

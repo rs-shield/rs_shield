@@ -73,10 +73,10 @@ pub async fn perform_restore_with_cancellation(
     let mut current_files = 0;
 
     for (rel_path, metadata) in manifest {
-        // Verificar se a operação foi cancelada
+        // Check if the operation was cancelled
         if let Some(token) = &cancellation_token {
             if token.is_cancelled() {
-                info!("⏹️ Restauro cancelado pelo usuário");
+                info!("⏹️ Restore cancelled by user");
                 break;
             }
         }
