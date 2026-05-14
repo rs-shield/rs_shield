@@ -8,7 +8,7 @@ A complete guide for end users to backup, restore, and manage their data with RS
 
 1. [Installation](#installation)
 2. [Desktop App](#desktop-app)
-3. [Security KeySecurity Keys](#fido2-security-keys)
+3. [FIDO2 Security Keys](#fido2-security-keys)
 4. [Configuration](#configuration)
 5. [Backup Operations](#backup-operations)
 6. [Restore Operations](#restore-operations)
@@ -33,17 +33,17 @@ curl -L https://github.com/yourusername/rs-shield/releases/download/latest/rs-sh
 
 ---
 
-## Security KeySecurity Keys
+## FIDO2 Security Keys
 
 RS Shield supports FIDO2/WebAuthn standard for hardware-based authentication using security keys. This provides phishing-resistant, cryptographically secure authentication.
 
 ### Supported Devices
 
-- **YubiKey** (5 Series, Security Key ) - USB, NFC, Lightning
+- **YubiKey** (5 Series, Security Key) - USB, NFC, Lightning
 - **Windows Hello** - Facial recognition, fingerprint, PIN
 - **Touch ID / Face ID** - macOS and iOS
 - **Android Biometric** - Fingerprint, face recognition
-- **Titan Security Key ** - USB, NFC
+- **Titan Security Key** - USB, NFC
 - **Nitrokey** - Open-source security key
 
 ### Why Use FIDO2?
@@ -56,7 +56,7 @@ RS Shield supports FIDO2/WebAuthn standard for hardware-based authentication usi
 ✅ **Two-Factor Compatible** - Works alongside existing 2FA methods.
 ✅ **Industry Standard** - Supported by major providers (Google, Microsoft, Apple).
 
-### Setting Up Security KeyAuthentication
+### Setting Up FIDO2 Authentication
 
 #### Step 1: Requirements
 

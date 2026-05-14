@@ -54,7 +54,7 @@ rs-shield/
 
 ## 🔒 Security
 
-- **Security KeyAuthentication** - Secure login via hardware keys for CLI and Desktop
+- **FIDO2 Authentication** - Secure login via hardware keys for CLI and Desktop
 - **Chunked encryption** (512MB chunks) for optimal S3 performance
 
 ## 📊 Performance

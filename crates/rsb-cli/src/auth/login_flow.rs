@@ -1,10 +1,10 @@
 use anyhow::{Context, Result, anyhow};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::info;
-use indicatif::{ProgressBar, ProgressStyle};
- /// Manages the integrated login flow: server + browser + auth + shutdown
+/// Manages the integrated login flow: server + browser + auth + shutdown
 pub struct LoginFlow {
     server_handle: Option<tokio::task::JoinHandle<()>>,
     client: reqwest::Client,
@@ -88,48 +88,48 @@ impl LoginFlow {
     }
 
     /// Wait for server to be ready with manual connection retry
- async fn wait_for_server_ready(&self) -> Result<()> {
-    println!("⏳ Starting authentication server...");
+    async fn wait_for_server_ready(&self) -> Result<()> {
+        println!("⏳ Starting authentication server...");
 
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(
-        ProgressStyle::default_spinner()
-            .template("{spinner:.cyan} {msg}")
-            .unwrap()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
-    );
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"),
+        );
 
-    pb.set_message("Waiting for authentication server to start...");
+        pb.set_message("Waiting for authentication server to start...");
 
-    let start = std::time::Instant::now();
+        let start = std::time::Instant::now();
 
-    for attempt in 0..120 {
-        match self.client.get("http://localhost:3000/").send().await {
-            Ok(_) => {
-                pb.finish_with_message("✅ Server is responding!");
-                println!("   Server ready in {:.1}s", start.elapsed().as_secs_f32());
-                return Ok(());
-            }
-            Err(_) => {
-                // Atualiza a mensagem apenas a cada 8 tentativas para não poluir
-                if attempt % 8 == 0 && attempt > 0 {
-                    pb.set_message(format!(
-                        "Waiting for server... ({:.0}s)",
-                        start.elapsed().as_secs_f32()
-                    ));
+        for attempt in 0..120 {
+            match self.client.get("http://localhost:3000/").send().await {
+                Ok(_) => {
+                    pb.finish_with_message("✅ Server is responding!");
+                    println!("   Server ready in {:.1}s", start.elapsed().as_secs_f32());
+                    return Ok(());
                 }
+                Err(_) => {
+                    // Atualiza a mensagem apenas a cada 8 tentativas para não poluir
+                    if attempt % 8 == 0 && attempt > 0 {
+                        pb.set_message(format!(
+                            "Waiting for server... ({:.0}s)",
+                            start.elapsed().as_secs_f32()
+                        ));
+                    }
 
-                tokio::time::sleep(Duration::from_millis(450)).await;
+                    tokio::time::sleep(Duration::from_millis(450)).await;
+                }
             }
         }
-    }
 
-    pb.finish_with_message("❌ Server startup timeout");
-    Err(anyhow::anyhow!(
-        "Server failed to start after {} seconds",
-        start.elapsed().as_secs()
-    ))
-}
+        pb.finish_with_message("❌ Server startup timeout");
+        Err(anyhow::anyhow!(
+            "Server failed to start after {} seconds",
+            start.elapsed().as_secs()
+        ))
+    }
 
     /// Initiate device flow with server
     async fn initiate_device_flow(&self, user_id: &str) -> Result<(String, String)> {

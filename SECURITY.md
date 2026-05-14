@@ -14,7 +14,7 @@ RS Shield is designed with security as a foundational principle. This document o
 - **Authentication:** HMAC embedded in ciphertext
 - **IV:** Per-file random IV, stored with ciphertext
 
-### Security Key & Device Flow Authentication
+### FIDO2 & Device Flow Authentication
 
 - **Protocol:** WebAuthn (FIDO2) + OAuth 2.0 Device Authorization Grant (RFC 8628)
 - **Security Features:** 
@@ -40,7 +40,7 @@ RS Shield is designed with security as a foundational principle. This document o
 2. **Keyring & DEK (Data Encryption Key):**
    - A **DEK** is generated using a cryptographically secure RNG.
    - The DEK is stored in the OS Keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service).
-   - Security Keycredentials and S3 secrets are encrypted with AES-256-GCM using a key derived from the DEK and a unique salt via PBKDF2.
+   - FIDO2 credentials and S3 secrets are encrypted with AES-256-GCM using a key derived from the DEK and a unique salt via PBKDF2.
 
 3. **Memory Safety (Zeroize):**
    - Sensitive keys (DEK, PBKDF2 derived keys, S3 secrets) are cleared from memory immediately after use using the `zeroize` trait to prevent data remnants in RAM.
@@ -49,7 +49,7 @@ RS Shield is designed with security as a foundational principle. This document o
    - Not accessible to other applications
    - Stored only in OS keyring
    - Never in configuration files
-   - Access requires a valid Security Keysession.
+   - Access requires a valid FIDO2 session.
 
 ## Secure Coding Practices
 

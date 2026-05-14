@@ -304,7 +304,7 @@ RS Shield implements W3C WebAuthn standard authentication using the `webauthn-rs
          └─────────┬──────────────────────┘
                │
          ┌─────────┴──────────────────────┐
-         │ Security KeyDevice       │
+         │ FIDO2 Device       │
          │ (YubiKey, etc)     │
          └────────────────────────────────┘
 ```
@@ -315,7 +315,7 @@ RS Shield implements W3C WebAuthn standard authentication using the `webauthn-rs
 
 **Location:** `rsb-core/src/credentials/fido2.rs`
 
-Main orchestrator for Security Keyoperations:
+Main orchestrator for FIDO2 operations:
 
 ```rust
 pub struct Fido2Manager {
@@ -427,7 +427,7 @@ fn test_list_empty() {/* List operations on empty store */}
 # All tests
 cargo test --release
 
-# Security Keymodule only
+# FIDO2 module only
 cargo test --lib credentials::fido2
 
 # With output
