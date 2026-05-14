@@ -59,7 +59,7 @@ pub async fn perform_backup_with_cancellation(
 
     let storage = super::storage_backend::get_storage(config).await;
 
-    info!(
+    debug!(
         "🚀 Starting backup{}: {} -> {} (mode: {})",
         if dry_run { " (DRY-RUN)" } else { "" },
         source.display(),
@@ -88,7 +88,7 @@ pub async fn perform_backup_with_cancellation(
 
     // ====================== PARALLELISM CONTROL ======================
     let num_threads = determine_optimal_threads(config, max_threads);
-    info!("⚙️  Using {} threads for processing", num_threads);
+    debug!("⚡ Using {} threads for processing", num_threads);
 
     // Configura Rayon globalmente para esta operação
     let _pool = rayon::ThreadPoolBuilder::new()
@@ -116,7 +116,7 @@ pub async fn perform_backup_with_cancellation(
     let encryption_key_cached = encryption_key_owned.as_deref().and_then(|pwd| {
         match crate::crypto::EncryptionKey::new(pwd.as_bytes()) {
             Ok(key) => {
-                info!(
+                debug!(
                     "✅ Pre-derived encryption key (saved {:?} PBKDF2 iterations per file)",
                     600_000 * files_len
                 );
@@ -203,7 +203,7 @@ pub async fn perform_backup_with_cancellation(
     };
 
     let stats_final = stats.finalize();
-    info!(
+    debug!(
         "✅ Backup completed | Snapshot: {} | Processed: {} | Skipped: {} | Errors: {}",
         snapshot_path, stats_final.processed, stats_final.skipped, stats_final.errors
     );
@@ -233,7 +233,7 @@ fn determine_optimal_threads(config: &Config, max_threads: Option<usize>) -> usi
     // Fórmula: 2x cores para não sobrecarregar, mas permitir paralelismo máximo de I/O
     let optimal = (cores * 2).min(256);
 
-    info!(
+    debug!(
         "📊 System has {} cores, using {} threads for optimal backup parallelism",
         cores, optimal
     );
@@ -265,7 +265,7 @@ fn discover_files(
         .collect();
 
     files.par_sort_by_key(|(full, _)| super::file_processor::get_file_priority(full));
-    info!("📊 Found {} files to process", files.len());
+    debug!("📊 Found {} files to process", files.len());
 
     Ok(files)
 }
@@ -336,7 +336,9 @@ fn update_progress(
     rel_path: &Path,
     on_progress: &Option<ProgressCallback>,
 ) {
-    pb.set_message(format!("Processing: {}", rel_path.display()));
+    // Shorten path: show only last 2 path components for cleaner UI
+    let display_path = shorten_path(rel_path);
+    pb.set_message(format!("📄 {}", display_path));
 
     if let Some(cb) = on_progress {
         let current = stats.processed.load(Ordering::Relaxed)
@@ -345,8 +347,27 @@ fn update_progress(
         cb(
             current,
             total,
-            format!("Processing: {}", rel_path.display()),
+            format!("📄 {}", display_path),
         );
+    }
+}
+
+/// Shorten path to show only the last 1-2 components for cleaner logs
+/// E.g. "/home/user/project/src/main.rs" → "src/main.rs"
+fn shorten_path(path: &Path) -> String {
+    let components: Vec<_> = path.components().collect();
+    if components.len() > 2 {
+        // Show last 2 components
+        let parent = path.parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("...");
+        let file = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?");
+        format!("{}/{}", parent, file)
+    } else {
+        path.display().to_string()
     }
 }
 

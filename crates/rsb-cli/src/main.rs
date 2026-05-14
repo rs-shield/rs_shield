@@ -273,7 +273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(resp) if resp.status().is_success() => Ok(trimmed_token.to_string()),
             Ok(_) => Err("❌ Session revoked or expired on server. Please login again.".into()),
             Err(_) => {
-                warn!("⚠️ Auth server unreachable. Proceeding with local validation only.");
+                println!("⚠️ Auth server unreachable. Proceeding with local validation only.");
                 Ok(trimmed_token.to_string())
             }
         }

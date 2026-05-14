@@ -24,7 +24,9 @@
 *.log
 logs/
 rsb-report-backup-*
-
+copilot-instructions.md
+.instructions.md
+.agent.md
 # Cache
 .xwin-cache/
 .cargo-ok
