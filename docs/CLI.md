@@ -283,7 +283,7 @@ rsb config list
 rsb config reset --confirm
 ```
 
-### FIDO2 Authentication
+### Security KeyAuthentication
 
 Manage hardware security keys and FIDO2/WebAuthn credentials for phishing-resistant authentication.
 
@@ -291,13 +291,13 @@ Manage hardware security keys and FIDO2/WebAuthn credentials for phishing-resist
 rsb fido2 <COMMAND> [OPTIONS]
 
 COMMANDS:
-  register    Register a new FIDO2 security key
-  authenticate   Authenticate using a registered FIDO2 key
-  list        List all registered FIDO2 credentials
-  revoke      Remove a FIDO2 credential
+  register    Register a new Security Key security key
+  authenticate   Authenticate using a registered Security Keykey
+  list        List all registered Security Keycredentials
+  revoke      Remove a Security Keycredential
 ```
 
-#### Register a Security Key
+#### Register a Security Key 
 
 ```bash
 rsb fido2 register --user-id <USER_ID> --name <NAME>
@@ -320,7 +320,7 @@ rsb fido2 register --user-id admin --name "Windows Hello"
 rsb fido2 register --user-id marciozebedeu --name "Fingerprint Sensor"
 ```
 
-#### Authenticate with Security Key
+#### Authenticate with Security Key 
 
 ```bash
 rsb fido2 authenticate --user-id <USER_ID>
@@ -349,7 +349,7 @@ rsb fido2 list
 **Output:**
 
 ```
-📱 FIDO2 Credentials Registered
+📱 Security KeyCredentials Registered
 
 ┌─────────────────────┬──────────────────────┬─────────────────────────┐
 │ User ID             │ Created At           │ Last Used               │
@@ -375,7 +375,7 @@ OPTIONS:
 rsb fido2 revoke --user-id user@example.com
 
 # Output:
-# 🗑️ Revoking FIDO2 Credential
+# 🗑️ Revoking Security KeyCredential
 # Continue? (y/n): y
 # ✅ Credential revoked successfully
 ```

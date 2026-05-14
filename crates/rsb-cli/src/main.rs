@@ -208,12 +208,12 @@ enum Commands {
         #[arg(short, long, default_value = "3000")]
         port: u16,
     },
-    /// Authenticate with FIDO2 security key (required before backup/restore)
+    /// Authenticate with Security Key security key (required before backup/restore)
     Login {
         /// User ID for registration
         user_id: String,
     },
-    /// Manage FIDO2 authentication credentials
+    /// Manage Security Keyauthentication credentials
     #[command(subcommand, name = "auth")]
     Fido2(Fido2Command),
     #[command(subcommand)]

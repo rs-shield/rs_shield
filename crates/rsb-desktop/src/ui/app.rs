@@ -254,7 +254,7 @@ pub fn App() -> Element {
                             div { class: "w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600", "👤" }
                             div { class: "flex-1 overflow-hidden",
                                 p { class: "text-xs font-bold truncate dark:text-white", "{authenticated_user.read().as_ref().unwrap()}" }
-                                p { class: "text-[10px] text-slate-500", "FIDO2 Authenticated" }
+                                p { class: "text-[10px] text-slate-500", " Authenticated" }
                             }
                         }
                         button {

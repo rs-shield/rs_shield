@@ -119,7 +119,7 @@ pub async fn auth_start<S: SessionStore + Clone>(
             warn!("User not found for authentication: {}", req.user_id);
             Err(error_response(
                 StatusCode::NOT_FOUND,
-                "User not registered. Please register your FIDO2 key first.",
+                "User not registered. Please register your Security Keykey first.",
             ))
         }
         Err(e) => {
@@ -250,19 +250,19 @@ pub async fn auth_finish<S: SessionStore + Clone>(
             }))
         }
         Err(e) => {
-            warn!("FIDO2 verification failed: {:?}", e);
+            warn!("Security Keyverification failed: {:?}", e);
             state
                 .audit_logger
                 .log_auth_failure(
                     &req.user_id,
                     &extract_ip_from_headers(&headers),
                     &extract_user_agent_from_headers(&headers),
-                    &format!("FIDO2 error: {:?}", e),
+                    &format!("Security Keyerror: {:?}", e),
                 )
                 .await;
             Err(error_response(
                 StatusCode::UNAUTHORIZED,
-                "Invalid FIDO2 credential",
+                "Invalid Security Keycredential",
             ))
         }
     }
@@ -565,6 +565,10 @@ pub async fn device_flow_verify_page<S: SessionStore + Clone>(
     let userId = null;
     const statusMessage = document.getElementById('statusMessage');
     function showMessage(text, type) {
+        if (text === 'Failed to fetch') {
+            text = "Unable to connect to the server. Please check your internet.";
+        }
+
         statusMessage.innerText = text;
         statusMessage.className = 'message ' + type;
         statusMessage.style.display = 'block';
@@ -635,7 +639,7 @@ pub async fn device_flow_verify_page<S: SessionStore + Clone>(
 </script></body></html>"#.to_string()))
 }
 
-/// POST /auth/device/token - Polling para obter token após FIDO2 auth
+/// POST /auth/device/token - Polling para obter token após Security Keyauth
 pub async fn device_flow_token<S: SessionStore + Clone>(
     State(state): State<AuthHandlerState<S>>,
     Json(req): Json<DeviceFlowTokenRequest>,
