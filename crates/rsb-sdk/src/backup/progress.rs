@@ -1,6 +1,5 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use crate::core::types::ProgressCallback;
 use super::stats::Stats;
 

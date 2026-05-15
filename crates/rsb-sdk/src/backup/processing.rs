@@ -75,7 +75,13 @@ pub async fn perform_backup_with_cancellation(
     let files = discovery::discover_files(source, &config.exclude_patterns)?;
 
     // ====================== PREVIOUS METADATA ======================
+    // Load metadata indexed by file hash for deduplication
+    // Deduplication já funciona no file_processor.rs via hash matching
     let previous_metadata_cache = load_previous_metadata(&*storage, encryption_key).await?;
+    debug!(
+        "✅ Deduplication cache ready: {} files indexed by hash",
+        previous_metadata_cache.len()
+    );
 
     // ====================== SHARED STATE ======================
     let snapshot_manifest: Arc<Mutex<HashMap<PathBuf, FileMetadata>>> =
@@ -126,6 +132,7 @@ pub async fn perform_backup_with_cancellation(
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
 
+            // Process file (includes deduplication by hash)
             let result = file_processor::process_file(
                 full_path,
                 &storage_clone,

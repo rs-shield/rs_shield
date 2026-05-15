@@ -4,24 +4,26 @@ use crate::core::types::FileMetadata;
 use crate::storage::Storage;
 use tracing::debug;
 
-/// Loads metadata from previous snapshots for deduplication cache
+/// Loads metadata from previous snapshots and indexes by file hash for deduplication
+/// The hash is the content hash of the original file, used for fast deduplication
 pub async fn load_previous_metadata(
     storage: &dyn Storage,
     key: Option<&str>,
 ) -> Result<HashMap<String, FileMetadata>, Box<dyn std::error::Error>> {
-    let mut cache = HashMap::new();
+    let mut metadata_by_hash = HashMap::new();
     
     if let Ok((_, content)) = crate::core::manifest::find_latest_snapshot(storage, None, key).await {
         if let Ok(prev) = toml::from_str::<HashMap<PathBuf, FileMetadata>>(&content) {
-            cache.reserve(prev.len());
-            for meta in prev.values() {
-                cache.insert(meta.hash.clone(), meta.clone());
+            metadata_by_hash.reserve(prev.len());
+            // Index by hash for fast O(1) deduplication lookups during backup
+            for (_, meta) in prev {
+                metadata_by_hash.insert(meta.hash.clone(), meta);
             }
-            debug!("✅ Loaded {} metadata entries from previous snapshot", cache.len());
+            debug!("✅ Loaded {} file hashes from previous snapshot for deduplication", metadata_by_hash.len());
         }
     }
     
-    Ok(cache)
+    Ok(metadata_by_hash)
 }
 
 /// Structure to store encryption key in cache
