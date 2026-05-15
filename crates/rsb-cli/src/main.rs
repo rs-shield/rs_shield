@@ -112,19 +112,19 @@ enum Commands {
         #[arg(long)]
         snapshot: Option<String>,
         /// Path to restore to (default: source_path + "_restored")
-        #[arg(short, long)]
+        #[arg(short ='t', long)]
         target: Option<PathBuf>,
         /// Restore specific files only (pattern matching)
-        #[arg(short, long)]
+        #[arg(short = 'i', long)]
         files: Option<String>,
         /// Restore from specific date (format: YYYY-MM-DD)
         #[arg(long)]
         date: Option<String>,
         /// Decryption key (required if backup is encrypted)
-        #[arg(short, long)]
+        #[arg(short = 'k', long)]
         key: Option<String>,
         /// Force overwrite of existing files
-        #[arg(short, long)]
+        #[arg(short ='f', long)]
         force: bool,
         /// Verify backup before restoring
         #[arg(long)]
@@ -355,7 +355,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
             healthcheck_url,
         } => {
-            let _auth_token = check_fido2_auth().await?;
+            //let _auth_token = check_fido2_auth().await?;
             if !config.exists() {
                 eprintln!(
                     "❌ Error: Configuration file not found: {}",
@@ -485,7 +485,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             date,
             verify,
         } => {
-            let _auth_token = check_fido2_auth().await?;
+           // let _auth_token = check_fido2_auth().await?;
             let cfg = config::load_config(&config)?;
             let profile_name = config
                 .file_stem()

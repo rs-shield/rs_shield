@@ -36,10 +36,11 @@ pub async fn write_manifest(
     // TOML Serialization
     let content_str = toml::to_string(manifest)?;
 
-    // Zstd Compression (much faster and more efficient than without compression)
+    // Zstd Compression (efficient for text-based manifest)
     let mut compressed = Vec::new();
     {
-        let mut encoder = zstd::Encoder::new(&mut compressed, 3)?; // level 3 = good balance
+        let mut encoder = zstd::Encoder::new(&mut compressed, 3)?; // level 3 = good compression/speed balance
+        encoder.write_all(content_str.as_bytes())?;
         encoder.finish()?;
     }
 

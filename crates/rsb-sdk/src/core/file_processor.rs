@@ -56,15 +56,27 @@ pub fn process_file(
         current_hash
     );
 
+    // File already exists in storage (deduplicated by hash)
     if rt_handle.block_on(storage.exists(&data_path))? {
-        let metadata =
-            build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
+        // Return the file as skipped (not processed again)
+        let metadata = build_file_metadata(
+            current_hash.clone(),
+            should_encrypt,
+            compression_level,
+            None, // Don't have stored_hash readily available, will be recomputed if needed
+            None, // Don't have stored_size readily available
+        );
         return Ok((FileStatus::Skipped, metadata));
     }
 
     if dry_run {
-        let metadata =
-            build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
+        let metadata = build_file_metadata(
+            current_hash.clone(),
+            should_encrypt,
+            compression_level,
+            None,
+            None,
+        );
         return Ok((FileStatus::Processed, metadata));
     }
 
