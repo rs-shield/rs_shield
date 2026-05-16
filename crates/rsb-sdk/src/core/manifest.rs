@@ -1,14 +1,14 @@
 // manifest.rs - Performance + reliability version
 use super::types::{ChunkMetadata, FileMetadata};
-use crate::crypto::{decrypt_data, encrypt_data};
+use crate::crypto::{decrypt_data, encrypt_data, encrypt_data_with_key};
 use crate::storage::Storage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info};
-use zstd::stream::{copy_decode, copy_encode};
+use zstd::stream::copy_decode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
@@ -46,7 +46,9 @@ pub async fn write_manifest(
 
     // Encryption (if applicable)
     let final_bytes = if let Some(key) = encryption_key {
-        encrypt_data(&compressed, key.as_bytes())?
+        let enc_key = crate::crypto::EncryptionKey::new(key.as_bytes())
+            .map_err(|e| format!("Failed to derive key for manifest: {}", e))?;
+        encrypt_data_with_key(&compressed, &enc_key)?
     } else {
         compressed
     };
@@ -74,22 +76,28 @@ pub async fn read_manifest(
         match decrypt_data(&raw, k.as_bytes()) {
             Ok(data) => data,
             Err(e) => {
-                error!("Decryption failed for manifest {}: {}", path, e);
-                return Err(format!("Decryption failed: {}", e).into());
+                // Fallback: se falhar a desencriptação direta, pode ser que o dado não estivesse encriptado
+                // ou a chave esteja incorreta. Vamos reportar o erro.
+                error!("❌ Decryption failed for manifest {}: {}", path, e);
+                return Err(format!("Decryption failed. Ensure the key is correct: {}", e).into());
             }
         }
     } else {
         raw
     };
 
-    // Tries to decompress (Zstd)
+    // Tries to decompress (Zstd) - check magic number or just try decoding
     let mut decompressed = Vec::new();
     if copy_decode(&decrypted[..], &mut decompressed).is_ok() {
-        return Ok(String::from_utf8(decompressed)?);
+        return String::from_utf8(decompressed)
+            .map_err(|e| format!("Manifest is not valid UTF-8 after decompression: {}", e).into());
     }
 
-    // Fallback: it wasn't compressed
-    Ok(String::from_utf8(decrypted)?)
+    // Fallback: it wasn't compressed, try reading as raw string
+    String::from_utf8(decrypted).map_err(|e| {
+        error!("Manifest at {} is not compressed and not valid UTF-8", path);
+        format!("Manifest encoding error: {}", e).into()
+    })
 }
 
 /// Efficiently finds the most recent snapshot
@@ -121,26 +129,4 @@ pub async fn find_latest_snapshot(
 
     let content = read_manifest(storage, &latest, key).await?;
     Ok((latest, content))
-}
-
-// ====================== UTILITY (optional) ======================
-#[allow(dead_code)]
-pub fn log_chunk_metadata(file_path: &Path, chunks: &[ChunkMetadata]) {
-    if chunks.len() > 8 {
-        info!(
-            "📦 {}: {} chunks (total {} bytes)",
-            file_path.display(),
-            chunks.len(),
-            chunks.iter().map(|c| c.stored_size).sum::<u64>()
-        );
-    } else {
-        let report = ChunkReport {
-            file_path: file_path.to_path_buf(),
-            chunks: chunks.to_vec(),
-            total_chunks: chunks.len(),
-        };
-        if let Ok(json) = serde_json::to_string(&report) {
-            debug!("Chunk metadata: {}", json);
-        }
-    }
 }

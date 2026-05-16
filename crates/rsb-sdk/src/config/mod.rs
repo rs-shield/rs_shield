@@ -123,6 +123,9 @@ pub fn create_profile_with_options(
             "node_modules".to_string(),
             "target".to_string(),
             ".git".to_string(),
+            ".vscode".to_string(),
+            ".idea".to_string(),
+            ".DS_Store".to_string(),
         ]
     };
 
