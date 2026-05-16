@@ -112,12 +112,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             force,
         } => {
             let cfg = config::load_config(&config)?;
+            let target_path = target.unwrap_or_else(|| PathBuf::from(&cfg.source_path).join("_restored"));
             core::perform_restore(
                 &cfg,
                 snapshot.as_deref(),
-                target,
+                target_path,
                 key.as_deref(),
                 force,
+                false,
                 None,
             )
             .await?;
