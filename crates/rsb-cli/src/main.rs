@@ -424,6 +424,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            // Debug info
+            println!("📂 Source: {}", cfg.source_path);
+            println!("💾 Destination: {}", cfg.destination_path);
+            if !cfg.exclude_patterns.is_empty() {
+                println!("🚫 Exclude patterns: {}", cfg.exclude_patterns.join(", "));
+            }
+            println!();
+
             let mut report_data = match core::perform_backup(
                 &cfg,
                 backup_mode,
