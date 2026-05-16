@@ -6,6 +6,9 @@ exclude_patterns = [
     "node_modules",
     "target",
     ".git",
+    ".vscode",
+    ".idea",
+    ".DS_Store",
 ]
 backup_mode = "incremental"
 pause_on_low_battery = 20
