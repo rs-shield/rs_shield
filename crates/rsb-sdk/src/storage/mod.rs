@@ -67,7 +67,7 @@ impl Storage for LocalStorage {
         let mut entries = fs::read_dir(dir).await?;
         while let Some(entry) = entries.next_entry().await? {
             if let Ok(file_name) = entry.file_name().into_string() {
-                // Retorna caminho relativo completo, ex: "snapshots/snapshot1.toml"
+                // Returns the full relative path, e.g., "snapshots/snapshot1.toml"
                 let relative = format!("{}/{}", prefix, file_name);
                 results.push(relative);
             }
@@ -108,10 +108,10 @@ impl S3Storage {
 
         let sdk_config = config_loader.credentials_provider(credentials).load().await;
 
-        // Configuração específica para S3
+        // S3-specific configuration
         let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
-            // Força Path Style (ex: domain.com/bucket) se usarmos um endpoint customizado.
-            // Essencial para MinIO, Localstack e alguns provedores S3 compatíveis.
+            // Force Path Style (e.g., domain.com/bucket) if a custom endpoint is used.
+            // Essential for MinIO, Localstack, and some S3-compatible providers.
             .force_path_style(force_path_style)
             .build();
 

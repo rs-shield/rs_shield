@@ -1,9 +1,20 @@
-// config.rs - Versão limpa, extensível e focada em performance
 use crate::utils::expand_path;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::Path;
+
+pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
+    "*.tmp",
+    "*.log",
+    "node_modules",
+    "target",
+    ".git",
+    ".vscode",
+    ".idea",
+    ".DS_Store",
+    "_restored",
+];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct S3Config {
@@ -26,7 +37,7 @@ pub struct Config {
     pub source_path: String,
     pub destination_path: String,
 
-    #[serde(default)]
+    #[serde(default = "default_exclude_patterns")]
     pub exclude_patterns: Vec<String>,
 
     pub encryption_key: Option<String>,
@@ -61,6 +72,13 @@ pub struct Config {
 
 fn default_backup_mode() -> String {
     "incremental".to_string()
+}
+
+fn default_exclude_patterns() -> Vec<String> {
+    DEFAULT_EXCLUDE_PATTERNS
+        .iter()
+        .map(|&s| s.to_string())
+        .collect()
 }
 
 fn default_channel_buffer() -> usize {
@@ -117,13 +135,7 @@ pub fn create_profile_with_options(
             .filter(|p| !p.is_empty())
             .collect()
     } else {
-        vec![
-            "*.tmp".to_string(),
-            "*.log".to_string(),
-            "node_modules".to_string(),
-            "target".to_string(),
-            ".git".to_string(),
-        ]
+        default_exclude_patterns()
     };
 
     let config = Config {

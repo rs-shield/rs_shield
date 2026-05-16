@@ -12,7 +12,7 @@ pub struct NotificationHistoryEntry {
     pub title: String,
     pub message: String,
     pub status: String,             // "success", "error", "warning", "info"
-    pub duration_secs: Option<u64>, // Duração da operação se aplicável
+    pub duration_secs: Option<u64>, // Operation duration if applicable
 }
 
 /// In-memory notification history manager
@@ -173,28 +173,28 @@ impl NotificationHistory {
         }
     }
 
-    /// Limpar histórico
+    /// Clear history
     pub fn clear(&mut self) {
         self.entries.clear();
     }
 
-    /// Obter tamanho atual
+    /// Get current size
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Verificar se está vazio
+    /// Check if it is empty
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Buscar entrada por ID
+    /// Find entry by ID
     pub fn find_by_id(&self, id: &str) -> Option<NotificationHistoryEntry> {
         self.entries.iter().find(|e| e.id == id).cloned()
     }
 }
 
-/// Resumo estatístico do histórico
+/// Statistical summary of the history
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct HistorySummary {
@@ -207,7 +207,7 @@ pub struct HistorySummary {
 }
 
 impl HistorySummary {
-    /// Taxa de sucesso em percentual
+    /// Success rate as a percentage
     pub fn success_rate(&self) -> f64 {
         if self.total_notifications == 0 {
             100.0
@@ -216,7 +216,7 @@ impl HistorySummary {
         }
     }
 
-    /// Horário com melhor desempenho (baseado em sucessos)
+    /// Performance-based most common type
     pub fn most_common_type(&self) -> Option<String> {
         self.by_type
             .iter()

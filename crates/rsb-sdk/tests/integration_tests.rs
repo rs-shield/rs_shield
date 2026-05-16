@@ -32,6 +32,8 @@ fn test_config_and_paths_integration() {
         pause_on_low_battery: Some(20),
         pause_on_high_cpu: Some(80),
         compression_level: Some(3),
+        channel_buffer_size: 8192,
+        max_threads: None,
     };
 
     assert_eq!(config.source_path, source.to_string_lossy().to_string());
@@ -138,6 +140,8 @@ fn test_config_with_exclusions_and_encryption() {
         pause_on_low_battery: Some(15),
         pause_on_high_cpu: Some(75),
         compression_level: Some(6),
+        channel_buffer_size: 8192,
+        max_threads: None,
     };
 
     assert!(config.encryption_key.is_some());
@@ -217,6 +221,8 @@ fn test_complete_backup_scenario() {
         pause_on_low_battery: Some(20),
         pause_on_high_cpu: Some(80),
         compression_level: Some(5),
+        channel_buffer_size: 8192,
+        max_threads: None,
     };
 
     // Walk the source directory

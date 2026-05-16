@@ -28,205 +28,270 @@ pub enum ListProfilesFormat {
 }
 
 #[derive(Parser)]
-#[command(name = "rsb-cli", version = "0.1.0", about = "Rust Shield Backup")]
+#[command(
+    name = "rsb-cli",
+    version = "0.1.0-alpha.2",
+    about = "Rust Shield Backup"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
 
 #[derive(Subcommand)]
+
 enum Commands {
     /// Create a new backup profile
     CreateProfile {
         /// Profile name (generates config.toml)
-        #[arg(short, long)]
+        #[arg(short = 'n', long)]
         name: String,
+
         /// Source path to backup
-        #[arg(short, long)]
+        #[arg(short = 's', long)]
         source: PathBuf,
+
         /// Destination directory for backup
-        #[arg(short, long)]
+        #[arg(short = 'd', long)]
         dest: PathBuf,
-        /// Backup mode: "incremental" or "full" [default: incremental]
-        #[arg(short, long, default_value = "incremental")]
+
+        /// Backup mode: "incremental" or "full"
+        #[arg(short = 'm', long, default_value = "incremental")]
         mode: String,
-        /// Compression level 0-11 [default: 3]
-        #[arg(short, long, default_value = "3")]
+
+        /// Compression level 0-11
+        #[arg(short = 'z', long, default_value = "3")]
         compression: u8,
+
         /// Enable encryption
-        #[arg(short, long)]
+        #[arg(short = 'e', long)]
         encrypt: bool,
-        /// Encryption password (prompted if not provided)
-        #[arg(short, long)]
+
+        /// Encryption password
+        #[arg(short = 'k', long)]
         password: Option<String>,
+
         /// Exclude patterns (comma-separated)
-        #[arg(long)]
+        #[arg(short = 'x', long)]
         exclude: Option<String>,
+
         /// S3 bucket name
-        #[arg(long)]
+        #[arg(short = 'b', long)]
         s3_bucket: Option<String>,
+
         /// S3 region
-        #[arg(long)]
+        #[arg(short = 'r', long)]
         s3_region: Option<String>,
+
         /// S3 endpoint URL
-        #[arg(long)]
+        #[arg(short = 'E', long)]
         s3_endpoint: Option<String>,
     },
+
     /// Run backup with an existing profile
     Backup {
         /// Path to config.toml
         config: PathBuf,
-        /// Override backup mode (full/incremental)
-        #[arg(short, long)]
+
+        /// Override backup mode
+        #[arg(short = 'm', long)]
         mode: Option<String>,
-        /// Encryption key (optional)
-        #[arg(short, long)]
+
+        /// Encryption key
+        #[arg(short = 'k', long)]
         key: Option<String>,
-        /// Simulate backup without writing files (dry-run)
-        #[arg(long)]
+
+        /// Simulate backup without writing files
+        #[arg(short = 'd', long)]
         dry_run: bool,
-        /// Do not attempt to resume an interrupted backup.
+
+        /// Do not resume interrupted backup
         #[arg(long)]
         no_resume: bool,
+
         /// Verify backup after completion
-        #[arg(long)]
+        #[arg(short = 'v', long)]
         verify: bool,
+
         /// Disable compression
         #[arg(long)]
         no_compress: bool,
-        /// Number of parallel threads [default: 4]
-        #[arg(long, default_value = "4")]
+
+        /// Number of parallel threads
+        #[arg(short = 't', long, default_value = "4")]
         threads: Option<usize>,
-        /// Generate an HTML report of the operation.
-        #[arg(long)]
+
+        /// Generate HTML report
+        #[arg(short = 'r', long)]
         report: bool,
-        /// Healthchecks.io URL for monitoring (sends start/success/fail pings)
-        #[arg(long)]
+
+        /// Healthchecks.io URL
+        #[arg(short = 'H', long)]
         healthcheck_url: Option<String>,
     },
-    /// Restore a backup with an existing profile
+
+    /// Restore a backup
     Restore {
-        /// Path to the profile's config.toml
+        /// Path to config.toml
         config: PathBuf,
-        /// Snapshot ID to restore (default: most recent)
-        #[arg(long)]
+
+        /// Snapshot ID
+        #[arg(short = 's', long)]
         snapshot: Option<String>,
-        /// Path to restore to (default: source_path + "_restored")
-        #[arg(short, long)]
-        target: Option<PathBuf>,
-        /// Restore specific files only (pattern matching)
-        #[arg(short, long)]
+
+        /// Restore target path
+        #[arg(short = 't', long, required = true)]
+        target: PathBuf,
+
+        /// Restore specific files
+        #[arg(short = 'i', long)]
         files: Option<String>,
-        /// Restore from specific date (format: YYYY-MM-DD)
-        #[arg(long)]
+
+        /// Restore from date
+        #[arg(short = 'd', long)]
         date: Option<String>,
-        /// Decryption key (required if backup is encrypted)
-        #[arg(short, long)]
+
+        /// Decryption key
+        #[arg(short = 'k', long)]
         key: Option<String>,
-        /// Force overwrite of existing files
-        #[arg(short, long)]
+
+        /// Force overwrite
+        #[arg(short = 'f', long)]
         force: bool,
-        /// Verify backup before restoring
-        #[arg(long)]
+
+        /// Create a timestamped folder inside target instead of direct restore
+        #[arg(short = 'V', long)]
+        versioned: bool,
+
+        /// Verify before restore
+        #[arg(short = 'v', long)]
         verify: bool,
-        /// Generate an HTML report of the operation.
-        #[arg(long)]
+
+        /// Generate HTML report
+        #[arg(short = 'r', long)]
         report: bool,
     },
-    /// Verify a backup with an existing profile
+
+    /// Verify a backup
     Verify {
         /// Path to config.toml
         config: PathBuf,
-        /// Snapshot ID to verify (default: most recent)
-        #[arg(long)]
+
+        /// Snapshot ID
+        #[arg(short = 's', long)]
         snapshot: Option<String>,
-        /// Show only files with issues (quiet mode)
-        #[arg(short, long)]
+
+        /// Quiet mode
+        #[arg(short = 'q', long)]
         quiet: bool,
-        /// Quick check (skip full verification)
+
+        /// Quick verification
         #[arg(long)]
         quick: bool,
-        /// Fast verification (only stored file hash, no decryption)
-        #[arg(long)]
+
+        /// Fast verification
+        #[arg(short = 'f', long)]
         fast: bool,
-        /// Generate an HTML report of the operation.
-        #[arg(long)]
+
+        /// Generate HTML report
+        #[arg(short = 'r', long)]
         report: bool,
-        /// Decryption key (required if backup is encrypted)
-        #[arg(short, long)]
+
+        /// Decryption key
+        #[arg(short = 'k', long)]
         key: Option<String>,
     },
-    /// Delete old snapshots according to retention policy
+
+    /// Delete old snapshots
     Prune {
-        /// Path to config.toml (extracts destination automatically)
-        #[arg(short, long)]
+        /// Path to config.toml
+        #[arg(short = 'c', long)]
         config: PathBuf,
-        /// Retention policy: "30d", "6m", "1y", or keep last N backups
-        #[arg(short, long)]
+
+        /// Retention policy
+        #[arg(short = 'r', long)]
         retention: Option<String>,
-        /// Keep the last N backups (alternative to retention policy)
-        #[arg(long)]
+
+        /// Keep last N backups
+        #[arg(short = 'k', long)]
         keep_last: Option<usize>,
-        /// Preview what would be deleted
-        #[arg(long)]
+
+        /// Preview deletion
+        #[arg(short = 'd', long)]
         dry_run: bool,
-        /// Suppress output messages
-        #[arg(short, long)]
+
+        /// Quiet mode
+        #[arg(short = 'q', long)]
         quiet: bool,
-        /// Healthchecks.io URL for monitoring
-        #[arg(long)]
+
+        /// Healthchecks.io URL
+        #[arg(short = 'H', long)]
         healthcheck_url: Option<String>,
     },
-    /// Generate scheduling commands (Cron/Systemd)
+
+    /// Generate scheduling commands
     Schedule {
         /// Path to config.toml
         config: PathBuf,
-        /// Output format: 'cron' or 'systemd'
-        #[arg(long, default_value = "cron")]
+
+        /// Output format
+        #[arg(short = 'f', long, default_value = "cron")]
         format: String,
     },
-    /// Monitor folder in real-time and perform automatic backups
+
+    /// Watch filesystem changes
     Watch {
         /// Path to config.toml
         config: PathBuf,
-        /// Path to sync files to (destination)
-        #[arg(short, long)]
+
+        /// Sync destination
+        #[arg(short = 's', long)]
         sync_to: PathBuf,
-        /// Encryption key (required)
-        #[arg(short, long)]
+
+        /// Encryption key
+        #[arg(short = 'k', long)]
         key: String,
-        /// Check interval in seconds (default: 2)
-        #[arg(long, default_value = "2")]
+
+        /// Poll interval in seconds
+        #[arg(short = 'i', long, default_value = "2")]
         interval: u64,
-        /// Healthchecks.io URL for monitoring (sends heartbeats every 5 min)
-        #[arg(long)]
+
+        /// Healthchecks.io URL
+        #[arg(short = 'H', long)]
         healthcheck_url: Option<String>,
     },
-    /// Start authentication API server (localhost:3000)
+
+    /// Start authentication API server
     Server {
-        /// Port to run server on (default: 3000)
-        #[arg(short, long, default_value = "3000")]
+        /// Server port
+        #[arg(short = 'p', long, default_value = "3000")]
         port: u16,
     },
-    /// Authenticate with Security Key security key (required before backup/restore)
+
+    /// Authenticate with Security Key
     Login {
-        /// User ID for registration
+        /// User ID
         user_id: String,
     },
-    /// Manage Security Keyauthentication credentials
+
+    /// Manage Security Key credentials
     #[command(subcommand, name = "auth")]
     Fido2(Fido2Command),
+
     #[command(subcommand)]
     Snapshots(SnapshotCommand),
-    /// List all backup profiles
+
+    /// List backup profiles
     ListProfiles {
-        /// Profile directory [default: ~/.config/rs-shield]
-        #[arg(short, long)]
+        /// Profile directory
+        #[arg(short, long = "dir")]
         directory: Option<PathBuf>,
-        /// Output format: table, json, csv [default: table]
-        #[arg(short, long, value_enum, default_value = "table")]
+
+        /// Output format
+        #[arg(short = 'f', long, value_enum, default_value = "table")]
         format: ListProfilesFormat,
     },
+
     /// Manage credentials and settings
     #[command(subcommand, name = "config")]
     Config(ConfigCommand),
@@ -424,6 +489,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            // Debug info
+            println!("📂 Source: {}", cfg.source_path);
+            println!("💾 Destination: {}", cfg.destination_path);
+            if !cfg.exclude_patterns.is_empty() {
+                println!("🚫 Exclude patterns: {}", cfg.exclude_patterns.join(", "));
+            }
+            println!();
+
             let mut report_data = match core::perform_backup(
                 &cfg,
                 backup_mode,
@@ -480,6 +553,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             target,
             key,
             force,
+            versioned,
             report,
             files,
             date,
@@ -512,6 +586,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 target,
                 key.as_deref(),
                 force,
+                versioned,
                 None,
             )
             .await?;
@@ -520,8 +595,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if verify {
                 println!("🔍 Verifying restored files integrity...");
                 // Create a temporary config for verification pointing to restored location
-                let restored_path = target_for_verify
-                    .unwrap_or_else(|| PathBuf::from(format!("{}_restored", cfg.source_path)));
+                let restored_path = target_for_verify;
                 warn!(
                     "📋 Post-restore verification pending for: {}",
                     restored_path.display()
@@ -882,8 +956,7 @@ fn calculate_retention_backups(policy: &str) -> usize {
         "60d" => 60,
         "90d" => 90,
         "6m" => 26,  // ~6 months at weekly backups
-        "1y" => 52,  // 52 weeks = ~1 year
-        "2y" => 104, // 2 years
+      ears
         "3y" => 156, // 3 years
         "5y" => 260, // 5 years
         _ => {
@@ -891,7 +964,8 @@ fn calculate_retention_backups(policy: &str) -> usize {
             if let Some(days_str) = policy.strip_suffix('d') {
                 // Pattern: "45d" -> 45 backups (daily)
                 if let Ok(days) = days_str.parse::<usize>() {
-                    return days;
+                    return days;  "1y" => 52,  // 52 weeks = ~1 year
+        "2y" => 104, // 2 y
                 }
             }
 

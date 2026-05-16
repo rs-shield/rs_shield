@@ -1,4 +1,4 @@
-// file_processor.rs - Versão performática com EncryptionKey
+// file_processor.rs - Performant version with EncryptionKey
 use super::types::{CHUNK_SIZE, ChunkMetadata, FileMetadata, FileStatus, MULTIPART_THRESHOLD};
 use crate::crypto::{EncryptionKey, hash_file_content};
 use crate::storage::Storage;
@@ -33,7 +33,7 @@ pub fn process_file(
 
     let should_encrypt = should_encrypt_file(rel_path, encryption_key.as_deref(), encrypt_patterns);
 
-    // =============== FICHEIROS GRANDES (Multipart) ===============
+    // =============== LARGE FILES (Multipart) ===============
     if mapped.len() as u64 > MULTIPART_THRESHOLD {
         let metadata = process_file_multipart_optimized(
             storage,
@@ -49,26 +49,38 @@ pub fn process_file(
         return Ok((FileStatus::Processed, metadata));
     }
 
-    // =============== FICHEIROS NORMAIS ===============
+    // =============== NORMAL FILES ===============
     let data_path = format!(
         "data/{}/{}",
         if should_encrypt { "enc" } else { "clear" },
         current_hash
     );
 
+    // File already exists in storage (deduplicated by hash)
     if rt_handle.block_on(storage.exists(&data_path))? {
-        let metadata =
-            build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
+        // Return the file as skipped (not processed again)
+        let metadata = build_file_metadata(
+            current_hash.clone(),
+            should_encrypt,
+            compression_level,
+            None, // Don't have stored_hash readily available, will be recomputed if needed
+            None, // Don't have stored_size readily available
+        );
         return Ok((FileStatus::Skipped, metadata));
     }
 
     if dry_run {
-        let metadata =
-            build_file_metadata(current_hash, should_encrypt, compression_level, None, None);
+        let metadata = build_file_metadata(
+            current_hash.clone(),
+            should_encrypt,
+            compression_level,
+            None,
+            None,
+        );
         return Ok((FileStatus::Processed, metadata));
     }
 
-    // Compress + Encrypt (otimizado)
+    // Compress + Encrypt (optimized)
     let final_data = compress_and_encrypt(
         &mapped,
         compression_level,
@@ -92,7 +104,7 @@ pub fn process_file(
     Ok((FileStatus::Processed, metadata))
 }
 
-// ====================== MULTIPART OTIMIZADO ======================
+// ====================== OPTIMIZED MULTIPART ======================
 fn process_file_multipart_optimized(
     storage: &Arc<dyn Storage>,
     rel_path: &Path,
@@ -166,7 +178,7 @@ fn should_encrypt_file(
         Some(patterns) if !patterns.is_empty() => patterns
             .iter()
             .any(|p| Pattern::new(p).is_ok_and(|pat| pat.matches_path(rel_path))),
-        _ => true, // encripta tudo se tiver chave mas sem padrões específicos
+        _ => true, // encrypt everything if there is a key but no specific patterns
     }
 }
 

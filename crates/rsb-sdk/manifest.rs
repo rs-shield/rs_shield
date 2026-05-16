@@ -1,5 +1,5 @@
 use super::types::{ChunkMetadata, FileMetadata};
-use crate::crypto::{decrypt_data, encrypt_data};
+use crate::crypto::{decrypt_data, encrypt_data_with_key};
 use crate::storage::Storage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,7 @@ pub async fn write_manifest(
 
     let content_str = toml::to_string(manifest)?;
     let content_bytes = if let Some(k) = encryption_key {
-        encrypt_data(content_str.as_bytes(), k.as_bytes())?
+        encrypt_data_with_key(content_str.as_bytes(), k.as_bytes())?
     } else {
         content_str.into_bytes()
     };

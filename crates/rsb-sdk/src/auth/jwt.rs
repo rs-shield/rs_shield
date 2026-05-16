@@ -75,7 +75,7 @@ mod tests {
     fn test_jwt_create_and_verify() {
         let manager = JwtManager::new("test-secret").unwrap();
         let token = manager
-            .create_token("user1", vec!["backup".to_string()], 3600)
+            .create_token("user1", vec!["backup".to_string()], 2592000)
             .unwrap();
 
         let claims = manager.verify_token(&token).unwrap();

@@ -434,7 +434,10 @@ pub async fn create_backup(
     let config = Config {
         source_path: src.to_string_lossy().to_string(),
         destination_path: backup_dst.to_string_lossy().to_string(),
-        exclude_patterns: vec![],
+        exclude_patterns: crate::config::DEFAULT_EXCLUDE_PATTERNS
+            .iter()
+            .map(|&s| s.to_string())
+            .collect(),
         encryption_key: password.clone(),
         backup_mode: "incremental".to_string(),
         s3_bucket: None,

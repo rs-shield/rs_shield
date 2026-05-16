@@ -1,13 +1,13 @@
-// storage_backend.rs - Versão performance + robustez
+// storage_backend.rs - Performance + robustness version
 use crate::config::Config;
 use crate::credentials::CredentialsManager;
 use crate::storage::{LocalStorage, S3Storage, Storage};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
-/// Retorna o backend de storage adequado (Local ou S3)
+/// Returns the appropriate storage backend (Local or S3)
 pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
-    // Prioridade: configuração S3 aninhada ou plana (backward compatibility)
+    // Priority: nested or flat S3 configuration (backward compatibility)
     let s3_config = config.s3.as_ref();
 
     let bucket = s3_config
@@ -48,13 +48,13 @@ pub async fn get_storage(config: &Config) -> Arc<dyn Storage> {
     }
 }
 
-/// Carregamento seguro e priorizado de credenciais S3
+/// Secure and prioritized loading of S3 credentials
 async fn load_s3_credentials_securely(
     config: &Config,
 ) -> Result<aws_credential_types::Credentials, String> {
     use std::env;
 
-    // 1. Environment variables (mais rápido e recomendado para produção/CI)
+    // 1. Environment variables (faster and recommended for production/CI)
     if let (Ok(access_key), Ok(secret_key)) = (
         env::var("AWS_ACCESS_KEY_ID"),
         env::var("AWS_SECRET_ACCESS_KEY"),
@@ -72,7 +72,7 @@ async fn load_s3_credentials_securely(
         }
     }
 
-    // 2. Ficheiro encriptado (persistente)
+    // 2. Encrypted file (persistent)
     if let Some(home) = env::var("HOME").ok() {
         let cred_path = format!("{}/.rs-shield/s3_credentials.enc", home);
         if std::path::Path::new(&cred_path).exists() {
@@ -92,7 +92,7 @@ async fn load_s3_credentials_securely(
         }
     }
 
-    // 3. Prompt interativo (último recurso)
+    // 3. Interactive prompt (last resort)
     match CredentialsManager::prompt_for_credentials() {
         Ok(creds) => {
             info!("🔑 S3 credentials configured interactively");

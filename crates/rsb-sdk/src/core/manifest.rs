@@ -1,14 +1,14 @@
-// manifest.rs - Versão performance + confiabilidade
+// manifest.rs - Performance + reliability version
 use super::types::{ChunkMetadata, FileMetadata};
-use crate::crypto::{decrypt_data, encrypt_data};
+use crate::crypto::{decrypt_data, encrypt_data, encrypt_data_with_key};
 use crate::storage::Storage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info};
-use zstd::stream::{copy_decode, copy_encode};
+use zstd::stream::copy_decode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
@@ -18,7 +18,7 @@ pub struct ChunkReport {
     pub total_chunks: usize,
 }
 
-/// Escreve o manifest de forma otimizada (compressão + encriptação)
+/// Writes the manifest in an optimized way (compression + encryption)
 pub async fn write_manifest(
     storage: &dyn Storage,
     manifest: &HashMap<PathBuf, FileMetadata>,
@@ -33,19 +33,22 @@ pub async fn write_manifest(
         return Ok(snapshot_path);
     }
 
-    // Serialização TOML
+    // TOML Serialization
     let content_str = toml::to_string(manifest)?;
 
-    // Compressão Zstd (muito mais rápida e eficiente que sem compressão)
+    // Zstd Compression (efficient for text-based manifest)
     let mut compressed = Vec::new();
     {
-        let mut encoder = zstd::Encoder::new(&mut compressed, 3)?; // nível 3 = bom equilí   encoder.write_all(content_str.as_bytes())?;
+        let mut encoder = zstd::Encoder::new(&mut compressed, 3)?; // level 3 = good compression/speed balance
+        encoder.write_all(content_str.as_bytes())?;
         encoder.finish()?;
     }
 
-    // Encriptação (se aplicável)
+    // Encryption (if applicable)
     let final_bytes = if let Some(key) = encryption_key {
-        encrypt_data(&compressed, key.as_bytes())?
+        let enc_key = crate::crypto::EncryptionKey::new(key.as_bytes())
+            .map_err(|e| format!("Failed to derive key for manifest: {}", e))?;
+        encrypt_data_with_key(&compressed, &enc_key)?
     } else {
         compressed
     };
@@ -61,7 +64,7 @@ pub async fn write_manifest(
     Ok(snapshot_path)
 }
 
-/// Lê o manifest com suporte a encriptação + compressão
+/// Reads the manifest with support for encryption + compression
 pub async fn read_manifest(
     storage: &dyn Storage,
     path: &str,
@@ -73,25 +76,35 @@ pub async fn read_manifest(
         match decrypt_data(&raw, k.as_bytes()) {
             Ok(data) => data,
             Err(e) => {
-                error!("Decryption failed for manifest {}: {}", path, e);
-                return Err(format!("Decryption failed: {}", e).into());
+                // Fallback: se falhar a desencriptação direta, pode ser que o dado não estivesse encriptado
+                // ou a chave esteja incorreta. Vamos reportar o erro.
+                error!("❌ Decryption failed for manifest {}: {}", path, e);
+                return Err(format!("Decryption failed. Ensure the key is correct: {}", e).into());
             }
         }
     } else {
         raw
     };
 
-    // Tenta descomprimir (Zstd)
+    // Tries to decompress (Zstd) - check magic number or just try decoding
     let mut decompressed = Vec::new();
     if copy_decode(&decrypted[..], &mut decompressed).is_ok() {
-        return Ok(String::from_utf8(decompressed)?);
+        return String::from_utf8(decompressed).map_err(|e| {
+            debug!("Manifest UTF-8 decode failed after decompression: {:?}", e);
+
+            "Backup metadata is corrupted or unreadable".into()
+        });
     }
 
-    // Fallback: não estava comprimido
-    Ok(String::from_utf8(decrypted)?)
+    // Fallback: it wasn't compressed, try reading as raw string
+    String::from_utf8(decrypted).map_err(|_| {
+        debug!("Manifest parsing failed: {}", path);
+
+        "Backup metadata is corrupted or unreadable".into()
+    })
 }
 
-/// Encontra o snapshot mais recente de forma eficiente
+/// Efficiently finds the most recent snapshot
 pub async fn find_latest_snapshot(
     storage: &dyn Storage,
     snapshot_id: Option<&str>,
@@ -106,7 +119,7 @@ pub async fn find_latest_snapshot(
         return Err("Snapshot ID not found".into());
     }
 
-    // Listagem + sort otimizado
+    // Optimized listing + sorting
     let mut snapshots = storage.list("snapshots/").await?;
     snapshots.retain(|s| s.ends_with(".toml"));
 
@@ -114,32 +127,10 @@ pub async fn find_latest_snapshot(
         return Err("No snapshots found".into());
     }
 
-    // Ordenação reversa (mais recente primeiro)
-    snapshots.sort_by(|a, b| b.cmp(a)); // lexicographical funciona por causa do timestamp
+    // Reverse sorting (most recent first)
+    snapshots.sort_by(|a, b| b.cmp(a)); // lexicographical works due to timestamp
     let latest = snapshots.into_iter().next().unwrap();
 
     let content = read_manifest(storage, &latest, key).await?;
     Ok((latest, content))
-}
-
-// ====================== UTILITÁRIO (opcional) ======================
-#[allow(dead_code)]
-pub fn log_chunk_metadata(file_path: &Path, chunks: &[ChunkMetadata]) {
-    if chunks.len() > 8 {
-        info!(
-            "📦 {}: {} chunks (total {} bytes)",
-            file_path.display(),
-            chunks.len(),
-            chunks.iter().map(|c| c.stored_size).sum::<u64>()
-        );
-    } else {
-        let report = ChunkReport {
-            file_path: file_path.to_path_buf(),
-            chunks: chunks.to_vec(),
-            total_chunks: chunks.len(),
-        };
-        if let Ok(json) = serde_json::to_string(&report) {
-            debug!("Chunk metadata: {}", json);
-        }
-    }
 }

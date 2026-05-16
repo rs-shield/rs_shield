@@ -22,7 +22,7 @@ impl Default for AppPreferences {
         Self {
             language: "pt".to_string(),
             theme: "system".to_string(),
-            exclude_patterns: "*.tmp\nnode_modules\n.git".to_string(),
+            exclude_patterns: rsb_sdk::config::DEFAULT_EXCLUDE_PATTERNS.join("\n"),
             encrypt_patterns: "*.pdf\n*.docx\nprivate/".to_string(),
             backup_mode: "incremental".to_string(),
             pause_on_low_battery: "20".to_string(),

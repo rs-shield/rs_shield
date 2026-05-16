@@ -46,7 +46,6 @@ pub fn RestoreScreen() -> Element {
                         source_path.set(PathBuf::from(profile_data.destination_path));
                         key.set(profile_data.encryption_key);
 
-                        // Carregar todas as configurações do perfil
                         app_config
                             .exclude_patterns
                             .set(profile_data.exclude_patterns);
@@ -58,10 +57,10 @@ pub fn RestoreScreen() -> Element {
                             .encrypt_patterns
                             .set(profile_data.encrypt_patterns);
 
-                        status_msg.set("✅ Perfil carregado com sucesso!".to_string());
+                        status_msg.set("✅ Profile loaded successfully!".to_string());
                     }
                     Err(e) => {
-                        status_msg.set(format!("❌ Erro ao carregar perfil: {}", e));
+                        status_msg.set(format!("❌ Error loading profile: {}", e));
                     }
                 }
             }
@@ -162,6 +161,10 @@ pub fn RestoreScreen() -> Element {
                     None
                 };
 
+                if rst.as_os_str().is_empty() {
+                    return Err("❌ Please select a restore target.".to_string());
+                }
+
                 if bkp.as_os_str().is_empty() && s3_bucket_opt.is_none() {
                     return Err(texts.define_backup_or_s3.to_string());
                 }
@@ -185,18 +188,14 @@ pub fn RestoreScreen() -> Element {
                     channel_buffer_size: 8192, // ⚡ Default buffer size for manifest updates
                 };
 
-                let target = if rst.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(rst)
-                };
                 let token = cancellation_token();
                 core::restore::perform_restore_with_cancellation(
                     &cfg,
                     snap_opt.as_deref(),
-                    target,
+                    rst,
                     key_opt.as_deref(),
-                    true,
+                    true,  // UI default is force
+                    false, // versioned
                     Some(progress_cb),
                     Some(token),
                 )
@@ -250,7 +249,7 @@ pub fn RestoreScreen() -> Element {
 
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️ Restauro cancelado pelo usuário".to_string());
+        status_msg.set("⏹️  Restore canceled by user".to_string());
         is_running.set(false);
     };
 
@@ -259,7 +258,7 @@ pub fn RestoreScreen() -> Element {
             h2 { class: "page-title", "{texts.restore_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Carregar Perfil (Opcional)" }
+                label { class: "label-text", "📋 Load Profile (Optional)" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
@@ -372,7 +371,7 @@ pub fn RestoreScreen() -> Element {
                     button {
                         class: "flex-1 px-4 py-3 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_cancel,
-                        "⏹️ Cancelar Restauro"
+                        "⏹️  Cancel Restore"
                     }
                 }
             } else {
@@ -394,7 +393,7 @@ pub fn RestoreScreen() -> Element {
                     onclick: move |_| {
                         let _ = open::that(&path);
                     },
-                    "📄 Abrir Relatório"
+                    "📄 Open Report"
                 }
             }
 
