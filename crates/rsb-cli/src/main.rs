@@ -136,8 +136,8 @@ enum Commands {
         snapshot: Option<String>,
 
         /// Restore target path
-        #[arg(short = 't', long)]
-        target: Option<PathBuf>,
+        #[arg(short = 't', long, required = true)]
+        target: PathBuf,
 
         /// Restore specific files
         #[arg(short = 'i', long)]
@@ -154,6 +154,10 @@ enum Commands {
         /// Force overwrite
         #[arg(short = 'f', long)]
         force: bool,
+
+        /// Create a timestamped folder inside target instead of direct restore
+        #[arg(short = 'V', long)]
+        versioned: bool,
 
         /// Verify before restore
         #[arg(short = 'v', long)]
@@ -545,6 +549,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             target,
             key,
             force,
+            versioned,
             report,
             files,
             date,
@@ -577,6 +582,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 target,
                 key.as_deref(),
                 force,
+                versioned,
                 None,
             )
             .await?;
@@ -585,8 +591,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if verify {
                 println!("🔍 Verifying restored files integrity...");
                 // Create a temporary config for verification pointing to restored location
-                let restored_path = target_for_verify
-                    .unwrap_or_else(|| PathBuf::from(format!("{}_restored", cfg.source_path)));
+                let restored_path = target_for_verify;
                 warn!(
                     "📋 Post-restore verification pending for: {}",
                     restored_path.display()

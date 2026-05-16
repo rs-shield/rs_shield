@@ -1,11 +1,9 @@
-// config.rs - Versão limpa, extensível e focada em performance
 use crate::utils::expand_path;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::Path;
 
-/// Padrões de exclusão padrão aplicados quando nenhum é especificado pelo usuário.
 pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     "*.tmp",
     "*.log",
@@ -15,6 +13,7 @@ pub const DEFAULT_EXCLUDE_PATTERNS: &[&str] = &[
     ".vscode",
     ".idea",
     ".DS_Store",
+    "_restored",
 ];
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

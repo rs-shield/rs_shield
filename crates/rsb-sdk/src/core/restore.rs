@@ -3,6 +3,7 @@ use super::manifest::find_latest_snapshot;
 use super::types::{ChunkMetadata, FileMetadata, ProgressCallback};
 use crate::config::Config;
 use crate::crypto::decrypt_data;
+use chrono::Utc;
 use crate::report::ReportData;
 use crate::storage::Storage;
 use crate::utils::{ensure_directory_exists_async, mmap_file};
@@ -19,9 +20,10 @@ use zstd::stream::copy_decode;
 pub async fn perform_restore(
     config: &Config,
     snapshot_id: Option<&str>,
-    target_path: Option<PathBuf>,
+    target_path: PathBuf,
     encryption_key: Option<&str>,
     force: bool,
+    versioned: bool,
     on_progress: Option<ProgressCallback>,
 ) -> Result<ReportData, Box<dyn std::error::Error>> {
     perform_restore_with_cancellation(
@@ -30,6 +32,7 @@ pub async fn perform_restore(
         target_path,
         encryption_key,
         force,
+        versioned,
         on_progress,
         None,
     )
@@ -39,9 +42,10 @@ pub async fn perform_restore(
 pub async fn perform_restore_with_cancellation(
     config: &Config,
     snapshot_id: Option<&str>,
-    target_path: Option<PathBuf>,
+    target_path: PathBuf,
     encryption_key: Option<&str>,
     force: bool,
+    versioned: bool,
     on_progress: Option<ProgressCallback>,
     cancellation_token: Option<CancellationToken>,
 ) -> Result<ReportData, Box<dyn std::error::Error>> {
@@ -54,15 +58,20 @@ pub async fn perform_restore_with_cancellation(
 
     let manifest: HashMap<PathBuf, FileMetadata> = toml::from_str(&manifest_content)?;
 
-    let restore_root =
-        target_path.unwrap_or_else(|| Path::new(&config.source_path).join("_restored"));
+    let restore_root = if versioned {
+        let timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        target_path.join(format!("restore_{}", timestamp))
+    } else {
+        target_path
+    };
 
     info!("Restoring to: {}", restore_root.display());
 
     let pb = ProgressBar::new(manifest.len() as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
+            .template(
+            "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
             .unwrap()
             .progress_chars("#>-"),
     );
@@ -122,7 +131,7 @@ pub async fn perform_restore_with_cancellation(
 
             if !storage.exists(&data_path).await? {
                 let msg = format!("Missing data for {}: {}", rel_path.display(), metadata.hash);
-                warn!("{}", msg);
+                info!("{}", msg);
                 errors.push(msg);
                 continue;
             }
@@ -132,7 +141,7 @@ pub async fn perform_restore_with_cancellation(
                     "File already exists (use --force): {}",
                     restore_file.display()
                 );
-                warn!("{}", msg);
+                info!("{}", msg);
                 errors.push(msg);
                 continue;
             }

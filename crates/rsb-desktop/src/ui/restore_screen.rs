@@ -162,6 +162,10 @@ pub fn RestoreScreen() -> Element {
                     None
                 };
 
+                if rst.as_os_str().is_empty() {
+                    return Err("❌ Por favor, selecione um diretório de destino para o restauro.".to_string());
+                }
+
                 if bkp.as_os_str().is_empty() && s3_bucket_opt.is_none() {
                     return Err(texts.define_backup_or_s3.to_string());
                 }
@@ -185,18 +189,14 @@ pub fn RestoreScreen() -> Element {
                     channel_buffer_size: 8192, // ⚡ Default buffer size for manifest updates
                 };
 
-                let target = if rst.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(rst)
-                };
                 let token = cancellation_token();
                 core::restore::perform_restore_with_cancellation(
                     &cfg,
                     snap_opt.as_deref(),
-                    target,
+                    rst,
                     key_opt.as_deref(),
-                    true,
+                    true, // UI default is force
+                    false, // versioned
                     Some(progress_cb),
                     Some(token),
                 )
