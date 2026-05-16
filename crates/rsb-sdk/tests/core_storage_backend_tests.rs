@@ -21,7 +21,6 @@ fn test_local_storage_selection() {
         compression_level: Some(3),
         channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     // Should use local storage
@@ -121,9 +120,8 @@ fn test_s3_bucket_extraction_flat() {
         pause_on_low_battery: None,
         pause_on_high_cpu: None,
         compression_level: None,
-                channel_buffer_size: 8192,
+        channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     let bucket = config.s3_bucket.clone();
@@ -147,9 +145,8 @@ fn test_empty_bucket_uses_local() {
         pause_on_low_battery: None,
         pause_on_high_cpu: None,
         compression_level: None,
-                channel_buffer_size: 8192,
+        channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     let bucket = config.s3_bucket.as_ref().map(|b| b.trim());
@@ -217,9 +214,8 @@ fn test_local_storage_path_preservation() {
         pause_on_low_battery: None,
         pause_on_high_cpu: None,
         compression_level: None,
-                channel_buffer_size: 8192,
+        channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     assert_eq!(config.destination_path, dest_path);
@@ -251,9 +247,8 @@ fn test_s3_region_fallback() {
         pause_on_low_battery: None,
         pause_on_high_cpu: None,
         compression_level: None,
-                channel_buffer_size: 8192,
+        channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     let region = config
@@ -283,9 +278,8 @@ fn test_s3_endpoint_fallback() {
         pause_on_low_battery: None,
         pause_on_high_cpu: None,
         compression_level: None,
-                channel_buffer_size: 8192,
+        channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     let endpoint = config
@@ -324,7 +318,6 @@ fn test_complete_s3_config() {
         compression_level: Some(6),
         channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     let s3 = config.s3.unwrap();

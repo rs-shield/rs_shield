@@ -177,8 +177,8 @@ mod tests_expand_path {
     fn test_multiple_env_vars() {
         // Test with multiple variables
         unsafe {
-        std::env::set_var("TEST_VAR1", "value1");
-        std::env::set_var("TEST_VAR2", "value2");
+            std::env::set_var("TEST_VAR1", "value1");
+            std::env::set_var("TEST_VAR2", "value2");
         }
         let path = "$TEST_VAR1/backup/$TEST_VAR2";
         let expanded = expand_path(path);
@@ -191,7 +191,7 @@ mod tests_expand_path {
     #[test]
     fn test_mixed_tilde_and_env_vars() {
         unsafe {
-        std::env::set_var("BACKUP_TYPE", "daily");
+            std::env::set_var("BACKUP_TYPE", "daily");
         }
         let path = "~/backups/$BACKUP_TYPE";
         let expanded = expand_path(path);

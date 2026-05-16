@@ -34,7 +34,6 @@ fn test_config_and_paths_integration() {
         compression_level: Some(3),
         channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     assert_eq!(config.source_path, source.to_string_lossy().to_string());
@@ -224,7 +223,6 @@ fn test_complete_backup_scenario() {
         compression_level: Some(5),
         channel_buffer_size: 8192,
         max_threads: None,
-
     };
 
     // Walk the source directory

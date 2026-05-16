@@ -76,7 +76,10 @@ fn default_backup_mode() -> String {
 }
 
 fn default_exclude_patterns() -> Vec<String> {
-    DEFAULT_EXCLUDE_PATTERNS.iter().map(|&s| s.to_string()).collect()
+    DEFAULT_EXCLUDE_PATTERNS
+        .iter()
+        .map(|&s| s.to_string())
+        .collect()
 }
 
 fn default_channel_buffer() -> usize {

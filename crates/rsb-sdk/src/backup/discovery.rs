@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
-use rayon::prelude::*;
-use tracing::{debug, info};
-use crate::utils::{matches_exclude_pattern, walk_filtered};
 use crate::core::file_processor;
+use crate::utils::{matches_exclude_pattern, walk_filtered};
+use rayon::prelude::*;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info};
 
 pub fn discover_files(
     source: &Path,
@@ -20,7 +20,12 @@ pub fn discover_files(
     match std::fs::read_dir(source) {
         Ok(_) => info!("✅ Source directory is readable: {}", source.display()),
         Err(e) => {
-            return Err(format!("Cannot read source directory: {} (error: {})", source.display(), e).into());
+            return Err(format!(
+                "Cannot read source directory: {} (error: {})",
+                source.display(),
+                e
+            )
+            .into());
         }
     }
 
@@ -56,8 +61,12 @@ pub fn discover_files(
 
     // Sort files by priority for more efficient processing
     files.par_sort_by_key(|(full, _)| file_processor::get_file_priority(full));
-    
-    info!("📊 Found {} files to process from: {}", files.len(), source.display());
+
+    info!(
+        "📊 Found {} files to process from: {}",
+        files.len(),
+        source.display()
+    );
 
     Ok(files)
 }

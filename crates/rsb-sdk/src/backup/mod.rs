@@ -1,8 +1,8 @@
 // Backup modules organized by responsibility
 pub mod discovery;
 pub mod metadata;
-pub mod progress;
 pub mod processing;
+pub mod progress;
 pub mod stats;
 pub mod threading;
 

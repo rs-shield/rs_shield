@@ -1,11 +1,11 @@
+use crate::config::Config;
 use crate::core::cancellation::CancellationToken;
+use crate::core::file_processor;
 use crate::core::manifest::write_manifest;
 use crate::core::resource_monitor::spawn_resource_monitor;
-use crate::core::types::{FileMetadata, ProgressCallback};
-use crate::config::Config;
 use crate::core::types::FileStatus;
+use crate::core::types::{FileMetadata, ProgressCallback};
 use crate::report::ReportData;
-use crate::core::file_processor;
 use crate::utils::expand_path;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error};
 
 use super::discovery;
-use super::metadata::{load_previous_metadata, CachedEncryptionKey};
+use super::metadata::{CachedEncryptionKey, load_previous_metadata};
 use super::progress;
 use super::stats::{Stats, StatsSummary};
 use super::threading;
@@ -75,12 +75,13 @@ pub async fn perform_backup_with_cancellation(
 
     // ====================== DISCOVERY ======================
     let files = discovery::discover_files(source, &config.exclude_patterns)?;
-    
+
     if files.is_empty() {
         return Err(format!(
             "No files found to backup. Check path exists and contains files: {}",
             source.display()
-        ).into());
+        )
+        .into());
     }
 
     debug!("📋 Discovered {} files to backup", files.len());
@@ -224,7 +225,7 @@ fn build_report_data(
 ) -> ReportData {
     let errors = errors_list.lock().unwrap().clone();
     let has_errors = !errors.is_empty();
-    
+
     ReportData {
         operation: "Backup".to_string(),
         profile_path: String::new(),
@@ -257,7 +258,7 @@ mod tests {
             errors: 0,
         };
         let errors = Arc::new(Mutex::new(Vec::new()));
-        
+
         let report = build_report_data(start, "full", stats, errors);
         assert_eq!(report.status, "Success");
         assert_eq!(report.files_processed, 10);
@@ -272,7 +273,7 @@ mod tests {
             errors: 1,
         };
         let errors = Arc::new(Mutex::new(vec!["Error 1".to_string()]));
-        
+
         let report = build_report_data(start, "full", stats, errors);
         assert_eq!(report.status, "Failure with errors");
         assert_eq!(report.files_with_errors, 1);

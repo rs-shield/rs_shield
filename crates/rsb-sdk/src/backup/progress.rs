@@ -1,7 +1,7 @@
+use super::stats::Stats;
+use crate::core::types::ProgressCallback;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
-use crate::core::types::ProgressCallback;
-use super::stats::Stats;
 
 pub fn create_progress_bar(len: u64) -> ProgressBar {
     let pb = ProgressBar::new(len);
@@ -24,10 +24,7 @@ fn shorten_path(path: &Path) -> String {
             .and_then(|p| p.file_name())
             .and_then(|n| n.to_str())
             .unwrap_or("...");
-        let file = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("?");
+        let file = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
         format!("{}/{}", parent, file)
     } else {
         path.display().to_string()
@@ -48,22 +45,15 @@ pub fn update_progress(
     // Optional callback for UI integration
     if let Some(cb) = on_progress {
         let current = stats.get_processed() + stats.get_skipped() + stats.get_errors();
-        cb(
-            current,
-            total,
-            format!("📄 {}", display_path),
-        );
+        cb(current, total, format!("📄 {}", display_path));
     }
 }
 
 pub fn finish_progress_bar(pb: &ProgressBar, stats: &Stats) {
     let current = stats.get_processed() + stats.get_skipped() + stats.get_errors();
     let total = current; // We assume everything was processed
-    
-    pb.finish_with_message(format!(
-        "✅ Processing completed ({}/{})",
-        current, total
-    ));
+
+    pb.finish_with_message(format!("✅ Processing completed ({}/{})", current, total));
 }
 
 #[cfg(test)]

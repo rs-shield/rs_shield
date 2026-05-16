@@ -614,7 +614,6 @@ pub fn RealtimeSyncScreen() -> Element {
             ".DS_Store".to_string(),
             "node_modules".to_string(),
             "target".to_string(),
-            
         ]);
         status_msg.set("✅ Patterns restored to default".to_string());
     };
