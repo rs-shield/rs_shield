@@ -46,7 +46,7 @@ pub fn RestoreScreen() -> Element {
                         source_path.set(PathBuf::from(profile_data.destination_path));
                         key.set(profile_data.encryption_key);
 
-                         app_config
+                        app_config
                             .exclude_patterns
                             .set(profile_data.exclude_patterns);
                         app_config.backup_mode.set(profile_data.backup_mode);
@@ -194,7 +194,7 @@ pub fn RestoreScreen() -> Element {
                     snap_opt.as_deref(),
                     rst,
                     key_opt.as_deref(),
-                    true, // UI default is force
+                    true,  // UI default is force
                     false, // versioned
                     Some(progress_cb),
                     Some(token),

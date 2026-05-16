@@ -28,7 +28,11 @@ pub enum ListProfilesFormat {
 }
 
 #[derive(Parser)]
-#[command(name = "rsb-cli", version = "0.1.0-alpha.2", about = "Rust Shield Backup")]
+#[command(
+    name = "rsb-cli",
+    version = "0.1.0-alpha.2",
+    about = "Rust Shield Backup"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -416,7 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             report,
             healthcheck_url,
         } => {
-            //let _auth_token = check_fido2_auth().await?;
+            let _auth_token = check_fido2_auth().await?;
             if !config.exists() {
                 eprintln!(
                     "❌ Error: Configuration file not found: {}",
@@ -555,7 +559,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             date,
             verify,
         } => {
-            // let _auth_token = check_fido2_auth().await?;
+            let _auth_token = check_fido2_auth().await?;
             let cfg = config::load_config(&config)?;
             let profile_name = config
                 .file_stem()
@@ -952,8 +956,7 @@ fn calculate_retention_backups(policy: &str) -> usize {
         "60d" => 60,
         "90d" => 90,
         "6m" => 26,  // ~6 months at weekly backups
-        "1y" => 52,  // 52 weeks = ~1 year
-        "2y" => 104, // 2 years
+      ears
         "3y" => 156, // 3 years
         "5y" => 260, // 5 years
         _ => {
@@ -961,7 +964,8 @@ fn calculate_retention_backups(policy: &str) -> usize {
             if let Some(days_str) = policy.strip_suffix('d') {
                 // Pattern: "45d" -> 45 backups (daily)
                 if let Ok(days) = days_str.parse::<usize>() {
-                    return days;
+                    return days;  "1y" => 52,  // 52 weeks = ~1 year
+        "2y" => 104, // 2 y
                 }
             }
 

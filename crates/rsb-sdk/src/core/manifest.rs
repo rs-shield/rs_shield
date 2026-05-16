@@ -89,14 +89,18 @@ pub async fn read_manifest(
     // Tries to decompress (Zstd) - check magic number or just try decoding
     let mut decompressed = Vec::new();
     if copy_decode(&decrypted[..], &mut decompressed).is_ok() {
-        return String::from_utf8(decompressed)
-            .map_err(|e| format!("Manifest is not valid UTF-8 after decompression: {}", e).into());
+        return String::from_utf8(decompressed).map_err(|e| {
+            debug!("Manifest UTF-8 decode failed after decompression: {:?}", e);
+
+            "Backup metadata is corrupted or unreadable".into()
+        });
     }
 
     // Fallback: it wasn't compressed, try reading as raw string
-    String::from_utf8(decrypted).map_err(|e| {
-        error!("Manifest at {} is not compressed and not valid UTF-8", path);
-        format!("Manifest encoding error: {}", e).into()
+    String::from_utf8(decrypted).map_err(|_| {
+        debug!("Manifest parsing failed: {}", path);
+
+        "Backup metadata is corrupted or unreadable".into()
     })
 }
 
