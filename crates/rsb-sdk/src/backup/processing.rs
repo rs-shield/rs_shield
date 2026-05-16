@@ -75,6 +75,15 @@ pub async fn perform_backup_with_cancellation(
 
     // ====================== DISCOVERY ======================
     let files = discovery::discover_files(source, &config.exclude_patterns)?;
+    
+    if files.is_empty() {
+        return Err(format!(
+            "No files found to backup. Check path exists and contains files: {}",
+            source.display()
+        ).into());
+    }
+
+    debug!("📋 Discovered {} files to backup", files.len());
 
     // ====================== PREVIOUS METADATA ======================
     // Load metadata indexed by file hash for deduplication

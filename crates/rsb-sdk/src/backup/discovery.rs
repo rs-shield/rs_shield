@@ -16,6 +16,14 @@ pub fn discover_files(
         return Err(format!("Source path is not a directory: {}", source.display()).into());
     }
 
+    // Check read permissions
+    match std::fs::read_dir(source) {
+        Ok(_) => info!("✅ Source directory is readable: {}", source.display()),
+        Err(e) => {
+            return Err(format!("Cannot read source directory: {} (error: {})", source.display(), e).into());
+        }
+    }
+
     let walker = walk_filtered(source, exclude_patterns, true);
 
     let mut files: Vec<(PathBuf, PathBuf)> = walker
