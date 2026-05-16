@@ -280,7 +280,7 @@ enum Commands {
     /// List backup profiles
     ListProfiles {
         /// Profile directory
-        #[arg(short = 'd', long)]
+        #[arg(short, long = "dir")]
         directory: Option<PathBuf>,
 
         /// Output format
