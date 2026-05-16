@@ -6,6 +6,7 @@ use crate::config::Config;
 use crate::core::types::FileStatus;
 use crate::report::ReportData;
 use crate::core::file_processor;
+use crate::utils::expand_path;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -55,7 +56,8 @@ pub async fn perform_backup_with_cancellation(
     cancellation_token: Option<CancellationToken>,
 ) -> Result<ReportData, Box<dyn std::error::Error>> {
     let start_time = Instant::now();
-    let source = Path::new(&config.source_path);
+    let source_expanded = expand_path(&config.source_path);
+    let source = source_expanded.as_path();
 
     if !source.is_dir() {
         return Err(format!("Source path is not a directory: {}", source.display()).into());
