@@ -955,45 +955,49 @@ fn calculate_retention_backups(policy: &str) -> usize {
         "30d" => 30,
         "60d" => 60,
         "90d" => 90,
-        "6m" => 26,  // ~6 months at weekly backups
-      ears
-        "3y" => 156, // 3 years
-        "5y" => 260, // 5 years
+
+        // Monthly presets (weekly backups)
+        "6m" => 26,   // ~6 months
+        "12m" => 52,  // ~1 year
+
+        // Yearly presets (weekly backups)
+        "1y" => 52,
+        "2y" => 104,
+        "3y" => 156,
+        "5y" => 260,
+
         _ => {
-            // Parse custom patterns
+            // Parse custom daily retention
             if let Some(days_str) = policy.strip_suffix('d') {
-                // Pattern: "45d" -> 45 backups (daily)
                 if let Ok(days) = days_str.parse::<usize>() {
-                    return days;  "1y" => 52,  // 52 weeks = ~1 year
-        "2y" => 104, // 2 y
+                    return days;
                 }
             }
 
+            // Parse custom monthly retention
             if let Some(months_str) = policy.strip_suffix('m') {
-                // Pattern: "12m" -> ~52 backups (weekly frequency)
                 if let Ok(months) = months_str.parse::<usize>() {
-                    let weeks = (months * 30) / 7; // Rough conversion to weeks
+                    let weeks = (months * 30) / 7;
                     return weeks.max(1);
                 }
             }
 
+            // Parse custom yearly retention
             if let Some(years_str) = policy.strip_suffix('y') {
-                // Pattern: "2y" -> ~104 backups (weekly frequency)
                 if let Ok(years) = years_str.parse::<usize>() {
-                    return years * 52; // Assumes weekly backups
+                    return years * 52;
                 }
             }
 
-            // Fallback for unknown patterns
             warn!(
                 "Unknown retention policy: '{}'. Using default: 10 backups",
                 policy
             );
+
             10
         }
     }
 }
-
 async fn send_healthcheck(url: &Option<String>, suffix: &str) {
     if let Some(base_url) = url {
         let target = format!("{}{}", base_url, suffix);
