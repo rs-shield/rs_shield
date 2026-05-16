@@ -163,7 +163,7 @@ pub fn RestoreScreen() -> Element {
                 };
 
                 if rst.as_os_str().is_empty() {
-                    return Err("❌ Por favor, selecione um diretório de destino para o restauro.".to_string());
+                    return Err("❌ Please select a restore target.".to_string());
                 }
 
                 if bkp.as_os_str().is_empty() && s3_bucket_opt.is_none() {
