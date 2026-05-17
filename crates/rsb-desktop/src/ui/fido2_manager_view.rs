@@ -16,7 +16,6 @@ pub fn Fido2ManagerView() -> Element {
     let mut message = use_signal(|| String::new());
     let fido2_manager_arc = use_context::<Arc<Mutex<Fido2Manager>>>();
 
-    // 1. Clone for the use_effect
     let fido2_manager_for_effect = fido2_manager_arc.clone();
     use_effect(move || {
         let mgr_arc = fido2_manager_for_effect.clone();
@@ -26,10 +25,8 @@ pub fn Fido2ManagerView() -> Element {
         });
     });
 
-    // 2. Clone for the on_register closure
     let fido2_manager_for_register = fido2_manager_arc.clone();
     let on_register = move |_| {
-        // 3. Clone again for inside spawn (async future)
         let mgr_arc = fido2_manager_for_register.clone();
 
         spawn(async move {

@@ -13,8 +13,6 @@ pub struct S3Config {
     pub bucket: Option<String>,
     pub region: Option<String>,
     pub endpoint: Option<String>,
-    // NOTE: access_key and secret_key are never saved in TOML for security!
-    // They use environment variables, keyring, or an encrypted file.
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -93,25 +91,22 @@ pub fn CreateProfileScreen() -> Element {
         }
 
         let s3_config = if use_s3() {
-            // Nunca salvar credenciais no TOML por segurança!
             Some(S3Config {
                 bucket: if s3_bucket().is_empty() {
                     None
                 } else {
                     Some(s3_bucket())
-                }, // Never save credentials in TOML for security!
+                },
                 region: if s3_region().is_empty() {
                     None
                 } else {
                     Some(s3_region())
-                }, // access_key and secret_key are managed via:
+                },
                 endpoint: if s3_endpoint().is_empty() {
                     None
                 } else {
                     Some(s3_endpoint())
-                }, // 1. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-                   // 2. Encrypted file (~/.rs-shield/s3_credentials.enc)
-                   // 3. System keyring
+                },
             })
         } else {
             None

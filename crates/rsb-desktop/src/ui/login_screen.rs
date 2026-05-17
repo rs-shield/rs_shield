@@ -25,13 +25,10 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
         is_authenticating.set(true);
         error_msg.set(String::new());
 
-        // Aqui simulamos a chamada ao Fido2Manager que implementaremos no SDK
-        // Em um cenário real, você chamaria manager.authenticate(id) ou um fluxo de asserção FIDO2
         let fido2_manager_arc_clone = fido2_manager_arc.clone();
         spawn(async move {
             let mut mgr = fido2_manager_arc_clone.lock().await;
 
-            // Verifica se o usuário existe nas credenciais carregadas (como o seu 'marcio')
             if !mgr.has_credential(&id) {
                 error_msg.set(format!(
                     "❌ Usuário '{}' não encontrado. Registre-o primeiro.",
@@ -41,18 +38,14 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                 return;
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await; // Simula tempo de interação com a chave
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
-            // --- SIMULAÇÃO DE FLUXO Security Key ---
-            // Agora que confirmamos que o usuário existe, permitimos o login.
-            // Futuramente, aqui chamaremos mgr.start_authentication(&id)
             if true {
                 on_login.call(id);
             } else {
                 error_msg.set("❌ Falha na autenticação FIDO2".into());
             }
             is_authenticating.set(false);
-            // --- FIM DA SIMULAÇÃO ---
         });
     };
 

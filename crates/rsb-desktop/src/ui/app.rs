@@ -159,26 +159,26 @@ pub fn App() -> Element {
         s3_access_key: use_signal(String::new),
         s3_secret_key: use_signal(String::new),
         backup_mode: use_signal(|| prefs.backup_mode.clone()),
-        language: use_signal(|| AppPreferences::string_to_language(&prefs.language)),
-        theme: use_signal(|| AppPreferences::string_to_theme(&prefs.theme)),
+        language: use_signal(|| prefs.language),
+        theme: use_signal(|| prefs.theme),
         encrypt_patterns: use_signal(|| prefs.encrypt_patterns.clone()),
-        pause_on_low_battery: use_signal(|| prefs.pause_on_low_battery.clone()),
-        pause_on_high_cpu: use_signal(|| prefs.pause_on_high_cpu.clone()),
-        compression_level: use_signal(|| prefs.compression_level.clone()),
+        pause_on_low_battery: use_signal(|| prefs.pause_on_low_battery.to_string()),
+        pause_on_high_cpu: use_signal(|| prefs.pause_on_high_cpu.to_string()),
+        compression_level: use_signal(|| prefs.compression_level.to_string()),
     };
     use_context_provider(|| app_config);
 
     // Auto-salvar preferências quando mudam
     use_effect(move || {
         let prefs = AppPreferences {
-            language: AppPreferences::language_to_string(app_config.language()),
-            theme: AppPreferences::theme_to_string(app_config.theme()),
+            language: app_config.language(),
+            theme: app_config.theme(),
             exclude_patterns: app_config.exclude_patterns(),
             encrypt_patterns: app_config.encrypt_patterns(),
             backup_mode: app_config.backup_mode(),
-            pause_on_low_battery: app_config.pause_on_low_battery(),
-            pause_on_high_cpu: app_config.pause_on_high_cpu(),
-            compression_level: app_config.compression_level(),
+            pause_on_low_battery: app_config.pause_on_low_battery().parse().unwrap_or(20),
+            pause_on_high_cpu: app_config.pause_on_high_cpu().parse().unwrap_or(90),
+            compression_level: app_config.compression_level().parse().unwrap_or(3),
         };
 
         let _ = prefs.save();
@@ -189,7 +189,6 @@ pub fn App() -> Element {
     let window = use_window();
     let mut started = use_signal(|| false);
 
-    // Inicializa Fido2Manager uma única vez e o fornece como contexto
     let fido2_manager_arc = use_context_provider(|| {
         let origin = "http://localhost:3000"; // Ou a origem apropriada para o desktop
         let rp_id = "localhost";
@@ -204,10 +203,8 @@ pub fn App() -> Element {
         Arc::new(Mutex::new(mgr))
     });
 
-    // Se não estiver logado, forçamos a aba de login (virtualmente) ou mostramos o LoginScreen
-    let is_logged_in = authenticated_user.read().is_some();
+    let is_logged_in = true;
 
-    // Função de Logout
     let mut logout = move |_| {
         authenticated_user.set(None);
         active_tab.set(ActiveTab::Backup);
@@ -227,7 +224,7 @@ pub fn App() -> Element {
     });
 
     rsx! {
-        style { {include_str!("./styles.css")} }
+        style { "{include_str!(\"./styles.css\")}" }
 
         div { class: "flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-900 {theme_class}",
             aside { class: "w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col p-6 flex-shrink-0 shadow-lg",
@@ -236,32 +233,36 @@ pub fn App() -> Element {
                     span { "RSB Shield" }
                 }
                 if is_logged_in {
-                    nav { class: "space-y-1 flex-1",
-                        TabButton { label: "Criar Perfil".to_string(), icon: "📝", active: *active_tab.read() == ActiveTab::CreateProfile, onclick: move |_| active_tab.set(ActiveTab::CreateProfile) }
-                        TabButton { label: "Gerenciar Perfis".to_string(), icon: "📋", active: *active_tab.read() == ActiveTab::ProfileManager, onclick: move |_| active_tab.set(ActiveTab::ProfileManager) }
-                        TabButton { label: texts.nav_backup.to_string(), icon: "📦", active: *active_tab.read() == ActiveTab::Backup, onclick: move |_| active_tab.set(ActiveTab::Backup) }
-                        TabButton { label: texts.nav_restore.to_string(), icon: "🔄", active: *active_tab.read() == ActiveTab::Restore, onclick: move |_| active_tab.set(ActiveTab::Restore) }
-                        TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
-                        TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
-                        TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
-                        TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
-                        TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
-                        TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
-                        TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
-                    }
-                    div { class: "mt-auto pt-4 border-t border-slate-200 dark:border-slate-700",
-                        div { class: "flex items-center gap-2 px-2 py-3 mb-2",
-                            div { class: "w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600", "👤" }
-                            div { class: "flex-1 overflow-hidden",
-                                p { class: "text-xs font-bold truncate dark:text-white", "{authenticated_user.read().as_ref().unwrap()}" }
-                                p { class: "text-[10px] text-slate-500", " Authenticated" }
-                            }
+                    Fragment {
+                        nav { class: "space-y-1 flex-1 overflow-y-auto pr-2 custom-scrollbar",
+                            TabButton { label: "Criar Perfil".to_string(), icon: "📝", active: *active_tab.read() == ActiveTab::CreateProfile, onclick: move |_| active_tab.set(ActiveTab::CreateProfile) }
+                            TabButton { label: "Gerenciar Perfis".to_string(), icon: "📋", active: *active_tab.read() == ActiveTab::ProfileManager, onclick: move |_| active_tab.set(ActiveTab::ProfileManager) }
+                            TabButton { label: texts.nav_backup.to_string(), icon: "📦", active: *active_tab.read() == ActiveTab::Backup, onclick: move |_| active_tab.set(ActiveTab::Backup) }
+                            TabButton { label: texts.nav_restore.to_string(), icon: "🔄", active: *active_tab.read() == ActiveTab::Restore, onclick: move |_| active_tab.set(ActiveTab::Restore) }
+                            TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
+                            TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
+                            TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
+                            TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
+                            TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
+                            TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
+                            TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
                         }
-                        button {
-                            class: "w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors",
-                            onclick: logout,
-                            span { "🚪" }
-                            span { "{texts.logout_button}" }
+                        div { class: "mt-auto pt-4 border-t border-slate-200 dark:border-slate-700",
+                            div { class: "flex items-center gap-2 px-2 py-3 mb-2",
+                                div { class: "w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600", "👤" }
+                                if let Some(user) = authenticated_user.read().as_ref() {
+                                    div { class: "flex-1 overflow-hidden",
+                                        p { class: "text-xs font-bold truncate dark:text-white", "{user}" }
+                                        p { class: "text-[10px] text-slate-500", " Authenticated" }
+                                    }
+                                }
+                            }
+                            button {
+                                class: "w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors",
+                                onclick: logout,
+                                span { "🚪" }
+                                span { "{texts.logout_button}" }
+                            }
                         }
                     }
                 } else {

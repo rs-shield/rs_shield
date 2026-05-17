@@ -1,5 +1,18 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum AuthError {
+    #[error("Token expired")]
+    Expired,
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+    #[error("FIDO2 operation failed: {0}")]
+    Fido2Error(String),
+    #[error("Unauthorized: missing scope {0}")]
+    MissingScope(String),
+}
 
 /// JWT Claims - Stateless (sem server-side store)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +23,16 @@ pub struct SessionClaims {
     pub iat: i64,            // issued at (unix timestamp)
     pub exp: i64,            // expiration
     pub aud: String,         // "rsb-shield"
+}
+
+impl SessionClaims {
+    pub fn is_expired(&self) -> bool {
+        Utc::now().timestamp() >= self.exp
+    }
+
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.iter().any(|s| s == scope)
+    }
 }
 
 /// Credenciais para Security Keyunlock

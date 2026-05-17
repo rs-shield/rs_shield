@@ -432,42 +432,42 @@ fn SlackForm(
                 onchange: handle_enable_change
             }
         }
-        }
 
-        if enabled() {
-            // Webhook URL
-            div {
-                label { class: "label font-medium text-slate-700 dark:text-slate-300", "Webhook URL" }
-                input {
-                    r#type: "text",
-                    placeholder: "https://hooks.slack.com/services/T.../B.../...",
-                    class: "input input-bordered w-full",
-                    value: webhook_url(),
-                    onchange: move |e| {
-                        webhook_url.set(e.value());
-                        handle_update(e);
+            if enabled() {
+                // Webhook URL
+                div {
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Webhook URL" }
+                    input {
+                        r#type: "text",
+                        placeholder: "https://hooks.slack.com/services/T.../B.../...",
+                        class: "input input-bordered w-full",
+                        value: webhook_url(),
+                        onchange: move |e| {
+                            webhook_url.set(e.value());
+                            handle_update(e);
+                        }
+                    }
+                    p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
+                        "Obtenha em: api.slack.com → Incoming Webhooks"
                     }
                 }
-                p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                    "Obtenha em: api.slack.com → Incoming Webhooks"
-                }
-            }
 
-            // Mention User (Optional)
-            div {
-                label { class: "label font-medium text-slate-700 dark:text-slate-300", "Mencionar Usuário (Opcional)" }
-                input {
-                    r#type: "text",
-                    placeholder: "U123456 ou nome_usuario",
-                    class: "input input-bordered w-full",
-                    value: mention_user(),
-                    onchange: move |e| {
-                        mention_user.set(e.value());
-                        handle_update(e);
+                // Mention User (Optional)
+                div {
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Mencionar Usuário (Opcional)" }
+                    input {
+                        r#type: "text",
+                        placeholder: "U123456 ou nome_usuario",
+                        class: "input input-bordered w-full",
+                        value: mention_user(),
+                        onchange: move |e| {
+                            mention_user.set(e.value());
+                            handle_update(e);
+                        }
                     }
-                }
-                p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                    "ID do usuário ou @username"
+                    p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
+                        "ID do usuário ou @username"
+                    }
                 }
             }
         }

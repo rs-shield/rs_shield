@@ -1,14 +1,16 @@
 use chrono::Local;
 use clap::{Parser, Subcommand};
+use rsb_sdk::server::LoginFlow;
+use rsb_sdk::server::routes::check_fido2_auth;
+use rsb_sdk::{auth, server};
 use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::utils::ensure_directory_exists;
 use rsb_sdk::{config, core, credentials::Fido2Manager};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::fs;
 use tokio::sync::Mutex;
 use tracing::{Level, info, warn};
-pub mod auth;
 pub mod config_cmd;
 pub mod fido2;
 pub mod list_profiles_cmd;
@@ -302,47 +304,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().with_max_level(Level::WARN).init();
 
     let cli = Cli::parse();
-
-    async fn check_fido2_auth() -> Result<String, Box<dyn std::error::Error>> {
-        let home = dirs::home_dir().ok_or("Home directory not found")?;
-        let rsb_dir = home.join(".rs-shield");
-        let auth_file = rsb_dir.join("auth_token");
-
-        if !auth_file.exists() {
-            return Err("❌ Not authenticated. Please run: rsb login <user_id>".into());
-        }
-
-        let token =
-            fs::read_to_string(&auth_file).map_err(|_| "❌ Failed to read authentication token")?;
-
-        let trimmed_token = token.trim();
-        if trimmed_token.is_empty() {
-            return Err("❌ Invalid authentication token".into());
-        }
-
-        // 1. Validação Local (JWT Signature & Expiration)
-        let jwt_mgr = rsb_sdk::auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
-        jwt_mgr
-            .verify_token(trimmed_token)
-            .map_err(|e| format!("❌ Session expired or invalid: {}", e))?;
-
-        // 2. Validação Remota (Consulta ao servidor para verificar revogação/JTI)
-        let client = reqwest::Client::new();
-        let res = client
-            .get("http://localhost:3000/api/auth/verify")
-            .header("Authorization", format!("Bearer {}", trimmed_token))
-            .send()
-            .await;
-
-        match res {
-            Ok(resp) if resp.status().is_success() => Ok(trimmed_token.to_string()),
-            Ok(_) => Err("❌ Session revoked or expired on server. Please login again.".into()),
-            Err(_) => {
-                println!("⚠️ Auth server unreachable. Proceeding with local validation only.");
-                Ok(trimmed_token.to_string())
-            }
-        }
-    }
 
     match cli.command {
         Commands::CreateProfile {
@@ -812,12 +773,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Server { port } => {
             // Dummy sender since we're running server standalone
+            
             let (tx, _rx) = tokio::sync::oneshot::channel();
-            auth::routes::start_auth_server(port, tx).await?;
+            server::routes::start_auth_server(port, tx).await?;
         }
 
         Commands::Login { user_id } => {
-            let mut login_flow = crate::auth::LoginFlow::new();
+            let mut login_flow = LoginFlow::new();
 
             match login_flow.start(user_id.clone()).await {
                 Ok(token) => {
@@ -841,7 +803,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let perms = std::fs::Permissions::from_mode(0o600);
                                 fs::set_permissions(&auth_file, perms)?;
                             }
-
+ 
                             info!("✅ Authentication successful!");
                             info!("📍 Token saved to: {}", auth_file.display());
                             println!("✅ You are now authenticated!");
