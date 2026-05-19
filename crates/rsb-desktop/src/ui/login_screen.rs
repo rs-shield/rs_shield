@@ -32,14 +32,18 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 
         let fido2_manager_arc_clone = fido2_for_login.clone();
         spawn(async move {
-            let mut mgr = fido2_manager_arc_clone.lock().await;
+            let has_cred = {
+                let mut mgr = fido2_manager_arc_clone.lock().await;
 
-            // Carregar do disco para garantir que temos os dados mais recentes
-            if let Ok(path) = Fido2Manager::default_storage_path() {
-                let _ = mgr.load_from_file(&path);
-            }
+                // Carregar do disco para garantir que temos os dados mais recentes
+                if let Ok(path) = Fido2Manager::default_storage_path() {
+                    let _ = mgr.load_from_file(&path);
+                }
 
-            if !mgr.has_credential(&id) {
+                mgr.has_credential(&id)
+            }; // O cadeado (lock) é liberado aqui ao sair do escopo
+
+            if !has_cred {
                 error_msg.set(format!(
                     "❌ Identificador '{}' não encontrado.",
                     id
@@ -50,8 +54,12 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 
             error_msg.set("🌐 Abrindo navegador para autenticação...".into());
             let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
-            if let Err(e) = rsb_sdk::fido2::fido2_web::run_server(fido2_manager_arc_clone.clone(), Html(html_content)).await {
-                error_msg.set(format!("❌ Erro: {}", e));
+            
+            let result = rsb_sdk::fido2::fido2_web::run_server(fido2_manager_arc_clone.clone(), Html(html_content)).await;
+            
+            match result {
+                Ok(_) => on_login.call(id),
+                Err(e) => error_msg.set(format!("❌ Erro: {}", e)),
             }
             is_authenticating.set(false);
         });
