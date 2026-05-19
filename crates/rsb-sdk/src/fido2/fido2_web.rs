@@ -231,7 +231,7 @@ async fn delete_credential(
 
     let mut m = state.lock().await;
 
-    m.revoke_credential(&user_id)
+    m.revoke_user(&user_id)
         .map(|_| Json(true))
         .map_err(|e| {
             error!("Delete credential error: {}", e);
@@ -255,18 +255,6 @@ pub async fn run_server(
     manager: Arc<Mutex<Fido2Manager>>,
     html: Html<&'static str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    {
-        let mut m = manager.lock().await;
-
-        if let Ok(path) = Fido2Manager::default_storage_path() {
-            println!("📂 Loading credentials");
-
-            if let Err(e) = m.load_from_file(&path) {
-                eprintln!("⚠️ Failed to load credentials: {}", e);
-            }
-        }
-    }
-
     let router = create_router(manager,  html);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;

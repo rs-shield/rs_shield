@@ -12,7 +12,7 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/rs-shield/rs_shield"
 authors = ["Marcio Zebedeu"]
-rust-version = "1.94.0"
+rust-version = "1.95.0"
 
 [workspace.dependencies]
 

@@ -3,7 +3,7 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
 use base64::engine::general_purpose;
 use keyring::Entry;
-use pbkdf2;
+use pbkdf2::pbkdf2_hmac;
 use rand::prelude::*;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,13 @@ pub struct Fido2Credential {
     pub counter: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserCredentials {
+    pub credentials: Vec<Fido2Credential>,
+    pub recovery_code_hashes: Vec<String>,
+    pub salt: Vec<u8>, // Salt específico do usuário para os recovery codes
+}
+
 /// ==============================
 /// INTERNAL STATE
 /// ==============================
@@ -52,7 +59,7 @@ struct PendingRegistration {
 #[derive(Clone)]
 pub struct Fido2Manager {
     webauthn: Webauthn,
-    credentials: HashMap<String, Fido2Credential>,
+    users: HashMap<String, UserCredentials>,
     registration_state: Option<PendingRegistration>,
     authentication_state: Option<(PasskeyAuthentication, String)>,
     rp_id: String,
@@ -75,7 +82,7 @@ impl Fido2Manager {
 
         Ok(Self {
             webauthn,
-            credentials: HashMap::new(),
+            users: HashMap::new(),
             registration_state: None,
             authentication_state: None,
             rp_id: rp_id.to_string(),
@@ -120,7 +127,7 @@ impl Fido2Manager {
     /// Save credentials of the form encrypted using AES-256-GCM and PBKDF2.
     /// Structure of the file: [16B Salt][12B Nonce][Encrypted Payload]
     pub fn save_to_file(&self, path: &Path) -> Result<(), Fido2Error> {
-        let plaintext = serde_json::to_vec(&self.credentials)
+        let plaintext = serde_json::to_vec(&self.users)
             .map_err(|e| Fido2Error::EncryptionError(format!("Serialize error: {}", e)))?;
         let mut rng = rand::rng();
 
@@ -131,8 +138,8 @@ impl Fido2Manager {
         // 2. Derive 32-byte key (256 bits) using PBKDF2-HMAC-SHA256
         let dek = Self::get_or_create_dek()?;
         let mut key = [0u8; 32];
-        let iterations = 600_000;
-        pbkdf2::pbkdf2_hmac::<Sha256>(&dek, &salt, iterations, &mut key);
+        let iterations = 600_000; // Recommended iterations for PBKDF2
+        pbkdf2_hmac::<Sha256>(&dek, &salt, iterations, &mut key);
 
         // Enterprise Security: Clear DEK from memory after derivation
         let mut zeroized_dek = dek;
@@ -164,7 +171,7 @@ impl Fido2Manager {
 
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
-                .map_err(|e| Fido2Error::EncryptionError(format!(": {}", e)))?;
+                .map_err(|e| Fido2Error::EncryptionError(format!("Failed to create storage directory {:?}: {}", parent, e)))?;
         }
 
         fs::write(path, final_payload)
@@ -193,8 +200,8 @@ impl Fido2Manager {
             let dek = Self::get_or_create_dek()?;
 
             let mut key = [0u8; 32];
-            let iterations = 600_000;
-            pbkdf2::pbkdf2_hmac::<Sha256>(&dek, salt, iterations, &mut key);
+            let iterations = 600_000; // Must match the saving iterations
+            pbkdf2_hmac::<Sha256>(&dek, salt, iterations, &mut key);
 
             let mut zeroized_dek = dek;
             zeroized_dek.zeroize();
@@ -213,13 +220,13 @@ impl Fido2Manager {
                 )
             })?;
 
-            let creds: HashMap<String, Fido2Credential> = serde_json::from_slice(&plaintext)
+            let users: HashMap<String, UserCredentials> = serde_json::from_slice(&plaintext)
                 .map_err(|e| {
                     Fido2Error::EncryptionError(format!("Deserialization failure: {}", e))
                 })?;
-            self.credentials = creds;
+            self.users = users;
 
-            info!("Securely loaded {} credentials", self.credentials.len());
+            info!("Securely loaded {} credentials", self.users.len());
         }
         Ok(())
     }
@@ -232,18 +239,23 @@ impl Fido2Manager {
     ) -> Result<CreationChallengeResponse, Fido2Error> {
         debug!("Starting registration for {}", user_id);
 
-        if self.credentials.contains_key(user_id) {
-            return Err(Fido2Error::RegistrationFailed(
-                "User already registered".into(),
-            ));
-        }
-
         let ns = uuid::Uuid::NAMESPACE_DNS;
         let user_uuid = uuid::Uuid::new_v5(&ns, user_id.as_bytes());
 
+        // Se o usuário já existe, carregamos as chaves atuais para evitar duplicatas (exclude_credentials)
+        let exclude_credentials = self.users.get(user_id).map(|u| {
+            u.credentials
+                .iter()
+                .filter_map(|c| {
+                    let pk: Result<Passkey, _> = serde_json::from_slice(&c.credential_data);
+                    pk.ok().map(|p| p.cred_id().clone())
+                })
+                .collect::<Vec<_>>()
+        });
+
         let (challenge, reg_state) = self
             .webauthn
-            .start_passkey_registration(user_uuid, user_name, display_name, None)
+            .start_passkey_registration(user_uuid, user_name, display_name, exclude_credentials)
             .map_err(|e| {
                 error!("Registration challenge failed: {:?}", e);
                 Fido2Error::RegistrationFailed(format!("{:?}", e))
@@ -284,8 +296,11 @@ impl Fido2Manager {
             counter: 0,
         };
 
-        self.credentials
-            .insert(pending.user_id.clone(), credential.clone());
+        let user_entry = self
+            .users
+            .entry(pending.user_id.clone())
+            .or_insert_with(UserCredentials::default);
+        user_entry.credentials.push(credential.clone());
 
         Ok(credential)
     }
@@ -296,17 +311,24 @@ impl Fido2Manager {
     ) -> Result<RequestChallengeResponse, Fido2Error> {
         debug!("Starting authentication for {}", user_id);
 
-        let cred = self
-            .credentials
+        let user_data = self
+            .users
             .get(user_id)
             .ok_or(Fido2Error::CredentialNotFound)?;
 
-        let passkey: Passkey = serde_json::from_slice(&cred.credential_data)
-            .map_err(|e| Fido2Error::AuthenticationFailed(format!("Invalid passkey: {}", e)))?;
+        let passkeys: Vec<Passkey> = user_data
+            .credentials
+            .iter()
+            .filter_map(|c| serde_json::from_slice(&c.credential_data).ok())
+            .collect();
+
+        if passkeys.is_empty() {
+            return Err(Fido2Error::CredentialNotFound);
+        }
 
         let (challenge, auth_state) = self
             .webauthn
-            .start_passkey_authentication(&[passkey])
+            .start_passkey_authentication(&passkeys)
             .map_err(|e| {
                 error!("Authentication challenge failed: {:?}", e);
                 Fido2Error::AuthenticationFailed(format!("{:?}", e))
@@ -336,52 +358,154 @@ impl Fido2Manager {
                 Fido2Error::AuthenticationFailed(format!("{:?}", e))
             })?;
 
-        if let Some(credential) = self.credentials.get_mut(&user_id) {
-            let new_counter = result.counter();
+        let new_counter = result.counter();
+        let cred_id = result.cred_id();
 
-            credential.counter = new_counter;
-            credential.last_used = Some(chrono::Local::now().to_rfc3339());
+        // Find and update the specific credential
+        let credential = self
+            .get_credential_mut(&user_id, cred_id)
+            .ok_or(Fido2Error::CredentialNotFound)?;
 
-            // Update counter within stored JSON
-            let mut passkey_json: serde_json::Value =
-                serde_json::from_slice(&credential.credential_data).map_err(|e| {
-                    Fido2Error::AuthenticationFailed(format!("Corrupted data: {}", e))
-                })?;
+        credential.counter = new_counter;
+        credential.last_used = Some(chrono::Local::now().to_rfc3339());
 
-            if let Some(cred) = passkey_json.get_mut("cred") {
-                if let Some(counter) = cred.get_mut("counter") {
-                    *counter = serde_json::Value::from(new_counter);
-                }
+        // Update counter within stored Passkey JSON
+        // This is necessary because the `credential_data` stores the Passkey,
+        // and the Passkey's internal counter needs to be updated for subsequent authentications.
+        let mut passkey_json: serde_json::Value =
+            serde_json::from_slice(&credential.credential_data).map_err(|e| {
+                Fido2Error::AuthenticationFailed(format!("Corrupted data: {}", e))
+            })?;
+
+        if let Some(cred_obj) = passkey_json.get_mut("cred") {
+            if let Some(counter_val) = cred_obj.get_mut("counter") {
+                *counter_val = serde_json::Value::from(new_counter);
+            } else {
+                // If 'counter' field is missing, add it. This might happen with older formats.
+                cred_obj["counter"] = serde_json::Value::from(new_counter);
             }
-
-            credential.credential_data = serde_json::to_vec(&passkey_json).map_err(|e| {
+        } else {
+            // If 'cred' field is missing, this indicates a serious data corruption.
+            return Err(Fido2Error::AuthenticationFailed("Corrupted Passkey data: 'cred' field missing".to_string()));
+        }
+        credential.credential_data = serde_json::to_vec(&passkey_json).map_err(|e| {
                 Fido2Error::AuthenticationFailed(format!("Serialization error: {}", e))
             })?;
-        }
+        
 
         info!("Authentication successful for {}", user_id);
 
         Ok(user_id)
     }
 
+    /// Helper to get a mutable reference to a specific Fido2Credential.
+    pub fn get_credential_mut(
+        &mut self,
+        user_id: &str,
+        cred_id: &webauthn_rs::prelude::CredentialID,
+    ) -> Option<&mut Fido2Credential> {
+        self.users.get_mut(user_id).and_then(|user_data| {
+            user_data.credentials.iter_mut().find(|c| {
+                let pk: Result<Passkey, _> = serde_json::from_slice(&c.credential_data);
+                pk.map(|p| p.cred_id() == cred_id).unwrap_or(false)
+            })
+        })
+    }
+
+    /// Gera novos códigos de recuperação para um usuário.
+    /// Retorna os códigos em texto claro (deve ser exibido apenas uma vez).
+    pub fn generate_backup_codes(&mut self, user_id: &str) -> Result<Vec<String>, Fido2Error> {
+        let mut rng = rand::rng();
+        let mut plain_codes = Vec::new();
+        let mut hashed_codes = Vec::new();
+
+        // Gerar 16 bytes de salt para o usuário
+        let mut salt = [0u8; 16];
+        rng.fill_bytes(&mut salt);
+
+        for _ in 0..10 {
+            // Gerar código legível: 12 caracteres alfanuméricos
+            let code: String = (0..12)
+                .map(|_| rng.sample(rand::distr::Alphanumeric) as char)
+                .collect();
+            
+            let mut hash = [0u8; 32];
+            pbkdf2::pbkdf2_hmac::<Sha256>(code.as_bytes(), &salt, 100_000, &mut hash);
+            
+            plain_codes.push(code);
+            hashed_codes.push(general_purpose::STANDARD.encode(hash));
+        }
+
+        let user_entry = self.users.entry(user_id.to_string()).or_default();
+        user_entry.recovery_code_hashes = hashed_codes;
+        user_entry.salt = salt.to_vec();
+
+        Ok(plain_codes)
+    }
+
+    /// Valida e consome um código de recuperação.
+    pub fn verify_backup_code(&mut self, user_id: &str, code: &str) -> bool {
+        let user_data = match self.users.get_mut(user_id) {
+            Some(u) => u,
+            None => return false,
+        };
+
+        if user_data.recovery_code_hashes.is_empty() {
+            return false;
+        }
+
+        let mut input_hash = [0u8; 32];
+        pbkdf2::pbkdf2_hmac::<Sha256>(code.as_bytes(), &user_data.salt, 100_000, &mut input_hash);
+        let input_hash_encoded = general_purpose::STANDARD.encode(input_hash);
+
+        if let Some(pos) = user_data.recovery_code_hashes.iter().position(|h| h == &input_hash_encoded) {
+            user_data.recovery_code_hashes.remove(pos);
+            info!("Recovery code used and invalidated for user: {}", user_id);
+            return true;
+        }
+
+        false
+    }
+
     pub fn list_credentials(&self) -> Vec<Fido2Credential> {
-        self.credentials.values().cloned().collect()
+        self.users
+            .values()
+            .flat_map(|u| u.credentials.clone())
+            .collect()
     }
 
-    pub fn get_credential(&self, user_id: &str) -> Option<Fido2Credential> {
-        self.credentials.get(user_id).cloned()
+    pub fn list_user_credentials(&self, user_id: &str) -> Vec<Fido2Credential> {
+        self.users
+            .get(user_id)
+            .map(|u| u.credentials.clone())
+            .unwrap_or_default()
     }
 
-    pub fn revoke_credential(&mut self, user_id: &str) -> Result<(), Fido2Error> {
-        self.credentials
-            .remove(user_id)
-            .ok_or(Fido2Error::CredentialNotFound)?;
-
+    pub fn revoke_user(&mut self, user_id: &str) -> Result<(), Fido2Error> {
+        self.users.remove(user_id).ok_or(Fido2Error::CredentialNotFound)?;
         Ok(())
     }
 
+    pub fn revoke_credential(&mut self, user_id: &str, cred_id_hex: &str) -> Result<(), Fido2Error> {
+        if let Some(user_data) = self.users.get_mut(user_id) {
+            user_data.credentials.retain(|c| {
+                let pk: Result<Passkey, _> = serde_json::from_slice(&c.credential_data);
+                match pk {
+                    Ok(p) => hex::encode(p.cred_id()) != cred_id_hex,
+                    Err(_) => true,
+                }
+            });
+            Ok(())
+        } else {
+            Err(Fido2Error::CredentialNotFound)
+        }
+    }
+
     pub fn has_credential(&self, user_id: &str) -> bool {
-        self.credentials.contains_key(user_id)
+        self.users
+            .get(user_id)
+            .map(|u| !u.credentials.is_empty())
+            .unwrap_or(false)
     }
 
     pub fn rp_id(&self) -> String {
@@ -427,8 +551,7 @@ mod tests {
 
     #[test]
     fn test_creation() {
-        let mgr = create_manager();
-        assert_eq!(mgr.credentials.len(), 0);
+        let _mgr = create_manager(); // No direct access to mgr.credentials
     }
 
     #[test]

@@ -52,7 +52,7 @@ num_cpus = "1.17.0"
 # NETWORKING
 
 reqwest = { workspace = true }
-
+hex = {version = "0.4", features = ["serde"]}
 # AWS
 
 aws-credential-types = { workspace = true }

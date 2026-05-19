@@ -4,6 +4,8 @@ use dioxus::prelude::*;
 use rsb_sdk::credentials::Fido2Manager;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use axum::response::Html;
+
 
 #[component]
 pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
@@ -14,7 +16,10 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
     let mut user_id = use_signal(|| String::new());
     let mut error_msg = use_signal(|| String::new());
     let mut is_authenticating = use_signal(|| false);
+    let mut show_recovery_input = use_signal(|| false);
+    let mut recovery_code = use_signal(|| String::new());
 
+    let fido2_for_login = fido2_manager_arc.clone();
     let handle_login = move |_| {
         let id = user_id();
         if id.is_empty() {
@@ -25,25 +30,58 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
         is_authenticating.set(true);
         error_msg.set(String::new());
 
-        let fido2_manager_arc_clone = fido2_manager_arc.clone();
+        let fido2_manager_arc_clone = fido2_for_login.clone();
         spawn(async move {
             let mut mgr = fido2_manager_arc_clone.lock().await;
 
+            // Carregar do disco para garantir que temos os dados mais recentes
+            if let Ok(path) = Fido2Manager::default_storage_path() {
+                let _ = mgr.load_from_file(&path);
+            }
+
             if !mgr.has_credential(&id) {
                 error_msg.set(format!(
-                    "❌ Usuário '{}' não encontrado. Registre-o primeiro.",
+                    "❌ Identificador '{}' não encontrado.",
                     id
                 ));
                 is_authenticating.set(false);
                 return;
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            error_msg.set("🌐 Abrindo navegador para autenticação...".into());
+            let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
+            if let Err(e) = rsb_sdk::fido2::fido2_web::run_server(fido2_manager_arc_clone.clone(), Html(html_content)).await {
+                error_msg.set(format!("❌ Erro: {}", e));
+            }
+            is_authenticating.set(false);
+        });
+    };
 
-            if true {
+    let fido2_for_recovery = fido2_manager_arc.clone();
+    let handle_recovery_login = move |_| {
+        let id = user_id();
+        let code = recovery_code();
+
+        if id.is_empty() || code.is_empty() {
+            error_msg.set("⚠️ Identificador e código são necessários.".into());
+            return;
+        }
+
+        is_authenticating.set(true);
+        let fido2_manager_arc_clone = fido2_for_recovery.clone();
+
+        spawn(async move {
+            let mut mgr = fido2_manager_arc_clone.lock().await;
+            
+            // Tenta validar o código real usando o Fido2Manager
+            if mgr.verify_backup_code(&id, &code) {
+                // Se o código for válido, salvamos a alteração (o código foi consumido)
+                if let Ok(path) = Fido2Manager::default_storage_path() {
+                    let _ = mgr.save_to_file(&path);
+                }
                 on_login.call(id);
             } else {
-                error_msg.set("❌ Falha na autenticação FIDO2".into());
+                error_msg.set("❌ Código de recuperação inválido ou já utilizado.".into());
             }
             is_authenticating.set(false);
         });
@@ -71,17 +109,48 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                         }
                     }
 
+                    if show_recovery_input() {
+                        div { class: "form-group animate-fade-in",
+                            label { class: "label-text", "{texts.recovery_codes_label}" }
+                            input {
+                                class: "input-field font-mono",
+                                r#type: "text",
+                                placeholder: "XXXX-XXXX",
+                                value: "{recovery_code}",
+                                oninput: move |evt| recovery_code.set(evt.value()),
+                                disabled: is_authenticating()
+                            }
+                        }
+                    }
+
                     if !error_msg().is_empty() {
                         div { class: "p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-red-600 text-sm",
                             "{error_msg}"
                         }
                     }
 
-                    button {
-                        class: "w-full btn-primary py-3 text-lg flex items-center justify-center gap-2",
-                        onclick: handle_login,
-                        disabled: is_authenticating(),
-                        if is_authenticating() { "⏳ Aguardando Chave..." } else { "{texts.login_button}" }
+                    if show_recovery_input() {
+                         button {
+                            class: "w-full btn-warning py-3 text-lg",
+                            onclick: handle_recovery_login,
+                            disabled: is_authenticating(),
+                            if is_authenticating() { "⏳ Verificando..." } else { "Entrar com Código" }
+                        }
+                    } else {
+                        button {
+                            class: "w-full btn-primary py-3 text-lg flex items-center justify-center gap-2",
+                            onclick: handle_login,
+                            disabled: is_authenticating(),
+                            if is_authenticating() { "⏳ Aguardando Chave..." } else { "{texts.login_button}" }
+                        }
+                    }
+
+                    div { class: "text-center mt-4",
+                        a { 
+                            class: "text-sm text-indigo-600 hover:underline cursor-pointer",
+                            onclick: move |_| show_recovery_input.toggle(),
+                            if show_recovery_input() { "Voltar para FIDO2" } else { "{texts.use_recovery_code_link}" }
+                        }
                     }
                 }
             }
