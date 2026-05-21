@@ -96,7 +96,7 @@ lettre = "0.11"
 # Web server
 axum = "0.7"
 
-axum-extra = { version = "0.9", features = [
+axum-extra = { version = "0.12", features = [
     "cookie",
 ] }
 
