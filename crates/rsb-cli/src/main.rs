@@ -1,14 +1,14 @@
 use chrono::Local;
 use clap::{Parser, Subcommand};
+use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::server::LoginFlow;
 use rsb_sdk::server::routes::check_fido2_auth;
-use rsb_sdk::{auth, server};
-use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::utils::ensure_directory_exists;
+use rsb_sdk::{auth, server};
 use rsb_sdk::{config, core, credentials::Fido2Manager};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::fs;
 use tokio::sync::Mutex;
 use tracing::{Level, info, warn};
 pub mod config_cmd;
@@ -274,6 +274,10 @@ enum Commands {
     Login {
         /// User ID
         user_id: String,
+
+        /// Use recovery code instead of FIDO2
+        #[arg(short = 'r', long)]
+        recovery: bool,
     },
 
     /// Manage Security Key credentials
@@ -773,55 +777,134 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Server { port } => {
             // Dummy sender since we're running server standalone
-            
+
             let (tx, _rx) = tokio::sync::oneshot::channel();
             server::routes::start_auth_server(port, tx).await?;
         }
 
-        Commands::Login { user_id } => {
-            let mut login_flow = LoginFlow::new();
+        Commands::Login { user_id, recovery } => {
+            if recovery {
+                // Recovery code flow
+                println!("\n🔐 Recovery Code Authentication");
+                println!("================================\n");
 
-            match login_flow.start(user_id.clone()).await {
-                Ok(token) => {
-                    // Verify and save token
-                    let jwt_mgr = rsb_sdk::auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
-                    match jwt_mgr.verify_token(&token) {
-                        Ok(claims) => {
-                            println!("🔑 User: {}", claims.sub);
-                            println!("📋 Scopes: {:?}\n", claims.scopes);
+                use rpassword::prompt_password;
 
-                            let home = dirs::home_dir().ok_or("❌ Home directory not found")?;
-                            let rsb_dir = home.join(".rs-shield");
-                            let _ = fs::create_dir_all(&rsb_dir);
+                print!("Enter recovery code: ");
+                use std::io::Write;
+                std::io::stdout().flush()?;
 
-                            let auth_file = rsb_dir.join("auth_token");
-                            fs::write(&auth_file, &token)?;
+                let recovery_code = prompt_password("")?;
 
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                let perms = std::fs::Permissions::from_mode(0o600);
-                                fs::set_permissions(&auth_file, perms)?;
+                if recovery_code.is_empty() {
+                    return Err("❌ Recovery code cannot be empty".into());
+                }
+
+                // Load Fido2Manager and verify recovery code
+                let mut fido2_manager =
+                    Fido2Manager::new("http://localhost:3000", "localhost", "RSB CLI")?;
+
+                // Try to load existing credentials
+                if let Ok(path) = Fido2Manager::default_storage_path() {
+                    if path.exists() {
+                        match fido2_manager.load_from_file(&path) {
+                            Ok(_) => {
+                                // Loaded successfully
                             }
- 
-                            info!("✅ Authentication successful!");
-                            info!("📍 Token saved to: {}", auth_file.display());
-                            println!("✅ You are now authenticated!");
-                            println!("📍 Token saved to: {}\n", auth_file.display());
-                            println!("You can now use: rsb backup, rsb restore, rsb verify\n");
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Invalid token received: {:?}", e);
-                            return Err("❌ Failed to validate token".into());
+                            Err(e) => {
+                                warn!("⚠️ Could not load existing credentials: {}", e);
+                            }
                         }
                     }
-
-                    // Shutdown server gracefully
-                    login_flow.shutdown().await;
                 }
-                Err(e) => {
-                    login_flow.shutdown().await;
-                    return Err(format!("❌ Authentication failed: {}", e).into());
+
+                // Verify recovery code
+                if fido2_manager.verify_backup_code(&user_id, &recovery_code) {
+                    // Save the updated manager (recovery code was consumed)
+                    if let Ok(path) = Fido2Manager::default_storage_path() {
+                        let _ = fido2_manager.save_to_file(&path);
+                    }
+
+                    // Create and save token
+                    let jwt_mgr = rsb_sdk::auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
+                    let scopes = vec!["backup".to_string(), "restore".to_string()];
+                    let token = jwt_mgr.create_token(&user_id, scopes.clone(), 3600)?;
+
+                    println!("\n✅ Recovery code verified successfully!");
+                    println!("🔑 User: {}", user_id);
+                    println!("📋 Scopes: {:?}\n", scopes);
+
+                    let home = dirs::home_dir().ok_or("❌ Home directory not found")?;
+                    let rsb_dir = home.join(".rs-shield");
+                    let _ = fs::create_dir_all(&rsb_dir);
+
+                    let auth_file = rsb_dir.join("auth_token");
+                    fs::write(&auth_file, &token)?;
+
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let perms = std::fs::Permissions::from_mode(0o600);
+                        fs::set_permissions(&auth_file, perms)?;
+                    }
+
+                    info!("✅ Authentication successful with recovery code!");
+                    info!("📍 Token saved to: {}", auth_file.display());
+                    println!("✅ You are now authenticated!");
+                    println!("📍 Token saved to: {}\n", auth_file.display());
+                    println!("You can now use: rsb backup, rsb restore, rsb verify\n");
+                    println!("⚠️ IMPORTANT: Generate new recovery codes soon!");
+                    println!("   Use: rsb auth generate-codes\n");
+                } else {
+                    return Err("❌ Invalid or already used recovery code".into());
+                }
+            } else {
+                // FIDO2 flow (original)
+                let mut login_flow = LoginFlow::new();
+
+                match login_flow.start(user_id.clone()).await {
+                    Ok(token) => {
+                        // Verify and save token
+                        let jwt_mgr =
+                            rsb_sdk::auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
+                        match jwt_mgr.verify_token(&token) {
+                            Ok(claims) => {
+                                println!("🔑 User: {}", claims.sub);
+                                println!("📋 Scopes: {:?}\n", claims.scopes);
+
+                                let home = dirs::home_dir().ok_or("❌ Home directory not found")?;
+                                let rsb_dir = home.join(".rs-shield");
+                                let _ = fs::create_dir_all(&rsb_dir);
+
+                                let auth_file = rsb_dir.join("auth_token");
+                                fs::write(&auth_file, &token)?;
+
+                                #[cfg(unix)]
+                                {
+                                    use std::os::unix::fs::PermissionsExt;
+                                    let perms = std::fs::Permissions::from_mode(0o600);
+                                    fs::set_permissions(&auth_file, perms)?;
+                                }
+
+                                info!("✅ Authentication successful!");
+                                info!("📍 Token saved to: {}", auth_file.display());
+                                println!("✅ You are now authenticated!");
+                                println!("📍 Token saved to: {}\n", auth_file.display());
+                                println!("You can now use: rsb backup, rsb restore, rsb verify\n");
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Invalid token received: {:?}", e);
+                                return Err("❌ Failed to validate token".into());
+                            }
+                        }
+
+                        // Shutdown server gracefully
+                        login_flow.shutdown().await;
+                    }
+                    Err(e) => {
+                        login_flow.shutdown().await;
+                        return Err(format!("❌ Authentication failed: {}", e).into());
+                    }
                 }
             }
         }
@@ -911,8 +994,8 @@ fn calculate_retention_backups(policy: &str) -> usize {
         "90d" => 90,
 
         // Monthly presets (weekly backups)
-        "6m" => 26,   // ~6 months
-        "12m" => 52,  // ~1 year
+        "6m" => 26,  // ~6 months
+        "12m" => 52, // ~1 year
 
         // Yearly presets (weekly backups)
         "1y" => 52,

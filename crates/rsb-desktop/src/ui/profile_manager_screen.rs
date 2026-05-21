@@ -2,6 +2,8 @@ use dioxus::prelude::*;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::ui::error_handler::format_user_error;
+
 /// Estrutura simplificada de um perfil
 #[derive(Debug, Clone)]
 pub struct ProfileEntry {
@@ -95,7 +97,7 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                 profiles.set(ProfileManager::list_profiles());
             }
             Err(e) => {
-                status_msg.set(format!("❌ Error: {}", e));
+                status_msg.set(format_user_error(e, "profile"));
                 status_type.set("error");
             }
         }

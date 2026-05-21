@@ -1,4 +1,4 @@
-use crate::ui::{app::AppConfig, i18n::get_texts};
+use crate::ui::{app::AppConfig, error_handler::format_user_error, i18n::get_texts};
 use battery::Manager;
 use dioxus::prelude::*;
 use notify_rust::Notification;
@@ -530,7 +530,7 @@ pub fn RealtimeSyncScreen() -> Element {
                 }
                 Ok(Err(e)) => {
                     println!("[DEBUG] Initial sync error: {}", e);
-                    status_msg.set(format!("❌ Initial sync error: {}", e));
+                    status_msg.set(format_user_error(&e, "realtime"));
                     is_monitoring.set(false);
                 }
                 Err(_) => {

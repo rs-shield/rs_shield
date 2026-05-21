@@ -8,6 +8,7 @@ use rsb_sdk::{CancellationToken, config, core};
 
 use crate::ui::{
     app::AppConfig,
+    error_handler::format_user_error,
     i18n::get_texts,
     operations_helpers::record_restore_operation,
     profile_loader::{ProfileData, load_profile},
@@ -60,7 +61,7 @@ pub fn RestoreScreen() -> Element {
                         status_msg.set("✅ Profile loaded successfully!".to_string());
                     }
                     Err(e) => {
-                        status_msg.set(format!("❌ Error loading profile: {}", e));
+                        status_msg.set(format_user_error(e, "restore"));
                     }
                 }
             }

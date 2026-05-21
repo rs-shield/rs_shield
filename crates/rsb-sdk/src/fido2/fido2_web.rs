@@ -1,3 +1,4 @@
+use crate::credentials::Fido2Manager;
 use axum::response::Html;
 use axum::{
     Json, Router,
@@ -6,7 +7,6 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
-use crate::credentials::Fido2Manager;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -248,22 +248,20 @@ async fn delete_credential(
 
     let mut m = state.manager.lock().await;
 
-    m.revoke_user(&user_id)
-        .map(|_| Json(true))
-        .map_err(|e| {
-            error!("Delete credential error: {}", e);
-            let status = if e.to_string().contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            (
-                status,
-                Json(ApiError {
-                    error: e.to_string(),
-                }),
-            )
-        })
+    m.revoke_user(&user_id).map(|_| Json(true)).map_err(|e| {
+        error!("Delete credential error: {}", e);
+        let status = if e.to_string().contains("not found") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        (
+            status,
+            Json(ApiError {
+                error: e.to_string(),
+            }),
+        )
+    })
 }
 
 // ================= SERVER =================
@@ -273,7 +271,7 @@ pub async fn run_server(
     html: Html<&'static str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    
+
     let server_state = ServerState {
         manager,
         done_tx: Arc::new(tokio::sync::Mutex::new(Some(tx))),

@@ -1,5 +1,6 @@
 use crate::ui::{
     app::AppConfig,
+    error_handler::format_user_error,
     i18n::get_texts,
     operations_helpers::record_prune_operation,
     profile_loader::{ProfileData, load_profile},
@@ -48,7 +49,7 @@ pub fn PruneScreen() -> Element {
                         status_msg.set("✅ Profile loaded successfully!".to_string());
                     }
                     Err(e) => {
-                        status_msg.set(format!("❌ Error loading profile: {}", e));
+                        status_msg.set(format_user_error(e, "prune"));
                     }
                 }
             }

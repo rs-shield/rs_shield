@@ -170,8 +170,12 @@ impl Fido2Manager {
         final_payload.extend_from_slice(&ciphertext);
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| Fido2Error::EncryptionError(format!("Failed to create storage directory {:?}: {}", parent, e)))?;
+            fs::create_dir_all(parent).map_err(|e| {
+                Fido2Error::EncryptionError(format!(
+                    "Failed to create storage directory {:?}: {}",
+                    parent, e
+                ))
+            })?;
         }
 
         fs::write(path, final_payload)
@@ -373,9 +377,8 @@ impl Fido2Manager {
         // This is necessary because the `credential_data` stores the Passkey,
         // and the Passkey's internal counter needs to be updated for subsequent authentications.
         let mut passkey_json: serde_json::Value =
-            serde_json::from_slice(&credential.credential_data).map_err(|e| {
-                Fido2Error::AuthenticationFailed(format!("Corrupted data: {}", e))
-            })?;
+            serde_json::from_slice(&credential.credential_data)
+                .map_err(|e| Fido2Error::AuthenticationFailed(format!("Corrupted data: {}", e)))?;
 
         if let Some(cred_obj) = passkey_json.get_mut("cred") {
             if let Some(counter_val) = cred_obj.get_mut("counter") {
@@ -386,12 +389,12 @@ impl Fido2Manager {
             }
         } else {
             // If 'cred' field is missing, this indicates a serious data corruption.
-            return Err(Fido2Error::AuthenticationFailed("Corrupted Passkey data: 'cred' field missing".to_string()));
+            return Err(Fido2Error::AuthenticationFailed(
+                "Corrupted Passkey data: 'cred' field missing".to_string(),
+            ));
         }
-        credential.credential_data = serde_json::to_vec(&passkey_json).map_err(|e| {
-                Fido2Error::AuthenticationFailed(format!("Serialization error: {}", e))
-            })?;
-        
+        credential.credential_data = serde_json::to_vec(&passkey_json)
+            .map_err(|e| Fido2Error::AuthenticationFailed(format!("Serialization error: {}", e)))?;
 
         info!("Authentication successful for {}", user_id);
 
@@ -428,10 +431,10 @@ impl Fido2Manager {
             let code: String = (0..12)
                 .map(|_| rng.sample(rand::distr::Alphanumeric) as char)
                 .collect();
-            
+
             let mut hash = [0u8; 32];
             pbkdf2::pbkdf2_hmac::<Sha256>(code.as_bytes(), &salt, 100_000, &mut hash);
-            
+
             plain_codes.push(code);
             hashed_codes.push(general_purpose::STANDARD.encode(hash));
         }
@@ -458,7 +461,11 @@ impl Fido2Manager {
         pbkdf2::pbkdf2_hmac::<Sha256>(code.as_bytes(), &user_data.salt, 100_000, &mut input_hash);
         let input_hash_encoded = general_purpose::STANDARD.encode(input_hash);
 
-        if let Some(pos) = user_data.recovery_code_hashes.iter().position(|h| h == &input_hash_encoded) {
+        if let Some(pos) = user_data
+            .recovery_code_hashes
+            .iter()
+            .position(|h| h == &input_hash_encoded)
+        {
             user_data.recovery_code_hashes.remove(pos);
             info!("Recovery code used and invalidated for user: {}", user_id);
             return true;
@@ -482,11 +489,17 @@ impl Fido2Manager {
     }
 
     pub fn revoke_user(&mut self, user_id: &str) -> Result<(), Fido2Error> {
-        self.users.remove(user_id).ok_or(Fido2Error::CredentialNotFound)?;
+        self.users
+            .remove(user_id)
+            .ok_or(Fido2Error::CredentialNotFound)?;
         Ok(())
     }
 
-    pub fn revoke_credential(&mut self, user_id: &str, cred_id_hex: &str) -> Result<(), Fido2Error> {
+    pub fn revoke_credential(
+        &mut self,
+        user_id: &str,
+        cred_id_hex: &str,
+    ) -> Result<(), Fido2Error> {
         if let Some(user_data) = self.users.get_mut(user_id) {
             user_data.credentials.retain(|c| {
                 let pk: Result<Passkey, _> = serde_json::from_slice(&c.credential_data);
