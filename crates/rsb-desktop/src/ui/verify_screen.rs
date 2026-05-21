@@ -8,6 +8,7 @@ use rsb_sdk::{CancellationToken, config, core, perform_verify};
 
 use crate::ui::{
     app::AppConfig,
+    error_handler::format_user_error,
     i18n::get_texts,
     operations_helpers::record_verify_operation,
     profile_loader::{ProfileData, load_profile},
@@ -56,7 +57,7 @@ pub fn VerifyScreen() -> Element {
                         status_msg.set("✅ Perfil carregado com sucesso!".to_string());
                     }
                     Err(e) => {
-                        status_msg.set(format!("❌ Erro ao carregar perfil: {}", e));
+                        status_msg.set(format_user_error(e, "verify"));
                     }
                 }
             }

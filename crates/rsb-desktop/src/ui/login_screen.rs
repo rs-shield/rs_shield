@@ -1,4 +1,5 @@
 use crate::ui::app::AppConfig;
+use crate::ui::error_handler::format_user_error;
 use crate::ui::i18n::get_texts;
 use dioxus::prelude::*;
 use rsb_sdk::credentials::Fido2Manager;
@@ -59,7 +60,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
             
             match result {
                 Ok(_) => on_login.call(id),
-                Err(e) => error_msg.set(format!("❌ Erro: {}", e)),
+                Err(e) => error_msg.set(format_user_error(e, "fido2")),
             }
             is_authenticating.set(false);
         });

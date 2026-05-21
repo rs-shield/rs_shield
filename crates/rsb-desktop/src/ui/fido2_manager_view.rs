@@ -8,6 +8,7 @@ use rsb_sdk::credentials::Fido2Manager;
 
 // Internal project imports
 use crate::ui::app::AppConfig;
+use crate::ui::error_handler::format_user_error;
 use crate::ui::i18n::get_texts;
 
 #[component]
@@ -48,12 +49,11 @@ pub fn Fido2ManagerView() -> Element {
                 return;
             }
 
-            message.set("🌐 Abrindo navegador para registo FIDO2...".into());
+            message.set("🌐 Open the browser to register FIDO2 key...".into());
             
-            // Iniciamos o servidor web que lida com a interação de hardware no navegador
-            let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
+             let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
             if let Err(e) = rsb_sdk::fido2::fido2_web::run_server(mgr_arc, Html(html_content)).await {
-                message.set(format!("❌ Erro ao iniciar servidor: {}", e));
+                message.set(format_user_error(e, "fido2"));
             }
         });
     };
@@ -74,7 +74,7 @@ pub fn Fido2ManagerView() -> Element {
                     recovery_codes.set(codes);
                     message.set(format!("✅ {}", texts.recovery_codes_generated_success));
                 }
-                Err(e) => message.set(format!("❌ Failed to generate recovery codes: {}", e)),
+                Err(e) => message.set(format_user_error(e, "fido2")),
             }
         });
     };
@@ -110,7 +110,7 @@ pub fn Fido2ManagerView() -> Element {
             h3 { class: "font-bold text-gray-700 mb-3 mt-6", "📱 Trusted Devices ({credentials.read().len()})" }
             if credentials.read().is_empty() {
                 div { class: "bg-gray-50 rounded p-4 text-gray-500 text-sm",
-                    "Nenhum dispositivo registrado ainda. Registre uma chave FIDO2 acima."
+                    "No trusted devices registered yet. Register a FIDO2 key above."
                 }
             } else {
                 ul { class: "bg-gray-50 rounded divide-y divide-gray-200",
@@ -131,16 +131,15 @@ pub fn Fido2ManagerView() -> Element {
                 }
             }
 
-            // Seção de Códigos de Recuperação
             div { class: "mt-8 pt-6 border-t border-gray-100",
                 h3 { class: "font-bold text-gray-700 mb-3", "🔐 {texts.recovery_codes_label}" }
                 
                 if recovery_codes.read().is_empty() {
                     div { class: "bg-amber-50 border border-amber-200 rounded p-4 mb-4",
-                        p { class: "text-sm text-amber-800 font-semibold mb-2", "⚠️ Importante" }
+                        p { class: "text-sm text-amber-800 font-semibold mb-2", "⚠️ Important" }
                         p { class: "text-sm text-amber-700", 
-                            "Gere códigos de recuperação para ter acesso à sua conta em caso de perda da chave FIDO2. "
-                            "Estes códigos são críticos para segurança - guarde-os em um local seguro!"
+                            "Generate recovery codes to access your account in case of FIDO2 key loss. "
+                            "These codes are critical for security - store them in a secure location!"
                         }
                     }
                     button {
@@ -150,17 +149,17 @@ pub fn Fido2ManagerView() -> Element {
                     }
                 } else {
                     div { class: "bg-red-50 border-l-4 border-red-500 p-4 mb-4 rounded",
-                        p { class: "text-sm font-bold text-red-700 mb-2", "🔴 GUARDE ESTES CÓDIGOS EM LOCAL SEGURO" }
+                        p { class: "text-sm font-bold text-red-700 mb-2", "🔴 STORE THESE CODES IN A SECURE LOCATION" }
                         p { class: "text-xs text-red-600 mb-4",
-                            "Estes códigos de recuperação são exibidos apenas uma vez. "
-                            "Se perder, precisará gerar novos códigos. "
-                            "Anote em papel, guarde em um cofre digital ou imprima com segurança."
+                            " This is the only time these recovery codes will be displayed. "
+                            "If you lose them, you'll need to generate new ones. "
+                            "Write them down on paper, store them in a digital safe, or print them securely."
                         }
                         
                         div { class: "bg-white border border-gray-300 rounded p-4 mb-4",
                             div { class: "text-center mb-4",
-                                p { class: "text-xs text-gray-500 font-semibold uppercase", "Códigos de Recuperação" }
-                                p { class: "text-xs text-gray-400", "Anote cada código com cuidado" }
+                                p { class: "text-xs text-gray-500 font-semibold uppercase", "Recovery Codes" }
+                                p { class: "text-xs text-gray-400", "Write down each code carefully" }
                             }
                             div { class: "grid grid-cols-2 gap-3 mb-4",
                                 for code in recovery_codes.read().iter() {
@@ -176,9 +175,9 @@ pub fn Fido2ManagerView() -> Element {
                             class: "w-full bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded font-semibold transition-colors",
                             onclick: move |_| {
                                 recovery_codes.set(Vec::new());
-                                message.set("✅ Códigos fechados. Gere novos quando precisar.".into());
+                                message.set("✅ Codes closed. Generate new ones when needed.".into());
                             },
-                            "Concluído - Fechar Códigos"
+                            "Completed - Close Codes"
                         }
                     }
                 }

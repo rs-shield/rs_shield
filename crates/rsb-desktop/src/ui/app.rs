@@ -214,7 +214,8 @@ pub fn App() -> Element {
 
     use_effect(move || {
         if !started() {
-            window.set_inner_size(LogicalSize::new(1200, 700));
+            // Dimensões otimizadas para exibição confortável de todos os componentes
+            window.set_inner_size(LogicalSize::new(1280.0, 900.0));
             started.set(true);
         }
     });
@@ -225,60 +226,91 @@ pub fn App() -> Element {
         Theme::System => "", // Handled by media query
     });
 
-    rsx! {
-        style { "{include_str!(\"./styles.css\")}" }
+rsx! {
+    style { "{include_str!(\"./styles.css\")}" }
 
-        div { class: "flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-900 {theme_class}",
-            aside { class: "w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col p-6 flex-shrink-0 shadow-lg",
-                div { class: "brand",
-                    span { style: "font-size: 1.75rem;", "🛡️" }
-                    span { "RSB Shield" }
+    // Contentor Principal - Ocupa 100% da janela sem quebras
+    div { class: "flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 {theme_class} transition-colors duration-200 antialiased",
+        
+        // --- SIDEBAR ESQUERDA (Navegação) ---
+        // Adicionado p-6 fixo e w-72 para dar espaço aos itens respirarem longe da borda esquerda
+        aside { class: "w-72 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col p-6 flex-shrink-0 z-10 shadow-sm",
+            
+            // Header do Logótipo (Alinhado e com margem inferior correta)
+            div { class: "flex items-center gap-3 pb-6 mb-2 border-b border-slate-100 dark:border-slate-800 select-none",
+                span { class: "text-2xl filter drop-shadow-sm flex-shrink-0", "🛡️" }
+                div { class: "flex flex-col min-w-0",
+                    span { class: "text-base font-bold tracking-tight text-slate-900 dark:text-white truncate", "RSB Shield" }
+                    span { class: "text-[11px] text-slate-400 dark:text-slate-500 font-medium truncate", "Secure Backup Solutions" }
                 }
-                if is_logged_in {
-                    Fragment {
-                        nav { class: "space-y-1 flex-1 overflow-y-auto pr-2 custom-scrollbar",
-                            TabButton { label: "Criar Perfil".to_string(), icon: "📝", active: *active_tab.read() == ActiveTab::CreateProfile, onclick: move |_| active_tab.set(ActiveTab::CreateProfile) }
-                            TabButton { label: "Gerenciar Perfis".to_string(), icon: "📋", active: *active_tab.read() == ActiveTab::ProfileManager, onclick: move |_| active_tab.set(ActiveTab::ProfileManager) }
-                            TabButton { label: texts.nav_backup.to_string(), icon: "📦", active: *active_tab.read() == ActiveTab::Backup, onclick: move |_| active_tab.set(ActiveTab::Backup) }
-                            TabButton { label: texts.nav_restore.to_string(), icon: "🔄", active: *active_tab.read() == ActiveTab::Restore, onclick: move |_| active_tab.set(ActiveTab::Restore) }
-                            TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
-                            TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
-                            TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
-                            TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
-                            TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
-                            TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
-                            TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
-                        }
-                        div { class: "mt-auto pt-4 border-t border-slate-200 dark:border-slate-700",
-                            div { class: "flex items-center gap-2 px-2 py-3 mb-2",
-                                div { class: "w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600", "👤" }
-                                if let Some(user) = authenticated_user.read().as_ref() {
-                                    div { class: "flex-1 overflow-hidden",
-                                        p { class: "text-xs font-bold truncate dark:text-white", "{user}" }
-                                        p { class: "text-[10px] text-slate-500", " Authenticated" }
+            }
+            
+            if is_logged_in {
+                Fragment {
+                    // Menu de Navegação com espaçamento interno corrigido
+                    nav { class: "space-y-1 flex-1 overflow-y-auto pt-4 pr-1 -mr-2 custom-scrollbar",
+                        
+                        h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2", "Gestão" }
+                        TabButton { label: "Criar Perfil".to_string(), icon: "📝", active: *active_tab.read() == ActiveTab::CreateProfile, onclick: move |_| active_tab.set(ActiveTab::CreateProfile) }
+                        TabButton { label: "Gerenciar Perfis".to_string(), icon: "📋", active: *active_tab.read() == ActiveTab::ProfileManager, onclick: move |_| active_tab.set(ActiveTab::ProfileManager) }
+                        
+                        h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Operações" }
+                        TabButton { label: texts.nav_backup.to_string(), icon: "📦", active: *active_tab.read() == ActiveTab::Backup, onclick: move |_| active_tab.set(ActiveTab::Backup) }
+                        TabButton { label: texts.nav_restore.to_string(), icon: "🔄", active: *active_tab.read() == ActiveTab::Restore, onclick: move |_| active_tab.set(ActiveTab::Restore) }
+                        TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
+                        TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
+                        TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
+                        
+                        h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Sistema" }
+                        TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
+                        TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
+                        TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
+                        TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
+                    }
+                    
+                    // Footer da Sidebar (Sessão do Utilizador + Botão Terminar Sessão)
+                    div { class: "mt-auto pt-4 border-t border-slate-100 dark:border-slate-800",
+                        div { class: "flex items-center gap-3 px-3 py-3 mb-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200/60 dark:border-slate-800/60",
+                            div { class: "w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center text-sm border border-indigo-100 dark:border-indigo-900/30 flex-shrink-0", "👤" }
+                            if let Some(user) = authenticated_user.read().as_ref() {
+                                div { class: "flex-1 min-w-0",
+                                    p { class: "text-xs font-semibold text-slate-900 dark:text-slate-200 truncate", "{user}" }
+                                    p { class: "text-[10px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1", 
+                                        span { class: "w-1 h-1 rounded-full bg-emerald-500 inline-block animate-pulse" }
+                                        "Sessão Ativa" 
                                     }
                                 }
                             }
-                            button {
-                                class: "w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors",
-                                onclick: logout,
-                                span { "🚪" }
-                                span { "{texts.logout_button}" }
-                            }
+                        }
+                        button {
+                            class: "w-full flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-semibold text-red-600 hover:text-white bg-white dark:bg-slate-900 hover:bg-red-600 dark:hover:bg-red-600 rounded-xl border border-red-200 dark:border-red-900/40 transition-all duration-150 active:scale-[0.98]",
+                            onclick: logout,
+                            span { "🚪" }
+                            span { "{texts.logout_button}" }
                         }
                     }
-                } else {
-                    div { class: "flex-1 flex flex-col items-center justify-center text-center p-4",
-                        span { class: "text-4xl mb-4", "🔒" }
-                        p { class: "text-sm text-slate-500", "{texts.auth_required_msg}" }
-                    }
+                }
+            } else {
+                div { class: "flex-1 flex flex-col items-center justify-center text-center p-4 bg-slate-50 dark:bg-slate-800/20 rounded-2xl border border-dashed border-slate-200 dark:border-slate-700 my-4",
+                    span { class: "text-3xl mb-3 opacity-60", "🔒" }
+                    p { class: "text-xs font-medium text-slate-400 dark:text-slate-500 px-2", "{texts.auth_required_msg}" }
                 }
             }
+        }
 
-            main { class: "flex flex-1 overflow-hidden bg-slate-50 dark:bg-slate-900",
-                div { class: "flex-1 overflow-y-auto p-8",
-                    div { class: "max-w-4xl",
-                        if is_logged_in {
+        // --- ÁREA CENTRAL (Conteúdo Principal) ---
+        // p-10 e max-w-4xl centrado para garantir leitura perfeita dos inputs
+        main { class: "flex flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950",
+            div { class: "flex-1 overflow-y-auto px-10 py-8 custom-scrollbar",
+                div { class: "max-w-4xl mx-auto",
+                    if is_logged_in {
+                        // Título de Secção Consistente
+                        div { class: "mb-6",
+                            h1 { class: "text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white", "{texts.control_panel_title}" }
+                            p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1", "{texts.control_panel_subtitle}" }
+                        }
+
+                        div { class: "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-sm",
                             match *active_tab.read() {
                                 ActiveTab::CreateProfile => rsx! { CreateProfileScreen {} },
                                 ActiveTab::ProfileManager => rsx! { ProfileManagerScreen { active_tab } },
@@ -292,105 +324,145 @@ pub fn App() -> Element {
                                 ActiveTab::Integrations => rsx! { IntegrationScreen {} },
                                 ActiveTab::Config => rsx! { ConfigScreen {} },
                             }
-                        } else {
+                        }
+                    } else {
+                        div { class: "flex items-center justify-center min-h-[75vh]",
                             LoginScreen { on_login: move |user: String| authenticated_user.set(Some(user)) }
-
-                        }
-                    }
-                }
-
-                aside { class: "w-80 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden shadow-lg",
-                    div { class: "p-6 border-b border-slate-200 dark:border-slate-700",
-                        h3 { class: "text-lg font-bold text-slate-900 dark:text-white mb-1", "{texts.reports_title}" }
-                        p { class: "text-sm text-slate-500 dark:text-slate-400", "{texts.real_time_label}" }
-                    }
-
-                    div { class: "flex-1 overflow-y-auto p-6 space-y-4",
-                        div { class: "bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg p-4 shadow-sm",
-                            h4 { class: "font-bold text-slate-900 dark:text-white mb-3 text-sm", "{texts.system_title}" }
-
-                            div { class: "flex items-center gap-2 mb-2",
-                                span { class: "text-xs font-medium text-slate-600 dark:text-slate-300 w-8", "CPU" }
-                                div { class: "flex-1 bg-slate-200 dark:bg-slate-600 rounded-full h-1.5 overflow-hidden",
-                                    div {
-                                        class: "h-full bg-gradient-to-r from-blue-400 to-blue-600 dark:from-blue-500 dark:to-blue-700",
-                                        style: "width: {system_metrics().cpu_usage}%"
-                                    }
-                                }
-                                span { class: "text-xs font-bold {format_percentage_color(system_metrics().cpu_usage)} text-right whitespace-nowrap", "{system_metrics().cpu_usage:.0}%" }
-                            }
-
-                            div { class: "flex items-center gap-2 mb-2",
-                                title: "{texts.used_label}: {format_bytes_gb(system_metrics().memory_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().memory_total_gb)}",
-                                span { class: "text-xs font-medium text-slate-600 dark:text-slate-300 w-8", "RAM" }
-                                div { class: "flex-1 {format_percentage_bg(system_metrics().memory_usage)} rounded-full h-1.5 overflow-hidden",
-                                    div {
-                                        class: "h-full bg-gradient-to-r from-purple-400 to-purple-600 dark:from-purple-500 dark:to-purple-700",
-                                        style: "width: {system_metrics().memory_usage}%"
-                                    }
-                                }
-                                span { class: "text-xs font-bold {format_percentage_color(system_metrics().memory_usage)} text-right whitespace-nowrap", "{system_metrics().memory_usage:.0}% ({system_metrics().memory_used_gb:.1}/{system_metrics().memory_total_gb:.1} GB)" }
-                            }
-
-                            div { class: "flex items-center gap-2",
-                                title: "{texts.used_label}: {format_bytes_gb(system_metrics().disk_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().disk_total_gb)}",
-                                span { class: "text-xs font-medium text-slate-600 dark:text-slate-300 w-8", "DSK" }
-                                div { class: "flex-1 {format_percentage_bg(system_metrics().disk_usage)} rounded-full h-1.5 overflow-hidden",
-                                    div {
-                                        class: "h-full bg-gradient-to-r from-amber-400 to-amber-600 dark:from-amber-500 dark:to-amber-700",
-                                        style: "width: {system_metrics().disk_usage}%"
-                                    }
-                                }
-                                span { class: "text-xs font-bold {format_percentage_color(system_metrics().disk_usage)} text-right whitespace-nowrap", "{system_metrics().disk_usage:.0}% ({system_metrics().disk_used_gb:.1}/{system_metrics().disk_total_gb:.1} GB)" }
-                            }
-                        }
-                        div { class: "bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 shadow-sm",
-                            h4 { class: "font-bold text-green-900 dark:text-green-300 mb-3 text-sm", "{texts.activity_title}" }
-                            div { class: "space-y-2",
-                                div { class: "flex justify-between items-center",
-                                    span { class: "text-xs text-green-700 dark:text-green-300", "{texts.total_ops_label}" }
-                                    span { class: "text-sm font-bold text-green-900 dark:text-green-200 bg-white dark:bg-slate-700 px-2 py-1 rounded", "{total_operations}" }
-                                }
-                                div { class: "flex justify-between items-center",
-                                    span { class: "text-xs text-green-700 dark:text-green-300", "{texts.last_op_label}" }
-                                    span { class: "text-xs font-semibold text-green-600 dark:text-green-400", "{last_operation_time}" }
-                                }
-                            }
-                        }
-
-                        div { class: "bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4 shadow-sm",
-                            h4 { class: "font-bold text-indigo-900 dark:text-indigo-300 mb-3 text-sm", "{texts.stats_title}" }
-                            div { class: "grid grid-cols-2 gap-2",
-                                div { class: "bg-white dark:bg-slate-700 rounded p-2",
-                                    p { class: "text-xs text-slate-500 dark:text-slate-400 font-medium", "{texts.backups_count_label}" }
-                                    p { class: "text-lg font-bold text-indigo-600 dark:text-indigo-400", "{backup_count}" }
-                                }
-                                div { class: "bg-white dark:bg-slate-700 rounded p-2",
-                                    p { class: "text-xs text-slate-500 dark:text-slate-400 font-medium", "{texts.restores_count_label}" }
-                                    p { class: "text-lg font-bold text-purple-600 dark:text-purple-400", "{restore_count}" }
-                                }
-                                div { class: "bg-white dark:bg-slate-700 rounded p-2",
-                                    p { class: "text-xs text-slate-500 dark:text-slate-400 font-medium", "{texts.verifies_count_label}" }
-                                    p { class: "text-lg font-bold text-blue-600 dark:text-blue-400", "{verify_count}" }
-                                }
-                                div { class: "bg-white dark:bg-slate-700 rounded p-2",
-                                    p { class: "text-xs text-slate-500 dark:text-slate-400 font-medium", "{texts.prunes_count_label}" }
-                                    p { class: "text-lg font-bold text-orange-600 dark:text-orange-400", "{prune_count}" }
-                                }
-                            }
-                        }
-
-                        div { class: "bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 shadow-sm",
-                            h4 { class: "font-bold text-amber-900 dark:text-amber-300 mb-2 text-sm", "{texts.alerts_title}" }
-                            div { class: "flex items-start space-x-2",
-                                span { class: "text-lg", "✓" }
-                                p { class: "text-xs text-amber-700 dark:text-amber-300", "{texts.system_ok_msg}" }
-                            }
                         }
                     }
                 }
             }
 
+            // --- SIDEBAR DIREITA (Métricas e Status) ---
+            // Corrigido layout que colava texto: agora as labels e barras usam flex-col limpo
+            aside { class: "w-80 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden flex-shrink-0 shadow-sm",
+                
+                // Header do Status
+                div { class: "p-6 border-b border-slate-100 dark:border-slate-800",
+                    h3 { class: "text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1", "{texts.reports_title}" }
+                    p { class: "text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2", 
+                        span { class: "w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" }
+                        "{texts.real_time_label}" 
+                    }
+                }
+
+                // Corpo das Métricas com Padding p-6 fixo
+                div { class: "flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar",
+                    
+                    // CARD 1: Status de Hardware
+                    div { class: "bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800/60 rounded-xl p-4",
+                        h4 { class: "font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2", 
+                            span { "💻" }
+                            "{texts.system_title}" 
+                        }
+
+                        // Métrica CPU
+                        div { class: "mb-4",
+                            div { class: "flex justify-between items-center mb-1.5",
+                                span { class: "text-xs font-medium text-slate-600 dark:text-slate-400", "Utilização CPU" }
+                                span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().cpu_usage)}", "{system_metrics().cpu_usage:.0}%" }
+                            }
+                            div { class: "w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden",
+                                div {
+                                    class: "h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300",
+                                    style: "width: {system_metrics().cpu_usage}%"
+                                }
+                            }
+                        }
+
+                        // Métrica RAM
+                        div { class: "mb-4",
+                            title: "{texts.used_label}: {format_bytes_gb(system_metrics().memory_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().memory_total_gb)}",
+                            div { class: "flex flex-col mb-1.5 gap-0.5",
+                                div { class: "flex justify-between items-center",
+                                    span { class: "text-xs font-medium text-slate-600 dark:text-slate-400", "Memória RAM" }
+                                    span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().memory_usage)}", "{system_metrics().memory_usage:.0}%" }
+                                }
+                                span { class: "text-[10px] text-slate-400 font-mono text-right", "({system_metrics().memory_used_gb:.1}/{system_metrics().memory_total_gb:.1} GB)" }
+                            }
+                            div { class: "w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden",
+                                div {
+                                    class: "h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300",
+                                    style: "width: {system_metrics().memory_usage}%"
+                                }
+                            }
+                        }
+
+                        // Métrica Disco
+                        div {
+                            title: "{texts.used_label}: {format_bytes_gb(system_metrics().disk_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().disk_total_gb)}",
+                            div { class: "flex flex-col mb-1.5 gap-0.5",
+                                div { class: "flex justify-between items-center",
+                                    span { class: "text-xs font-medium text-slate-600 dark:text-slate-400", "Disco Local" }
+                                    span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().disk_usage)}", "{system_metrics().disk_usage:.0}%" }
+                                }
+                                span { class: "text-[10px] text-slate-400 font-mono text-right", "({system_metrics().disk_used_gb:.1}/{system_metrics().disk_total_gb:.1} GB)" }
+                            }
+                            div { class: "w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden",
+                                div {
+                                    class: "h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-300",
+                                    style: "width: {system_metrics().disk_usage}%"
+                                }
+                            }
+                        }
+                    }
+
+                    // CARD 2: Atividade do Core
+                    div { class: "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 shadow-sm",
+                        h4 { class: "font-bold text-[11px] text-emerald-600 dark:text-emerald-500 uppercase tracking-wider mb-3 flex items-center gap-2", 
+                            span { "📈" }
+                            "{texts.activity_title}" 
+                        }
+                        div { class: "space-y-2.5",
+                            div { class: "flex justify-between items-center bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/40",
+                                span { class: "text-xs font-medium text-slate-500 dark:text-slate-400", "{texts.total_ops_label}" }
+                                span { class: "text-xs font-bold text-slate-900 dark:text-slate-200 font-mono bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/40 dark:border-slate-700/40 shadow-2xs", "{total_operations}" }
+                            }
+                            div { class: "flex justify-between items-center px-1",
+                                span { class: "text-xs font-medium text-slate-500 dark:text-slate-400", "{texts.last_op_label}" }
+                                span { class: "text-xs font-semibold text-emerald-600 dark:text-emerald-400 font-mono", "{last_operation_time}" }
+                            }
+                        }
+                    }
+
+                    // CARD 3: Contadores em Grid Limpo
+                    div { class: "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 shadow-sm",
+                        h4 { class: "font-bold text-[11px] text-indigo-600 dark:text-indigo-500 uppercase tracking-wider mb-3 flex items-center gap-2", 
+                            span { "🗃️" }
+                            "{texts.stats_title}" 
+                        }
+                        div { class: "grid grid-cols-2 gap-2.5",
+                            div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
+                                p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.backups_count_label}" }
+                                p { class: "text-base font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono", "{backup_count}" }
+                            }
+                            div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
+                                p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.restores_count_label}" }
+                                p { class: "text-base font-bold text-purple-600 dark:text-purple-400 mt-0.5 font-mono", "{restore_count}" }
+                            }
+                            div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
+                                p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.verifies_count_label}" }
+                                p { class: "text-base font-bold text-blue-600 dark:text-blue-400 mt-0.5 font-mono", "{verify_count}" }
+                            }
+                            div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
+                                p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.prunes_count_label}" }
+                                p { class: "text-base font-bold text-orange-600 dark:text-orange-400 mt-0.5 font-mono", "{prune_count}" }
+                            }
+                        }
+                    }
+
+                    // CARD 4: Centro de Notificação Rápida
+                    div { class: "bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/60 rounded-xl p-4 flex items-center gap-3",
+                        span { class: "text-sm w-6 h-6 rounded-full bg-white dark:bg-emerald-900 flex items-center justify-center shadow-2xs text-emerald-500 flex-shrink-0 font-bold", "✓" }
+                        div { class: "min-w-0",
+                            h5 { class: "font-bold text-xs text-emerald-950 dark:text-emerald-300 uppercase tracking-wide", "{texts.alerts_title}" }
+                            p { class: "text-xs text-slate-600 dark:text-emerald-400/80 truncate font-medium", "{texts.system_ok_msg}" }
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
 }

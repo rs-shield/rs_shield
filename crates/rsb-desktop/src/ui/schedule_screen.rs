@@ -2,7 +2,7 @@ use crate::ui::operations_helpers::record_schedule_operation;
 use dioxus::prelude::*;
 use std::path::PathBuf;
 
-use crate::ui::{app::AppConfig, i18n::get_texts};
+use crate::ui::{app::AppConfig, error_handler::format_user_error, i18n::get_texts};
 
 #[component]
 pub fn ScheduleScreen() -> Element {
@@ -68,8 +68,9 @@ pub fn ScheduleScreen() -> Element {
                     record_schedule_operation(true, None, None).await.ok();
                 }
                 Err(e) => {
-                    status_message.set(format!("❌ Error scheduling: {}", e));
-                    record_schedule_operation(false, Some(e.to_string()), None)
+                    let user_msg = format_user_error(&e, "schedule");
+                    status_message.set(user_msg.clone());
+                    record_schedule_operation(false, Some(user_msg), None)
                         .await
                         .ok();
                 }
