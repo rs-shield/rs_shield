@@ -48,6 +48,7 @@ dirs = { workspace = true }
 # NETWORKING
 
 reqwest = { workspace = true }
+axum = { workspace = true }
 
 # SYSTEM
 
@@ -65,3 +66,4 @@ anyhow = { workspace = true }
 # TLS
 
 openssl = { workspace = true }
+web-sys = "0.3.98"

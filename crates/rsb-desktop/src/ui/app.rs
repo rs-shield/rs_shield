@@ -203,8 +203,10 @@ pub fn App() -> Element {
         Arc::new(Mutex::new(mgr))
     });
 
-    let is_logged_in = true;
-
+    let is_logged_in = authenticated_user.read().is_some();
+    
+    use_context_provider(|| authenticated_user);
+    
     let mut logout = move |_| {
         authenticated_user.set(None);
         active_tab.set(ActiveTab::Backup);

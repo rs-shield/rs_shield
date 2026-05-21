@@ -1,9 +1,9 @@
 use crate::auth::{self, SessionStore};
     
 use crate::server::handlers::{
-    AuthHandlerState, auth_finish, auth_localhost_callback, auth_logout, auth_refresh, auth_start,
-    auth_verify, device_flow_lookup_code, device_flow_page, device_flow_start,
-    device_flow_start_api, device_flow_token, device_flow_verify_page, home,
+    AuthHandlerState, auth_finish, auth_localhost_callback, auth_logout, auth_recovery,
+    auth_refresh, auth_start, auth_verify, device_flow_lookup_code, device_flow_page,
+    device_flow_start, device_flow_start_api, device_flow_token, device_flow_verify_page, home,
 };
 use crate::credentials;
 use axum::{
@@ -21,6 +21,7 @@ pub fn create_auth_router<S: SessionStore + Clone + 'static>(state: AuthHandlerS
         .route("/api/auth/start", post(auth_start::<S>))
         .route("/api/auth/finish", post(auth_finish::<S>))
         .route("/api/auth/refresh", post(auth_refresh::<S>))
+        .route("/api/auth/recovery", post(auth_recovery::<S>))
         .route("/api/auth/logout", post(auth_logout::<S>))
         .route(
             "/api/auth/localhost-callback",

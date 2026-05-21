@@ -830,18 +830,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let origin = "http://localhost:3000";
             let rp_id = "localhost";
 
-            let mut manager = Fido2Manager::new(origin, rp_id, "RSB CLI")?;
-
-            // Unificar para o caminho padrão definido no Core
-            let storage_path = Fido2Manager::default_storage_path()?;
-
-            if storage_path.exists() {
-                manager.load_from_file(&storage_path)?;
-            }
-
-            cmd.execute(Arc::new(Mutex::new(manager.clone()))).await?;
-
-            manager.save_to_file(&storage_path)?;
+            let manager = Fido2Manager::new(origin, rp_id, "RSB CLI")?;
+            // O método execute do comando agora é o único responsável por carregar/salvar
+            // para evitar condições de corrida e sobrescritas acidentais com dados obsoletos.
+            cmd.execute(Arc::new(Mutex::new(manager))).await?;
         }
         Commands::Snapshots(cmd) => {
             cmd.execute().await?;

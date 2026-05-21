@@ -15,6 +15,12 @@ use webauthn_rs::prelude::*;
 
 pub type AppState = Arc<Mutex<Fido2Manager>>;
 
+#[derive(Clone)]
+pub struct ServerState {
+    pub manager: Arc<Mutex<Fido2Manager>>,
+    pub done_tx: Arc<tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>>,
+}
+
 #[derive(Deserialize)]
 pub struct RegisterRequest {
     pub user_id: String,
@@ -51,7 +57,7 @@ impl<T: Serialize + Send + 'static> IntoResponse for ApiResponse<T> {
     }
 }
 
-pub fn create_router(state: AppState, html: Html<&'static str>) -> Router {
+pub fn create_router(state: ServerState, html: Html<&'static str>) -> Router {
     Router::new()
         .route("/", get(move || async move { html }))
         // register
@@ -73,7 +79,7 @@ async fn index(html: Html<&'static str>) -> Html<&'static str> {
 // ================= REGISTER =================
 
 async fn register_start(
-    State(state): State<AppState>,
+    State(state): State<ServerState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<CreationChallengeResponse>, (StatusCode, Json<ApiError>)> {
     info!("Register start: user_id={}", req.user_id);
@@ -89,7 +95,7 @@ async fn register_start(
         ));
     }
 
-    let mut m = state.lock().await;
+    let mut m = state.manager.lock().await;
 
     m.start_registration(&req.user_id, &req.username, &req.display_name)
         .map(Json)
@@ -105,10 +111,10 @@ async fn register_start(
 }
 
 async fn register_finish(
-    State(state): State<AppState>,
+    State(state): State<ServerState>,
     Json(res): Json<RegisterPublicKeyCredential>,
 ) -> Result<Json<bool>, (StatusCode, Json<ApiError>)> {
-    let mut m = state.lock().await;
+    let mut m = state.manager.lock().await;
 
     match m.finish_registration(res) {
         Ok(_) => {
@@ -143,7 +149,7 @@ async fn register_finish(
 // ================= AUTH =================
 
 async fn auth_start(
-    State(state): State<AppState>,
+    State(state): State<ServerState>,
     Json(req): Json<AuthRequest>,
 ) -> Result<Json<RequestChallengeResponse>, (StatusCode, Json<ApiError>)> {
     info!("Auth start: user_id={}", req.user_id);
@@ -158,7 +164,7 @@ async fn auth_start(
         ));
     }
 
-    let mut m = state.lock().await;
+    let mut m = state.manager.lock().await;
 
     m.start_authentication(&req.user_id).map(Json).map_err(|e| {
         error!("Auth start error: {}", e);
@@ -172,13 +178,13 @@ async fn auth_start(
 }
 
 async fn auth_finish(
-    State(state): State<AppState>,
+    State(state): State<ServerState>,
     Json(res): Json<PublicKeyCredential>,
 ) -> Result<Json<String>, (StatusCode, Json<ApiError>)> {
     info!("Auth finish");
-    let mut m = state.lock().await;
+    let mut m = state.manager.lock().await;
 
-    m.finish_authentication(res).map(Json).map_err(|e| {
+    let result = m.finish_authentication(res).map(Json).map_err(|e| {
         error!("Auth finish error: {}", e);
         (
             StatusCode::BAD_REQUEST,
@@ -186,16 +192,27 @@ async fn auth_finish(
                 error: e.to_string(),
             }),
         )
-    })
+    });
+
+    // Se a autenticação foi bem-sucedida, sinaliza para encerrar o servidor
+    if result.is_ok() {
+        info!("🎉 Authentication successful! Signaling server to shutdown...");
+        let mut tx_opt = state.done_tx.lock().await;
+        if let Some(tx) = tx_opt.take() {
+            let _ = tx.send(());
+        }
+    }
+
+    result
 }
 
 // ================= CREDENTIALS MANAGEMENT =================
 
 async fn list_credentials(
-    State(state): State<AppState>,
+    State(state): State<ServerState>,
 ) -> Result<Json<Vec<CredentialInfo>>, (StatusCode, Json<ApiError>)> {
     info!("Listing credentials");
-    let m = state.lock().await;
+    let m = state.manager.lock().await;
 
     let credentials = m
         .list_credentials()
@@ -214,7 +231,7 @@ async fn list_credentials(
 }
 
 async fn delete_credential(
-    State(state): State<AppState>,
+    State(state): State<ServerState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<bool>, (StatusCode, Json<ApiError>)> {
     info!("Deleting credential: user_id={}", user_id);
@@ -229,9 +246,9 @@ async fn delete_credential(
         ));
     }
 
-    let mut m = state.lock().await;
+    let mut m = state.manager.lock().await;
 
-    m.revoke_credential(&user_id)
+    m.revoke_user(&user_id)
         .map(|_| Json(true))
         .map_err(|e| {
             error!("Delete credential error: {}", e);
@@ -255,19 +272,14 @@ pub async fn run_server(
     manager: Arc<Mutex<Fido2Manager>>,
     html: Html<&'static str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    {
-        let mut m = manager.lock().await;
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    
+    let server_state = ServerState {
+        manager,
+        done_tx: Arc::new(tokio::sync::Mutex::new(Some(tx))),
+    };
 
-        if let Ok(path) = Fido2Manager::default_storage_path() {
-            println!("📂 Loading credentials");
-
-            if let Err(e) = m.load_from_file(&path) {
-                eprintln!("⚠️ Failed to load credentials: {}", e);
-            }
-        }
-    }
-
-    let router = create_router(manager,  html);
+    let router = create_router(server_state, html);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 
@@ -276,10 +288,21 @@ pub async fn run_server(
     info!("🌐 Server running at {}", url);
     println!("🌐 Server: {}", url);
 
-    // abre browser
+    // Abre browser
     let _ = open::that(url);
 
-    axum::serve(listener, router).await?;
+    // Cria uma tarefa para rodar o servidor
+    let server_task = axum::serve(listener, router);
 
-    Ok(())
+    // Aguarda ou o sinal de conclusão ou que o servidor retorne (error)
+    tokio::select! {
+        _ = rx => {
+            info!("✅ Authentication successful! Shutting down server gracefully...");
+            // Quando o signal é recebido, o servidor será encerrado automaticamente
+            Ok(())
+        }
+        result = server_task => {
+            result.map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        }
+    }
 }

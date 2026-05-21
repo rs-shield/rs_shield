@@ -137,6 +137,12 @@ pub struct Translations {
     pub auth_required_msg: &'static str,
     pub logout_button: &'static str,
     pub user_identifier: &'static str,
+    pub manage_fido2_keys_title: &'static str,
+    pub add_new_fido2_key_button: &'static str,
+    pub recovery_codes_label: &'static str,
+    pub generate_recovery_codes_button: &'static str,
+    pub recovery_codes_generated_success: &'static str,
+    pub use_recovery_code_link: &'static str,
 }
 
 pub const PT_STRINGS: Translations = Translations {
@@ -259,6 +265,12 @@ pub const PT_STRINGS: Translations = Translations {
     auth_required_msg: "Por favor, autentique-se para aceder às funcionalidades de backup e restauro.",
     logout_button: "Sair",
     user_identifier: "Identificador de Usuário",
+    manage_fido2_keys_title: "Gerir Chaves FIDO2",
+    add_new_fido2_key_button: "Adicionar Nova Chave de Segurança",
+    recovery_codes_label: "Códigos de Recuperação",
+    recovery_codes_generated_success: "Códigos de recuperação gerados com sucesso! Guarde-os em local seguro.",
+    generate_recovery_codes_button: "Gerar Códigos de Recuperação",
+    use_recovery_code_link: "Perdeu o acesso? Use um código de recuperação",
 };
 
 pub const EN_STRINGS: Translations = Translations {
@@ -382,6 +394,12 @@ pub const EN_STRINGS: Translations = Translations {
     auth_required_msg: "Please authenticate to access backup and restore features.",
     logout_button: "Logout",
     user_identifier: "User Identifier",
+    manage_fido2_keys_title: "Manage FIDO2 Keys",
+    add_new_fido2_key_button: "Add New Security Key",
+    recovery_codes_label: "Recovery Codes",
+    recovery_codes_generated_success: "Recovery codes successfully generated! Store them in a safe place.",
+    generate_recovery_codes_button: "Generate Recovery Codes",
+    use_recovery_code_link: "Lost access? Use a recovery code",
 };
 
 pub fn get_texts(lang: Language) -> &'static Translations {
