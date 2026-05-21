@@ -91,6 +91,7 @@ rpassword = { workspace = true }
 regex = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+open = { workspace = true }
 
 # EMAIL
 
@@ -99,8 +100,16 @@ lettre = { workspace = true }
 # WEBAUTHN / FIDO2
 
 webauthn-rs = { workspace = true }
+
+# WEB SERVER
+
+axum = { workspace = true }
 axum-extra = { workspace = true }
+
+tower = { workspace = true }
+tower-http = { workspace = true }
 jsonwebtoken = { workspace = true }
+
 
 # HTML
 

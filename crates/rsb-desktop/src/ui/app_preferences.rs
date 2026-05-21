@@ -7,27 +7,27 @@ use rsb_sdk::utils::ensure_directory_exists;
 /// Estrutura para armazenar preferências globais do aplicativo
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppPreferences {
-    pub language: String,
-    pub theme: String,
+    pub language: Language,
+    pub theme: Theme,
     pub exclude_patterns: String,
     pub encrypt_patterns: String,
     pub backup_mode: String,
-    pub pause_on_low_battery: String,
-    pub pause_on_high_cpu: String,
-    pub compression_level: String,
+    pub pause_on_low_battery: u8,
+    pub pause_on_high_cpu: u8,
+    pub compression_level: u8,
 }
 
 impl Default for AppPreferences {
     fn default() -> Self {
         Self {
-            language: "pt".to_string(),
-            theme: "system".to_string(),
+            language: Language::Pt,
+            theme: Theme::System,
             exclude_patterns: rsb_sdk::config::DEFAULT_EXCLUDE_PATTERNS.join("\n"),
             encrypt_patterns: "*.pdf\n*.docx\nprivate/".to_string(),
             backup_mode: "incremental".to_string(),
-            pause_on_low_battery: "20".to_string(),
-            pause_on_high_cpu: "90".to_string(),
-            compression_level: "3".to_string(),
+            pause_on_low_battery: 20,
+            pause_on_high_cpu: 90,
+            compression_level: 3,
         }
     }
 }
@@ -69,39 +69,5 @@ impl AppPreferences {
         fs::write(&path, json_str)?;
 
         Ok(())
-    }
-
-    /// Converter Language para string
-    pub fn language_to_string(lang: Language) -> String {
-        match lang {
-            Language::En => "en".to_string(),
-            Language::Pt => "pt".to_string(),
-        }
-    }
-
-    /// Converter string para Language
-    pub fn string_to_language(s: &str) -> Language {
-        match s {
-            "en" => Language::En,
-            _ => Language::Pt,
-        }
-    }
-
-    /// Converter Theme para string
-    pub fn theme_to_string(theme: Theme) -> String {
-        match theme {
-            Theme::Light => "light".to_string(),
-            Theme::Dark => "dark".to_string(),
-            Theme::System => "system".to_string(),
-        }
-    }
-
-    /// Converter string para Theme
-    pub fn string_to_theme(s: &str) -> Theme {
-        match s {
-            "light" => Theme::Light,
-            "dark" => Theme::Dark,
-            _ => Theme::System,
-        }
     }
 }

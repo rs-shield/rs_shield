@@ -1,4 +1,4 @@
-use crate::auth::handlers::AuthHandlerState;
+use crate::server::handlers::AuthHandlerState;
 use axum::{
     Json,
     extract::{FromRequestParts, State},
@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use rsb_sdk::auth::{JwtManager, SessionClaims, SessionStore};
+use crate::auth::{JwtManager, SessionClaims, SessionStore};
 use std::sync::Arc;
 use tracing::{error, warn};
 

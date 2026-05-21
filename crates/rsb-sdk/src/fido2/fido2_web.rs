@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
-use rsb_sdk::credentials::Fido2Manager;
+use crate::credentials::Fido2Manager;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -51,9 +51,9 @@ impl<T: Serialize + Send + 'static> IntoResponse for ApiResponse<T> {
     }
 }
 
-pub fn create_router(state: AppState) -> Router {
+pub fn create_router(state: AppState, html: Html<&'static str>) -> Router {
     Router::new()
-        .route("/", get(index))
+        .route("/", get(move || async move { html }))
         // register
         .route("/register/start", post(register_start))
         .route("/register/finish", post(register_finish))
@@ -66,8 +66,8 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn index() -> Html<&'static str> {
-    Html(include_str!("../../assets/fido2_auth.html"))
+async fn index(html: Html<&'static str>) -> Html<&'static str> {
+    html
 }
 
 // ================= REGISTER =================
@@ -253,6 +253,7 @@ async fn delete_credential(
 
 pub async fn run_server(
     manager: Arc<Mutex<Fido2Manager>>,
+    html: Html<&'static str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     {
         let mut m = manager.lock().await;
@@ -266,7 +267,7 @@ pub async fn run_server(
         }
     }
 
-    let router = create_router(manager);
+    let router = create_router(manager,  html);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
 

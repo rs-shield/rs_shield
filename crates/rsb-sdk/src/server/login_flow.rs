@@ -4,6 +4,8 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::info;
+
+use crate::server;
 /// Manages the integrated login flow: server + browser + auth + shutdown
 pub struct LoginFlow {
     server_handle: Option<tokio::task::JoinHandle<()>>,
@@ -36,7 +38,7 @@ impl LoginFlow {
 
         // 2. Start the server in background
         self.server_handle = Some(tokio::spawn(async move {
-            if let Err(e) = crate::auth::routes::start_auth_server(3000, tx).await {
+            if let Err(e) = server::routes::start_auth_server(3000, tx).await {
                 eprintln!("Server error: {}", e);
             }
         }));

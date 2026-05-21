@@ -50,25 +50,12 @@ dirs = { workspace = true }
 # NETWORKING
 
 reqwest = { workspace = true }
+axum = { workspace = true }
 
 # AWS
 
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
-
-# WEBAUTHN / FIDO2
-
-webauthn-rs = { workspace = true }
-
-# WEB SERVER
-
-axum = { workspace = true }
-axum-extra = { workspace = true }
-
-tower = { workspace = true }
-tower-http = { workspace = true }
-
-jsonwebtoken = { workspace = true }
 
 # UTILITIES
 

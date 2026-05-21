@@ -5,11 +5,11 @@ use axum::{
     response::Html,
 };
 use chrono::Utc;
-use rsb_sdk::auth::{
+use crate::auth::{
     AuditLogger, AuthRequest, AuthResponse, InMemorySessionStore, JwtManager, RateLimiter, Session,
     SessionStore,
 };
-use rsb_sdk::credentials::Fido2Manager;
+use crate::credentials;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -21,7 +21,7 @@ use webauthn_rs::prelude::PublicKeyCredential;
 #[derive(Clone)]
 pub struct AuthHandlerState<S: SessionStore + Clone> {
     pub jwt_manager: Arc<JwtManager>,
-    pub fido2_manager: Arc<Mutex<Fido2Manager>>,
+    pub fido2_manager: Arc<Mutex<credentials::Fido2Manager>>,
     pub session_store: Arc<S>,
     pub device_flows: Arc<Mutex<HashMap<String, DeviceFlowStatus>>>,
     pub rate_limiter: Arc<RateLimiter>,
@@ -115,7 +115,7 @@ pub async fn auth_start<S: SessionStore + Clone>(
                 serde_json::to_value(&challenge_response).unwrap_or_default(),
             ))
         }
-        Err(rsb_sdk::credentials::fido2::Fido2Error::CredentialNotFound) => {
+        Err(credentials::fido2::Fido2Error::CredentialNotFound) => {
             warn!("User not found for authentication: {}", req.user_id);
             Err(error_response(
                 StatusCode::NOT_FOUND,

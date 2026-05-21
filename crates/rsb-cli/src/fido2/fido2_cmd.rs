@@ -1,12 +1,13 @@
 use anyhow::Result;
+use axum::response::Html;
 use clap::Subcommand;
 use rsb_sdk::credentials::Fido2Manager;
+use rsb_sdk::fido2::fido2_web;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
 
-use crate::fido2::fido2_web;
 #[derive(Subcommand)]
 pub enum Fido2Command {
     /// Start Auth registration flow in browser
@@ -48,14 +49,14 @@ impl Fido2Command {
         match self {
             Self::Register { .. } => {
                 info!("🔐 Starting Auth registration flow...");
-                fido2_web::run_server(manager)
+                fido2_web::run_server(manager, Html(include_str!("../assets/fido2_auth.html")))
                     .await
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
             }
 
             Self::Authenticate { .. } => {
                 info!("🔐 Starting Auth authentication flow...");
-                fido2_web::run_server(manager)
+                fido2_web::run_server(manager, Html(include_str!("../assets/fido2_auth.html")))
                     .await
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
             }

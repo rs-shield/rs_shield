@@ -11,6 +11,8 @@ pub mod s3_check;
 pub mod snapshot;
 pub mod storage;
 pub mod utils;
+pub mod server;
+pub mod fido2;
 pub use crate::core::cancellation::CancellationToken;
 pub use config::{Config, create_profile, load_config};
 pub use core::{perform_backup, perform_prune, perform_restore};

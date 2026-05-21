@@ -1,13 +1,16 @@
-use crate::auth::handlers::{
+use crate::auth::{self, SessionStore};
+    
+use crate::server::handlers::{
     AuthHandlerState, auth_finish, auth_localhost_callback, auth_logout, auth_refresh, auth_start,
     auth_verify, device_flow_lookup_code, device_flow_page, device_flow_start,
     device_flow_start_api, device_flow_token, device_flow_verify_page, home,
 };
+use crate::credentials;
 use axum::{
     Router,
     routing::{get, post},
 };
-use rsb_sdk::auth::SessionStore;
+use std::fs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -40,8 +43,8 @@ pub async fn start_auth_server(
     port: u16,
     ready_tx: tokio::sync::oneshot::Sender<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use rsb_sdk::auth::{InMemorySessionStore, JwtManager};
-    use rsb_sdk::credentials::Fido2Manager;
+    use auth::{InMemorySessionStore, JwtManager};
+    use credentials::Fido2Manager;
     use std::collections::HashMap;
     use tracing::info;
 
@@ -56,8 +59,8 @@ pub async fn start_auth_server(
 
     let jwt_mgr = JwtManager::new("rsb-shield-secret-key-256bit")?;
     let session_store = Arc::new(InMemorySessionStore::new());
-    let rate_limiter = Arc::new(rsb_sdk::auth::RateLimiter::new(5, 60));
-    let audit_logger = Arc::new(rsb_sdk::auth::AuditLogger::new(Some(
+    let rate_limiter = Arc::new(auth::RateLimiter::new(5, 60));
+    let audit_logger = Arc::new(auth::AuditLogger::new(Some(
         "audit.log".to_string(),
     )));
 
@@ -82,3 +85,45 @@ pub async fn start_auth_server(
 
     Ok(())
 }
+
+
+pub async fn check_fido2_auth() -> Result<String, Box<dyn std::error::Error>> {
+        let home = dirs::home_dir().ok_or("Home directory not found")?;
+        let rsb_dir = home.join(".rs-shield");
+        let auth_file = rsb_dir.join("auth_token");
+
+        if !auth_file.exists() {
+            return Err("❌ Not authenticated. Please run: rsb login <user_id>".into());
+        }
+
+        let token =
+            fs::read_to_string(&auth_file).map_err(|_| "❌ Failed to read authentication token")?;
+
+        let trimmed_token = token.trim();
+        if trimmed_token.is_empty() {
+            return Err("❌ Invalid authentication token".into());
+        }
+
+        // 1. Validação Local (JWT Signature & Expiration)
+        let jwt_mgr = auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
+        jwt_mgr
+            .verify_token(trimmed_token)
+            .map_err(|e| format!("❌ Session expired or invalid: {}", e))?;
+
+        // 2. Validação Remota (Consulta ao servidor para verificar revogação/JTI)
+        let client = reqwest::Client::new();
+        let res = client
+            .get("http://localhost:3000/api/auth/verify")
+            .header("Authorization", format!("Bearer {}", trimmed_token))
+            .send()
+            .await;
+
+        match res {
+            Ok(resp) if resp.status().is_success() => Ok(trimmed_token.to_string()),
+            Ok(_) => Err("❌ Session revoked or expired on server. Please login again.".into()),
+            Err(_) => {
+                println!("⚠️ Auth server unreachable. Proceeding with local validation only.");
+                Ok(trimmed_token.to_string())
+            }
+        }
+    }

@@ -196,7 +196,6 @@ impl Fido2Manager {
             let iterations = 600_000;
             pbkdf2::pbkdf2_hmac::<Sha256>(&dek, salt, iterations, &mut key);
 
-            // Enterprise Security: Clear DEK from memory after use
             let mut zeroized_dek = dek;
             zeroized_dek.zeroize();
 
@@ -282,7 +281,7 @@ impl Fido2Manager {
                 .map_err(|e| Fido2Error::RegistrationFailed(e.to_string()))?,
             created_at: chrono::Local::now().to_rfc3339(),
             last_used: None,
-            counter: 0, // ✅ correct
+            counter: 0,
         };
 
         self.credentials
