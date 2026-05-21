@@ -1,3 +1,8 @@
+use crate::auth::{
+    AuditLogger, AuthRequest, AuthResponse, InMemorySessionStore, JwtManager, RateLimiter, Session,
+    SessionStore,
+};
+use crate::credentials;
 use axum::{
     Json,
     extract::State,
@@ -5,11 +10,6 @@ use axum::{
     response::Html,
 };
 use chrono::Utc;
-use crate::auth::{
-    AuditLogger, AuthRequest, AuthResponse, InMemorySessionStore, JwtManager, RateLimiter, Session,
-    SessionStore,
-};
-use crate::credentials;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -163,8 +163,12 @@ pub async fn auth_finish<S: SessionStore + Clone>(
             // Get counter from credentials
             // The counter is already updated within finish_authentication,
             // so we just need to retrieve the latest value for the session.
-            let latest_credential = fido2_mgr.list_user_credentials(&authenticated_user_id)
-                .into_iter().max_by_key(|c| c.counter).map(|c| c.counter).unwrap_or(0);
+            let latest_credential = fido2_mgr
+                .list_user_credentials(&authenticated_user_id)
+                .into_iter()
+                .max_by_key(|c| c.counter)
+                .map(|c| c.counter)
+                .unwrap_or(0);
 
             // Create JWT token
             let scopes = vec!["backup".to_string(), "restore".to_string()];
@@ -349,7 +353,10 @@ pub async fn auth_recovery<S: SessionStore + Clone>(
     let mut fido2_mgr = state.fido2_manager.lock().await;
 
     if fido2_mgr.verify_backup_code(&req.user_id, &req.recovery_code) {
-        info!("Recovery code successfully verified for user: {}", req.user_id);
+        info!(
+            "Recovery code successfully verified for user: {}",
+            req.user_id
+        );
 
         // Generate new JWT token
         let scopes = vec!["backup".to_string(), "restore".to_string()]; // Recovery grants full access
@@ -365,7 +372,10 @@ pub async fn auth_recovery<S: SessionStore + Clone>(
             })?;
 
         // Create new session
-        let jti = state.jwt_manager.extract_jti(&token).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let jti = state
+            .jwt_manager
+            .extract_jti(&token)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let session = Session {
             user_id: req.user_id.clone(),
             jti,
@@ -379,9 +389,17 @@ pub async fn auth_recovery<S: SessionStore + Clone>(
         };
         let _ = state.session_store.save(session).await;
 
-        Ok(Json(AuthResponse { access_token: token, expires_in: EXPIRE_DATE, token_type: "Bearer".to_string(), user_id: req.user_id }))
+        Ok(Json(AuthResponse {
+            access_token: token,
+            expires_in: EXPIRE_DATE,
+            token_type: "Bearer".to_string(),
+            user_id: req.user_id,
+        }))
     } else {
-        Err(error_response(StatusCode::UNAUTHORIZED, "Invalid or used recovery code"))
+        Err(error_response(
+            StatusCode::UNAUTHORIZED,
+            "Invalid or used recovery code",
+        ))
     }
 }
 

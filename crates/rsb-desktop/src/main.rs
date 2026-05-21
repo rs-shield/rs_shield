@@ -3,7 +3,7 @@
 mod ui;
 
 use dioxus::prelude::*;
-use dioxus_desktop::{Config, WindowBuilder, LogicalSize};
+use dioxus_desktop::{Config, LogicalSize, WindowBuilder};
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -14,9 +14,8 @@ fn main() {
             // Define tamanho inicial otimizado para diferentes resoluções
             .with_inner_size(LogicalSize::new(1280.0, 900.0))
             // Tamanho mínimo para garantir usabilidade
-            .with_min_inner_size(LogicalSize::new(1024.0, 768.0))
-            // Inicia maximizado em alguns SOs (comentado para ter controle manual)
-            // .with_maximized(true)
+            .with_min_inner_size(LogicalSize::new(1024.0, 768.0)), // Inicia maximizado em alguns SOs (comentado para ter controle manual)
+                                                                   // .with_maximized(true)
     );
 
     LaunchBuilder::desktop()

@@ -1,14 +1,14 @@
 use chrono::Local;
 use clap::{Parser, Subcommand};
+use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::server::LoginFlow;
 use rsb_sdk::server::routes::check_fido2_auth;
-use rsb_sdk::{auth, server};
-use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::utils::ensure_directory_exists;
+use rsb_sdk::{auth, server};
 use rsb_sdk::{config, core, credentials::Fido2Manager};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::fs;
 use tokio::sync::Mutex;
 use tracing::{Level, info, warn};
 pub mod config_cmd;
@@ -777,7 +777,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Server { port } => {
             // Dummy sender since we're running server standalone
-            
+
             let (tx, _rx) = tokio::sync::oneshot::channel();
             server::routes::start_auth_server(port, tx).await?;
         }
@@ -801,8 +801,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Load Fido2Manager and verify recovery code
-                let mut fido2_manager = Fido2Manager::new("http://localhost:3000", "localhost", "RSB CLI")?;
-                
+                let mut fido2_manager =
+                    Fido2Manager::new("http://localhost:3000", "localhost", "RSB CLI")?;
+
                 // Try to load existing credentials
                 if let Ok(path) = Fido2Manager::default_storage_path() {
                     if path.exists() {
@@ -864,7 +865,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match login_flow.start(user_id.clone()).await {
                     Ok(token) => {
                         // Verify and save token
-                        let jwt_mgr = rsb_sdk::auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
+                        let jwt_mgr =
+                            rsb_sdk::auth::JwtManager::new("rsb-shield-secret-key-256bit")?;
                         match jwt_mgr.verify_token(&token) {
                             Ok(claims) => {
                                 println!("🔑 User: {}", claims.sub);
@@ -883,7 +885,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let perms = std::fs::Permissions::from_mode(0o600);
                                     fs::set_permissions(&auth_file, perms)?;
                                 }
-         
+
                                 info!("✅ Authentication successful!");
                                 info!("📍 Token saved to: {}", auth_file.display());
                                 println!("✅ You are now authenticated!");
@@ -992,8 +994,8 @@ fn calculate_retention_backups(policy: &str) -> usize {
         "90d" => 90,
 
         // Monthly presets (weekly backups)
-        "6m" => 26,   // ~6 months
-        "12m" => 52,  // ~1 year
+        "6m" => 26,  // ~6 months
+        "12m" => 52, // ~1 year
 
         // Yearly presets (weekly backups)
         "1y" => 52,

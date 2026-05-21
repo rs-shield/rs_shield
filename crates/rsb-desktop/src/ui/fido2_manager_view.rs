@@ -1,6 +1,6 @@
+use axum::response::Html;
 use dioxus::prelude::*;
 use std::sync::Arc;
-use axum::response::Html;
 use tokio::sync::Mutex;
 
 // SDK Imports (adjust names according to your real rsb_sdk structure)
@@ -15,11 +15,11 @@ use crate::ui::i18n::get_texts;
 pub fn Fido2ManagerView() -> Element {
     let mut app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
-    
+
     // Tentar obter o user_id autenticado do contexto da app
     let authenticated_user = try_use_context::<Signal<Option<String>>>();
     let authenticated_user_value = authenticated_user.map(|u| u().clone()).flatten();
-    
+
     // Inicializar user_id com o user autenticado se disponível
     let mut user_id = use_signal(|| authenticated_user_value.unwrap_or_default());
     let mut credentials = use_signal(|| Vec::new());
@@ -50,9 +50,10 @@ pub fn Fido2ManagerView() -> Element {
             }
 
             message.set("🌐 Open the browser to register FIDO2 key...".into());
-            
-             let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
-            if let Err(e) = rsb_sdk::fido2::fido2_web::run_server(mgr_arc, Html(html_content)).await {
+
+            let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
+            if let Err(e) = rsb_sdk::fido2::fido2_web::run_server(mgr_arc, Html(html_content)).await
+            {
                 message.set(format_user_error(e, "fido2"));
             }
         });
@@ -65,7 +66,10 @@ pub fn Fido2ManagerView() -> Element {
             let current_user_id = user_id.read().clone();
 
             if current_user_id.is_empty() {
-                message.set(format!("⚠️ {} {}", texts.user_identifier, "is required to generate recovery codes."));
+                message.set(format!(
+                    "⚠️ {} {}",
+                    texts.user_identifier, "is required to generate recovery codes."
+                ));
                 return;
             }
 
@@ -101,9 +105,9 @@ pub fn Fido2ManagerView() -> Element {
             }
 
             if !message.read().is_empty() {
-                div { 
-                    class: "mb-4 p-3 bg-blue-50 border-l-4 border-blue-500 text-blue-700 text-sm", 
-                    "{message}" 
+                div {
+                    class: "mb-4 p-3 bg-blue-50 border-l-4 border-blue-500 text-blue-700 text-sm",
+                    "{message}"
                 }
             }
 
@@ -133,11 +137,11 @@ pub fn Fido2ManagerView() -> Element {
 
             div { class: "mt-8 pt-6 border-t border-gray-100",
                 h3 { class: "font-bold text-gray-700 mb-3", "🔐 {texts.recovery_codes_label}" }
-                
+
                 if recovery_codes.read().is_empty() {
                     div { class: "bg-amber-50 border border-amber-200 rounded p-4 mb-4",
                         p { class: "text-sm text-amber-800 font-semibold mb-2", "⚠️ Important" }
-                        p { class: "text-sm text-amber-700", 
+                        p { class: "text-sm text-amber-700",
                             "Generate recovery codes to access your account in case of FIDO2 key loss. "
                             "These codes are critical for security - store them in a secure location!"
                         }
@@ -155,7 +159,7 @@ pub fn Fido2ManagerView() -> Element {
                             "If you lose them, you'll need to generate new ones. "
                             "Write them down on paper, store them in a digital safe, or print them securely."
                         }
-                        
+
                         div { class: "bg-white border border-gray-300 rounded p-4 mb-4",
                             div { class: "text-center mb-4",
                                 p { class: "text-xs text-gray-500 font-semibold uppercase", "Recovery Codes" }
@@ -163,14 +167,14 @@ pub fn Fido2ManagerView() -> Element {
                             }
                             div { class: "grid grid-cols-2 gap-3 mb-4",
                                 for code in recovery_codes.read().iter() {
-                                    div { 
+                                    div {
                                         class: "bg-gray-50 p-3 rounded border border-gray-200 font-mono text-sm text-center font-bold text-gray-800",
                                         "{code}"
                                     }
                                 }
                             }
                         }
-                        
+
                         button {
                             class: "w-full bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded font-semibold transition-colors",
                             onclick: move |_| {

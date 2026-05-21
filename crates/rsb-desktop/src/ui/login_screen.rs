@@ -1,12 +1,11 @@
 use crate::ui::app::AppConfig;
 use crate::ui::error_handler::format_user_error;
 use crate::ui::i18n::get_texts;
+use axum::response::Html;
 use dioxus::prelude::*;
 use rsb_sdk::credentials::Fido2Manager;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use axum::response::Html;
-
 
 #[component]
 pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
@@ -45,19 +44,20 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
             }; // O cadeado (lock) é liberado aqui ao sair do escopo
 
             if !has_cred {
-                error_msg.set(format!(
-                    "❌ Identificador '{}' não encontrado.",
-                    id
-                ));
+                error_msg.set(format!("❌ Identificador '{}' não encontrado.", id));
                 is_authenticating.set(false);
                 return;
             }
 
             error_msg.set("🌐 Abrindo navegador para autenticação...".into());
             let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
-            
-            let result = rsb_sdk::fido2::fido2_web::run_server(fido2_manager_arc_clone.clone(), Html(html_content)).await;
-            
+
+            let result = rsb_sdk::fido2::fido2_web::run_server(
+                fido2_manager_arc_clone.clone(),
+                Html(html_content),
+            )
+            .await;
+
             match result {
                 Ok(_) => on_login.call(id),
                 Err(e) => error_msg.set(format_user_error(e, "fido2")),
@@ -81,7 +81,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 
         spawn(async move {
             let mut mgr = fido2_manager_arc_clone.lock().await;
-            
+
             // Tenta validar o código real usando o Fido2Manager
             if mgr.verify_backup_code(&id, &code) {
                 // Se o código for válido, salvamos a alteração (o código foi consumido)
@@ -155,7 +155,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                     }
 
                     div { class: "text-center mt-4",
-                        a { 
+                        a {
                             class: "text-sm text-indigo-600 hover:underline cursor-pointer",
                             onclick: move |_| show_recovery_input.toggle(),
                             if show_recovery_input() { "Voltar para FIDO2" } else { "{texts.use_recovery_code_link}" }

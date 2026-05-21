@@ -2,10 +2,10 @@ use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LoadingStyle {
-    Spinner,      // Animated spinner
-    Dots,         // Animated dots
-    ProgressBar,  // Progress bar with percentage
-    Pulse,        // Pulsing animation
+    Spinner,     // Animated spinner
+    Dots,        // Animated dots
+    ProgressBar, // Progress bar with percentage
+    Pulse,       // Pulsing animation
 }
 
 #[component]

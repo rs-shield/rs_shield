@@ -1,6 +1,5 @@
 /// User-friendly error message handler
 /// Masks technical errors and provides localized messages in English
-
 use tracing::warn;
 
 /// Convert technical error messages to user-friendly messages
@@ -80,9 +79,7 @@ pub fn format_user_error(error: impl std::fmt::Display, context: &str) -> String
         }
 
         // Default: Generic error
-        _ => {
-            "❌ An unexpected error occurred. Please try again.".to_string()
-        }
+        _ => "❌ An unexpected error occurred. Please try again.".to_string(),
     }
 }
 
@@ -117,7 +114,10 @@ pub fn format_operation_error(error: impl std::fmt::Display, operation: &str) ->
             if friendly_msg.contains("Authentication") {
                 friendly_msg
             } else {
-                format!("🔐 Authentication error: {}", friendly_msg.replace("❌ ", ""))
+                format!(
+                    "🔐 Authentication error: {}",
+                    friendly_msg.replace("❌ ", "")
+                )
             }
         }
         "fido2" => {

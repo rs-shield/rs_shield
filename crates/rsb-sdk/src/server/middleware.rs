@@ -1,3 +1,4 @@
+use crate::auth::{JwtManager, SessionClaims, SessionStore};
 use crate::server::handlers::AuthHandlerState;
 use axum::{
     Json,
@@ -6,7 +7,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use crate::auth::{JwtManager, SessionClaims, SessionStore};
 use std::sync::Arc;
 use tracing::{error, warn};
 

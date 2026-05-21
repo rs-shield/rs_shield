@@ -146,7 +146,12 @@ impl Fido2Command {
                 }
             }
 
-            Self::GenerateCodes { user_id, output, display, .. } => {
+            Self::GenerateCodes {
+                user_id,
+                output,
+                display,
+                ..
+            } => {
                 info!("🔑 Generating recovery codes for user: {}", user_id);
 
                 let mut mg = manager.lock().await;
@@ -213,7 +218,12 @@ impl Fido2Command {
                 println!("⚠️  Recovery codes cannot be displayed again after generation");
             }
 
-            Self::ExportCodes { user_id, output: _output, format, .. } => {
+            Self::ExportCodes {
+                user_id,
+                output: _output,
+                format,
+                ..
+            } => {
                 info!("📤 Exporting recovery codes for user: {}", user_id);
 
                 if format != "text" && format != "json" {
@@ -230,7 +240,10 @@ impl Fido2Command {
     }
 
     /// Auxiliar para exibir as credenciais no terminal
-    fn print_credentials(&self, credentials: &[rsb_sdk::credentials::fido2_manager::Fido2Credential]) {
+    fn print_credentials(
+        &self,
+        credentials: &[rsb_sdk::credentials::fido2_manager::Fido2Credential],
+    ) {
         println!("\n📋 Registered Auth Credentials:\n");
         for (i, c) in credentials.iter().enumerate() {
             println!("{}. User: {} ({})", i + 1, c.user_name, c.user_id);
