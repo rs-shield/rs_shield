@@ -115,7 +115,7 @@ pub async fn auth_start<S: SessionStore + Clone>(
                 serde_json::to_value(&challenge_response).unwrap_or_default(),
             ))
         }
-        Err(credentials::fido2::Fido2Error::CredentialNotFound) => {
+        Err(credentials::fido2_manager::Fido2Error::CredentialNotFound) => {
             warn!("User not found for authentication: {}", req.user_id);
             Err(error_response(
                 StatusCode::NOT_FOUND,
@@ -161,10 +161,10 @@ pub async fn auth_finish<S: SessionStore + Clone>(
     match fido2_mgr.finish_authentication(credential) {
         Ok(authenticated_user_id) => {
             // Get counter from credentials
-            let counter = fido2_mgr
-                .get_credential(&authenticated_user_id)
-                .map(|c| c.counter)
-                .unwrap_or(0);
+            // The counter is already updated within finish_authentication,
+            // so we just need to retrieve the latest value for the session.
+            let latest_credential = fido2_mgr.list_user_credentials(&authenticated_user_id)
+                .into_iter().max_by_key(|c| c.counter).map(|c| c.counter).unwrap_or(0);
 
             // Create JWT token
             let scopes = vec!["backup".to_string(), "restore".to_string()];
@@ -193,7 +193,7 @@ pub async fn auth_finish<S: SessionStore + Clone>(
                 revoked: false,
                 ip_address: Some(extract_ip_from_headers(&headers)),
                 user_agent: Some(extract_user_agent_from_headers(&headers)),
-                fido2_counter: counter,
+                fido2_counter: latest_credential,
                 scopes,
             };
 
@@ -208,7 +208,7 @@ pub async fn auth_finish<S: SessionStore + Clone>(
             let ip = extract_ip_from_headers(&headers);
             info!(
                 "Auth successful: user_id={}, counter={}, ip={}",
-                authenticated_user_id, counter, ip
+                authenticated_user_id, latest_credential, ip
             );
 
             // Audit Log
@@ -323,6 +323,66 @@ pub async fn auth_refresh<S: SessionStore + Clone>(
         token_type: "Bearer".to_string(),
         user_id: user_id.clone(),
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RecoveryRequest {
+    pub user_id: String,
+    pub recovery_code: String,
+}
+
+/// POST /api/auth/recovery - Validate and use a recovery code
+pub async fn auth_recovery<S: SessionStore + Clone>(
+    State(state): State<AuthHandlerState<S>>,
+    headers: HeaderMap,
+    Json(req): Json<RecoveryRequest>,
+) -> Result<Json<AuthResponse>, (StatusCode, Json<ErrorResponse>)> {
+    info!("Recovery attempt for user_id={}", req.user_id);
+
+    if req.user_id.is_empty() || req.recovery_code.is_empty() {
+        return Err(error_response(
+            StatusCode::BAD_REQUEST,
+            "user_id and recovery_code are required",
+        ));
+    }
+
+    let mut fido2_mgr = state.fido2_manager.lock().await;
+
+    if fido2_mgr.verify_backup_code(&req.user_id, &req.recovery_code) {
+        info!("Recovery code successfully verified for user: {}", req.user_id);
+
+        // Generate new JWT token
+        let scopes = vec!["backup".to_string(), "restore".to_string()]; // Recovery grants full access
+        let token = state
+            .jwt_manager
+            .create_token(&req.user_id, scopes.clone(), EXPIRE_DATE)
+            .map_err(|e| {
+                error!("JWT creation failed during recovery: {:?}", e);
+                error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to create access token after recovery",
+                )
+            })?;
+
+        // Create new session
+        let jti = state.jwt_manager.extract_jti(&token).unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let session = Session {
+            user_id: req.user_id.clone(),
+            jti,
+            created_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::seconds(EXPIRE_DATE),
+            revoked: false,
+            ip_address: Some(extract_ip_from_headers(&headers)),
+            user_agent: Some(extract_user_agent_from_headers(&headers)),
+            fido2_counter: 0, // No FIDO2 counter for recovery
+            scopes,
+        };
+        let _ = state.session_store.save(session).await;
+
+        Ok(Json(AuthResponse { access_token: token, expires_in: EXPIRE_DATE, token_type: "Bearer".to_string(), user_id: req.user_id }))
+    } else {
+        Err(error_response(StatusCode::UNAUTHORIZED, "Invalid or used recovery code"))
+    }
 }
 
 #[derive(Debug, Deserialize)]

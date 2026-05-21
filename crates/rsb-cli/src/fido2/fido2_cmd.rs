@@ -89,7 +89,7 @@ impl Fido2Command {
                 // 🔥 carregar antes
                 let _ = mg.load_from_file(&path);
 
-                match mg.revoke_credential(&user_id) {
+                match mg.revoke_user(&user_id) {
                     Ok(_) => {
                         // 🔥 salvar depois
                         let _ = mg.save_to_file(&path);
@@ -103,7 +103,7 @@ impl Fido2Command {
     }
 
     /// Auxiliar para exibir as credenciais no terminal
-    fn print_credentials(&self, credentials: &[rsb_sdk::credentials::fido2::Fido2Credential]) {
+    fn print_credentials(&self, credentials: &[rsb_sdk::credentials::fido2_manager::Fido2Credential]) {
         println!("\n📋 Registered Auth Credentials:\n");
         for (i, c) in credentials.iter().enumerate() {
             println!("{}. User: {} ({})", i + 1, c.user_name, c.user_id);
@@ -125,12 +125,9 @@ impl Fido2Command {
         };
 
         storage_opt.clone().unwrap_or_else(|| {
-            Fido2Manager::default_storage_path().unwrap_or_else(|_| {
-                let mut path = dirs::home_dir().unwrap_or_default();
-                path.push(".rs-shield");
-                path.push("auth_credentials.json");
-                path
-            })
+            // Unifica o caminho com o padrão definido no Fido2Manager do SDK
+            Fido2Manager::default_storage_path()
+                .unwrap_or_else(|_| PathBuf::from(".rs-shield/fido2_credentials.json"))
         })
     }
 }

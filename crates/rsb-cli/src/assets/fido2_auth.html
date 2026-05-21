@@ -573,6 +573,11 @@ async function handleLogin(event) {
 
     showAlert('✅ Authenticated successfully!', 'success');
     document.getElementById('login_user_id').value = '';
+    
+    // 🔐 Fecha o navegador após 1.5 segundos
+    setTimeout(() => {
+      window.close();
+    }, 1500);
   } catch (e) {
     console.error('Authentication error:', e);
     showAlert('❌ Error authenticating: ' + e.message, 'error');
