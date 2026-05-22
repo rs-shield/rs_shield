@@ -44,3 +44,4 @@ Thumbs.db
 .rsb-shield/
 *.enc
 *.json
+rsb-report-restore-*
