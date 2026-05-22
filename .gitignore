@@ -26,6 +26,7 @@ logs/
 rsb-report-backup-*
 copilot-instructions.md
 .instructions.md
+GEMINI.md
 .agent.md
 # Cache
 .xwin-cache/

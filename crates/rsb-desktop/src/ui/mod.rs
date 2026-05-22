@@ -8,6 +8,7 @@ pub mod fido2_manager_view;
 mod i18n;
 pub mod integrations_screen;
 pub mod loading_state;
+pub mod operation_timer;
 mod login_screen;
 pub mod profile_loader;
 pub mod profile_manager_screen;
