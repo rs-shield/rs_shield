@@ -3,6 +3,11 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus_desktop::{LogicalSize, use_window};
 use tokio::sync::Mutex;
+use rsb_sdk::operation::operations::OperationsManager;
+use rsb_sdk::metrics::system::{
+        SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
+        get_system_metrics,
+    };
 
 use crate::ui::{
     app_preferences::AppPreferences,
@@ -13,11 +18,6 @@ use crate::ui::{
     i18n::{Language, Theme, get_texts},
     integrations_screen::IntegrationScreen,
     login_screen::LoginScreen,
-    metrics::{
-        SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
-        get_system_metrics,
-    },
-    operations::OperationsManager,
     profile_manager_screen::ProfileManagerScreen,
     prune_screen::PruneScreen,
     realtime_sync_screen::RealtimeSyncScreen,
@@ -125,7 +125,7 @@ pub fn App() -> Element {
 
     use_effect(move || {
         spawn(async move {
-            let _ = crate::ui::operations::ensure_history_directory();
+            let _ = rsb_sdk::operation::operations::ensure_history_directory();
             let manager = OperationsManager::new();
             let history = manager.get_history();
 
