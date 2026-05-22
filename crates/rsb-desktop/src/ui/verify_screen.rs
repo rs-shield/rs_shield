@@ -4,13 +4,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rsb_sdk::{CancellationToken, config, core, perform_verify};
+use rsb_sdk::{CancellationToken, config, perform_verify};
+use rsb_sdk::operation::operations_helpers::record_verify_operation;
 
 use crate::ui::{
     app::AppConfig,
     error_handler::format_user_error,
     i18n::get_texts,
-    operations_helpers::record_verify_operation,
     profile_loader::{ProfileData, load_profile},
     shared::ProgressBar,
 };

@@ -3,6 +3,11 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus_desktop::{LogicalSize, use_window};
 use tokio::sync::Mutex;
+use rsb_sdk::operation::operations::OperationsManager;
+use rsb_sdk::metrics::system::{
+        SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
+        get_system_metrics,
+    };
 
 use crate::ui::{
     app_preferences::AppPreferences,
@@ -13,11 +18,6 @@ use crate::ui::{
     i18n::{Language, Theme, get_texts},
     integrations_screen::IntegrationScreen,
     login_screen::LoginScreen,
-    metrics::{
-        SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
-        get_system_metrics,
-    },
-    operations::OperationsManager,
     profile_manager_screen::ProfileManagerScreen,
     prune_screen::PruneScreen,
     realtime_sync_screen::RealtimeSyncScreen,
@@ -125,7 +125,7 @@ pub fn App() -> Element {
 
     use_effect(move || {
         spawn(async move {
-            let _ = crate::ui::operations::ensure_history_directory();
+            let _ = rsb_sdk::operation::operations::ensure_history_directory();
             let manager = OperationsManager::new();
             let history = manager.get_history();
 
@@ -348,7 +348,6 @@ pub fn App() -> Element {
 
                         div { class: "bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800/60 rounded-xl p-4",
                             h4 { class: "font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2",
-                                span { "💻" }
                                 "{texts.system_title}"
                             }
 
