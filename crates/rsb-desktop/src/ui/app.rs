@@ -348,7 +348,6 @@ pub fn App() -> Element {
 
                         div { class: "bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800/60 rounded-xl p-4",
                             h4 { class: "font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2",
-                                span { "💻" }
                                 "{texts.system_title}"
                             }
 
