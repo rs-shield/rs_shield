@@ -2,9 +2,10 @@ use crate::ui::{
     app::AppConfig,
     error_handler::format_user_error,
     i18n::get_texts,
-    operations_helpers::record_prune_operation,
     profile_loader::{ProfileData, load_profile},
 };
+ use rsb_sdk::operation::operations_helpers::record_prune_operation;
+
 use dioxus::prelude::*;
 use rsb_sdk::{config, core};
 use std::path::PathBuf;

@@ -1,4 +1,5 @@
-use crate::ui::operations_helpers::record_schedule_operation;
+use rsb_sdk::operation::operations_helpers::record_schedule_operation;
+
 use dioxus::prelude::*;
 use std::path::PathBuf;
 

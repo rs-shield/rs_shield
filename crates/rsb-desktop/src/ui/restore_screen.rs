@@ -5,12 +5,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rsb_sdk::{CancellationToken, config, core};
+use rsb_sdk::operation::operations_helpers::record_restore_operation;
 
 use crate::ui::{
     app::AppConfig,
     error_handler::format_user_error,
     i18n::get_texts,
-    operations_helpers::record_restore_operation,
     profile_loader::{ProfileData, load_profile},
     shared::ProgressBar,
 };
