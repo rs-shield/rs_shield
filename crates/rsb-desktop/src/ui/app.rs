@@ -11,6 +11,7 @@ use rsb_sdk::metrics::system::{
 
 use crate::ui::{
     app_preferences::AppPreferences,
+    backup_integrity_screen::BackupIntegrityScreen,
     backup_screen::BackupScreen,
     config_screen::ConfigScreen,
     create_profile_screen::CreateProfileScreen,
@@ -33,6 +34,7 @@ pub enum ActiveTab {
     ProfileManager,
     Backup,
     Restore,
+    BackupIntegrity,
     Verify,
     Prune,
     Schedule,
@@ -254,6 +256,7 @@ pub fn App() -> Element {
                             h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Operações" }
                             TabButton { label: texts.nav_backup.to_string(), icon: "📦", active: *active_tab.read() == ActiveTab::Backup, onclick: move |_| active_tab.set(ActiveTab::Backup) }
                             TabButton { label: texts.nav_restore.to_string(), icon: "🔄", active: *active_tab.read() == ActiveTab::Restore, onclick: move |_| active_tab.set(ActiveTab::Restore) }
+                            TabButton { label: "Integridade".to_string(), icon: "🔐", active: *active_tab.read() == ActiveTab::BackupIntegrity, onclick: move |_| active_tab.set(ActiveTab::BackupIntegrity) }
                             TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
                             TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
                             TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
@@ -313,6 +316,7 @@ pub fn App() -> Element {
                                     ActiveTab::ProfileManager => rsx! { ProfileManagerScreen { active_tab } },
                                     ActiveTab::Backup => rsx! { BackupScreen {} },
                                     ActiveTab::Restore => rsx! { RestoreScreen {} },
+                                    ActiveTab::BackupIntegrity => rsx! { BackupIntegrityScreen {} },
                                     ActiveTab::Verify => rsx! { VerifyScreen {} },
                                     ActiveTab::Prune => rsx! { PruneScreen {} },
                                     ActiveTab::RealtimeSync => rsx! { RealtimeSyncScreen {} },

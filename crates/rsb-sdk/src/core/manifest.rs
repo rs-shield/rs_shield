@@ -76,10 +76,43 @@ pub async fn read_manifest(
         match decrypt_data(&raw, k.as_bytes()) {
             Ok(data) => data,
             Err(e) => {
-                // Fallback: se falhar a desencriptação direta, pode ser que o dado não estivesse encriptado
-                // ou a chave esteja incorreta. Vamos reportar o erro.
-                error!("❌ Decryption failed for manifest {}: {}", path, e);
-                return Err(format!("Decryption failed. Ensure the key is correct: {}", e).into());
+                // 🐛 Fix: Provide more helpful error message
+                let error_msg = e.to_string().to_lowercase();
+                let user_message =
+                    if error_msg.contains("authentication") || error_msg.contains("tag") {
+                        format!(
+                            "❌ Decryption failed (wrong key)\n\n\
+                        The backup is encrypted but the key provided is incorrect.\n\
+                        Use the SAME encryption key that was used when creating this backup.\n\n\
+                        Technical: {}",
+                            e
+                        )
+                    } else if error_msg.contains("invalid") || error_msg.contains("corrupt") {
+                        format!(
+                            "⚠️  Backup metadata may be corrupted\n\n\
+                        The backup data cannot be read, even with the provided key.\n\
+                        This may indicate:\n\
+                        - Incomplete backup copy\n\
+                        - Corrupted backup files\n\
+                        - Wrong backup directory\n\n\
+                        Try: rsb verify --backup /path/to/backup\n\n\
+                        Technical: {}",
+                            e
+                        )
+                    } else {
+                        format!(
+                            "❌ Decryption error\n\n\
+                        Could not decrypt backup metadata.\n\
+                        Ensure:\n\
+                        - The backup is not corrupted\n\
+                        - The correct encryption key is provided\n\
+                        - The entire backup folder was copied\n\n\
+                        Technical: {}",
+                            e
+                        )
+                    };
+                error!("Decryption error for {}: {}", path, e);
+                return Err(user_message.into());
             }
         }
     } else {

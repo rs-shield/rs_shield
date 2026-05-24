@@ -20,6 +20,7 @@ atty = { workspace = true }
 indicatif = { workspace = true }
 console = { workspace = true }
 rpassword = { workspace = true }
+pathdiff = "0.2.3"
 
 # ASYNC
 

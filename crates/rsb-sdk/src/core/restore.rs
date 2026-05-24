@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use zstd::stream::copy_decode;
 
 pub async fn perform_restore(
@@ -51,6 +51,9 @@ pub async fn perform_restore_with_cancellation(
 ) -> Result<ReportData, Box<dyn std::error::Error>> {
     let start_time = Instant::now();
     let storage = super::storage_backend::get_storage(config).await;
+
+    // 🐛 Fix: Validate backup structure before attempting restore
+    validate_backup_structure(&*storage).await?;
 
     let (manifest_path, manifest_content) =
         find_latest_snapshot(&*storage, snapshot_id, encryption_key).await?;
@@ -130,7 +133,11 @@ pub async fn perform_restore_with_cancellation(
             );
 
             if !storage.exists(&data_path).await? {
-                let msg = format!("Missing data for {}: {}", rel_path.display(), metadata.hash);
+                // 🐛 Fix: More informative error about missing data
+                let msg = format!(
+                    "❌ Missing data for file: {}\n   This file is referenced in the backup metadata but the data file is missing.\n   Your backup may be incomplete or corrupted.",
+                    rel_path.display()
+                );
                 info!("{}", msg);
                 errors.push(msg);
                 continue;
@@ -297,5 +304,65 @@ async fn restore_multipart_file(
         ));
     }
 
+    Ok(())
+}
+
+/// 🐛 Fix: Validate backup structure before attempting restore
+/// This catches issues early and provides clear error messages
+async fn validate_backup_structure(
+    storage: &dyn Storage,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("🔍 Validating backup structure...");
+
+    // Check for snapshots directory
+    match storage.list("snapshots/").await {
+        Ok(snapshots) => {
+            if snapshots.is_empty() {
+                return Err(
+                    "❌ No backups found\n\n\
+                    The snapshots/ directory is empty.\n\
+                    This indicates:\n\
+                    - The backup folder is empty or corrupt\n\
+                    - The backup was never completed\n\
+                    - Only parts of the backup were copied\n\n\
+                    Solution: Ensure the entire backup folder was copied from the original computer."
+                        .into(),
+                );
+            }
+            info!("✅ Snapshots found: {}", snapshots.len());
+        }
+        Err(e) => {
+            return Err(format!(
+                "❌ Cannot read backup metadata\n\n\
+                    The snapshots directory is missing or inaccessible.\n\
+                    This likely means:\n\
+                    - The backup folder structure is incomplete\n\
+                    - The entire backup wasn't copied\n\
+                    - Permission issues accessing the backup\n\n\
+                    Error: {}\n\n\
+                    Solution: Re-copy the entire backup folder from the original computer.",
+                e
+            )
+            .into());
+        }
+    }
+
+    // Check for data directory
+    if !storage.exists("data/").await? {
+        return Err("❌ Backup data directory missing\n\n\
+            The data/ folder is not found in the backup.\n\
+            This indicates:\n\
+            - Incomplete backup copy (only copied metadata, not data)\n\
+            - Corrupted backup structure\n\
+            - Wrong backup folder selected\n\n\
+            Solution: \n\
+            1. Verify the backup folder has these subdirectories:\n\
+               - snapshots/\n\
+               - data/clear/ (or data/enc/ for encrypted backups)\n\
+            2. If missing, re-copy the entire backup from the original computer"
+            .into());
+    }
+
+    info!("✅ Backup structure is valid");
     Ok(())
 }

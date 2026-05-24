@@ -1,10 +1,10 @@
 use chrono::Local;
 use clap::{Parser, Subcommand};
 use rsb_sdk::integrity::perform_verify;
+use rsb_sdk::server;
 use rsb_sdk::server::LoginFlow;
 use rsb_sdk::server::routes::check_fido2_auth;
 use rsb_sdk::utils::ensure_directory_exists;
-use rsb_sdk::{auth, server};
 use rsb_sdk::{config, core, credentials::Fido2Manager};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -88,6 +88,10 @@ enum Commands {
         /// S3 endpoint URL
         #[arg(short = 'E', long)]
         s3_endpoint: Option<String>,
+
+        /// Portable mode (store relative paths for cross-computer compatibility)
+        #[arg(long)]
+        portable: bool,
     },
 
     /// Run backup with an existing profile
@@ -134,8 +138,12 @@ enum Commands {
 
     /// Restore a backup
     Restore {
-        /// Path to config.toml
-        config: PathBuf,
+        /// Path to config.toml (optional, use --backup for direct backup restore)
+        config: Option<PathBuf>,
+
+        /// Direct backup path (alternative to config, useful for portable backups)
+        #[arg(short = 'b', long)]
+        backup: Option<PathBuf>,
 
         /// Snapshot ID
         #[arg(short = 's', long)]
@@ -298,6 +306,56 @@ enum Commands {
         format: ListProfilesFormat,
     },
 
+    /// Verify a backup by path (without config file)
+    VerifyBackup {
+        /// Path to backup folder
+        #[arg(short = 'b', long)]
+        backup: PathBuf,
+
+        /// Snapshot ID (optional)
+        #[arg(short = 's', long)]
+        snapshot: Option<String>,
+
+        /// Encryption key (if encrypted)
+        #[arg(short = 'k', long)]
+        key: Option<String>,
+
+        /// Quiet mode - only show errors
+        #[arg(short = 'q', long)]
+        quiet: bool,
+
+        /// Quick verification (structure only)
+        #[arg(long)]
+        quick: bool,
+
+        /// Generate HTML report
+        #[arg(short = 'r', long)]
+        report: bool,
+    },
+
+    /// Diagnose backup issues
+    Diagnose {
+        /// Path to backup folder
+        #[arg(short = 'b', long)]
+        backup: PathBuf,
+
+        /// Encryption key (if encrypted)
+        #[arg(short = 'k', long)]
+        key: Option<String>,
+
+        /// Verbose output
+        #[arg(short = 'v', long)]
+        verbose: bool,
+
+        /// Generate JSON report
+        #[arg(short = 'j', long)]
+        json: bool,
+
+        /// Repair mode (attempt to fix issues)
+        #[arg(long)]
+        repair: bool,
+    },
+
     /// Manage credentials and settings
     #[command(subcommand, name = "config")]
     Config(ConfigCommand),
@@ -322,6 +380,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             s3_bucket,
             s3_region,
             s3_endpoint,
+            portable,
         } => {
             if !source.exists() {
                 return Err(format!("Source path does not exist: {}", source.display()).into());
@@ -355,10 +414,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None
             };
 
+            // Convert paths to relative if portable mode is enabled
+            let (source_for_profile, dest_for_profile) = if portable {
+                let source_rel = source
+                    .canonicalize()
+                    .ok()
+                    .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
+                    .unwrap_or(source.clone());
+                let dest_rel = dest
+                    .canonicalize()
+                    .ok()
+                    .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
+                    .unwrap_or(dest.clone());
+                (source_rel, dest_rel)
+            } else {
+                (source.clone(), dest.clone())
+            };
+
             config::create_profile_with_options(
                 &name,
-                &source,
-                &dest,
+                &source_for_profile,
+                &dest_for_profile,
                 Some(mode.as_str()),
                 Some(compression),
                 encrypt,
@@ -370,6 +446,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
             let config_file = format!("{}.toml", name);
             println!("✅ Profile '{}' created: {}", name, config_file);
+            if portable {
+                println!("📱 Portable mode enabled: using relative paths");
+                println!("   This profile can be moved between computers!");
+            }
             println!("📋 Next step, execute backup:");
             println!("   rsb backup {}", config_file);
         }
@@ -514,6 +594,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         Commands::Restore {
             config,
+            backup,
             snapshot,
             target,
             key,
@@ -525,11 +606,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             verify,
         } => {
             let _auth_token = check_fido2_auth().await?;
-            let cfg = config::load_config(&config)?;
-            let profile_name = config
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("default");
+
+            // Either config or backup must be provided
+            let (cfg, profile_name) = if let Some(ref config_path) = config {
+                // Traditional mode: use config file
+                let cfg = config::load_config(&config_path)?;
+                let name = config_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("default")
+                    .to_string();
+                (cfg, name)
+            } else if let Some(ref backup_path) = backup {
+                // Direct backup mode: create minimal config from backup path
+                if !backup_path.exists() {
+                    eprintln!("❌ Error: Backup path not found: {}", backup_path.display());
+                    return Err(format!("Backup not found: {}", backup_path.display()).into());
+                }
+
+                println!("📁 Restoring from backup: {}", backup_path.display());
+
+                // Create a minimal config for restoration from backup directory
+                let cfg = config::Config {
+                    source_path: "direct-restore".to_string(),
+                    destination_path: backup_path.to_string_lossy().to_string(),
+                    exclude_patterns: Vec::new(),
+                    encryption_key: key.clone(),
+                    encrypt_patterns: None,
+                    pause_on_low_battery: None,
+                    pause_on_high_cpu: None,
+                    compression_level: None,
+                    backup_mode: "incremental".to_string(),
+                    s3_bucket: None,
+                    s3_region: None,
+                    s3_endpoint: None,
+                    s3: None,
+                    s3_buckets: None,
+                    max_threads: None,
+                    channel_buffer_size: 8192,
+                };
+                let name = backup_path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("backup")
+                    .to_string();
+                (cfg, name)
+            } else {
+                return Err(
+                    "❌ Error: Either --config or --backup is required for restore operation"
+                        .into(),
+                );
+            };
 
             // Log file pattern and date filtering (future enhancements)
             if let Some(ref pattern) = files {
@@ -570,16 +697,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✅ Restore completed.");
 
             if report {
-                report_data.profile_path = config.to_string_lossy().to_string();
+                report_data.profile_path = if let Some(ref cfg_path) = config {
+                    cfg_path.to_string_lossy().to_string()
+                } else if let Some(ref backup_path) = backup {
+                    format!("Backup: {}", backup_path.display())
+                } else {
+                    "Unknown".to_string()
+                };
+
                 let html = rsb_sdk::report::generate_html(&report_data);
+
                 let filename = PathBuf::from(format!(
                     "rsb-report-restore-{}.html",
                     Local::now().format("%Y%m%d-%H%M%S")
                 ));
+
                 fs::write(&filename, html)?;
+
                 println!("📄 Report generated at: {}", filename.display());
             }
-        }
+                    }
         Commands::Verify {
             config,
             snapshot,
@@ -931,12 +1068,305 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ListProfilesCmd::execute(directory, output_format).await?;
         }
 
+        Commands::VerifyBackup {
+            backup,
+            snapshot,
+            key,
+            quiet,
+            quick,
+            report,
+        } => {
+            if !backup.exists() {
+                eprintln!("❌ Error: Backup path not found: {}", backup.display());
+                return Err(format!("Backup not found: {}", backup.display()).into());
+            }
+
+            println!("🔍 Verifying backup: {}\n", backup.display());
+
+            // Create a minimal config for verification
+            let cfg = config::Config {
+                source_path: "dummy".to_string(),
+                destination_path: backup.to_string_lossy().to_string(),
+                exclude_patterns: Vec::new(),
+                encryption_key: key.clone(),
+                encrypt_patterns: None,
+                pause_on_low_battery: None,
+                pause_on_high_cpu: None,
+                compression_level: None,
+                backup_mode: "incremental".to_string(),
+                s3_bucket: None,
+                s3_region: None,
+                s3_endpoint: None,
+                s3: None,
+                s3_buckets: None,
+                max_threads: None,
+                channel_buffer_size: 8192,
+            };
+
+            let mut report_data =
+                perform_verify(&cfg, snapshot.as_deref(), quiet, quick, None, None).await?;
+
+            if !quiet {
+                println!("\n✅ Verification completed successfully!");
+                println!("   Files processed: {}", report_data.files_processed);
+                println!("   Duration: {:.2}s", report_data.duration.as_secs_f64());
+            }
+
+            if report {
+                report_data.profile_path = format!("Backup: {}", backup.display());
+                let html = rsb_sdk::report::generate_html(&report_data);
+                let filename = PathBuf::from(format!(
+                    "rsb-report-verify-backup-{}.html",
+                    Local::now().format("%Y%m%d-%H%M%S")
+                ));
+                fs::write(&filename, html)?;
+                println!("📄 Report generated at: {}", filename.display());
+            }
+        }
+
+        Commands::Diagnose {
+            backup,
+            key,
+            verbose,
+            json: output_json,
+            repair,
+        } => {
+            if !backup.exists() {
+                eprintln!("❌ Error: Backup path not found: {}", backup.display());
+                return Err(format!("Backup not found: {}", backup.display()).into());
+            }
+
+            println!("🔍 Diagnosing backup: {}\n", backup.display());
+
+            // Run diagnostics
+            let diagnostics =
+                run_backup_diagnostics(&backup, key.as_deref(), verbose, repair).await?;
+
+            if output_json {
+                // Output JSON format
+                println!("{}", serde_json::to_string_pretty(&diagnostics)?);
+            } else {
+                // Output human-readable format
+                print_diagnostics(&diagnostics);
+            }
+        }
+
         Commands::Config(cmd) => {
             cmd.execute().await?;
         }
     }
 
     Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct BackupDiagnostics {
+    backup_path: String,
+    status: String,
+    issues: Vec<String>,
+    warnings: Vec<String>,
+    suggestions: Vec<String>,
+    details: DiagnosticDetails,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct DiagnosticDetails {
+    structure_valid: bool,
+    snapshots_count: usize,
+    data_files_count: usize,
+    encrypted_files_count: usize,
+    total_size_mb: f64,
+}
+
+async fn run_backup_diagnostics(
+    backup_path: &Path,
+    key: Option<&str>,
+    verbose: bool,
+    repair: bool,
+) -> Result<BackupDiagnostics, Box<dyn std::error::Error>> {
+    let mut issues = Vec::new();
+    let mut warnings = Vec::new();
+    let mut suggestions = Vec::new();
+    let mut status = "✅ Healthy".to_string();
+
+    // Check directory structure
+    let snapshots_dir = backup_path.join("snapshots");
+    let data_dir = backup_path.join("data");
+
+    let structure_valid = snapshots_dir.exists() && data_dir.exists();
+
+    if !structure_valid {
+        issues.push("❌ Backup structure is incomplete".to_string());
+        if !snapshots_dir.exists() {
+            issues.push("   - Missing snapshots/ directory".to_string());
+            if repair {
+                println!("🔧 Attempting to create missing snapshots/ directory...");
+                if let Err(e) = std::fs::create_dir_all(&snapshots_dir) {
+                    warnings.push(format!("⚠️  Failed to create snapshots/: {}", e));
+                } else {
+                    println!("✅ Created snapshots/ directory");
+                }
+            } else {
+                suggestions.push("Ensure the entire backup folder was copied".to_string());
+            }
+        }
+        if !data_dir.exists() {
+            issues.push("   - Missing data/ directory".to_string());
+            if repair {
+                println!("🔧 Attempting to create missing data/ directory...");
+                if let Err(e) = std::fs::create_dir_all(&data_dir) {
+                    warnings.push(format!("⚠️  Failed to create data/: {}", e));
+                } else {
+                    println!("✅ Created data/ directory");
+                }
+            } else {
+                suggestions
+                    .push("Re-copy the complete backup from the original computer".to_string());
+            }
+        }
+        status = "❌ Failed".to_string();
+    }
+
+    // Count files
+    let snapshots_count = if snapshots_dir.exists() {
+        std::fs::read_dir(&snapshots_dir)
+            .ok()
+            .map(|e| e.count())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+
+    let mut data_files_count = 0;
+    let mut encrypted_files_count = 0;
+    let mut total_size = 0u64;
+
+    if data_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&data_dir) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    total_size += metadata.len();
+                    if entry.path().to_string_lossy().contains("enc") {
+                        encrypted_files_count += 1;
+                    } else {
+                        data_files_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if snapshots_count == 0 {
+        issues.push("❌ No snapshots found".to_string());
+        status = "❌ Failed".to_string();
+        suggestions.push("Backup may be corrupted or incomplete".to_string());
+    }
+
+    if data_files_count == 0 && encrypted_files_count == 0 {
+        warnings.push("⚠️  No data files found".to_string());
+    }
+
+    if encrypted_files_count > 0 && key.is_none() {
+        warnings.push("⚠️  Backup appears to be encrypted but no key provided".to_string());
+        suggestions.push("Use --key option to verify encrypted backup".to_string());
+    }
+
+    let total_size_mb = total_size as f64 / (1024.0 * 1024.0);
+
+    if repair {
+        println!("\n🔧 Repair Mode Summary:");
+        if structure_valid {
+            println!("✅ Backup structure is intact - no repairs needed");
+        } else {
+            println!("🔧 Attempted to repair missing directories");
+        }
+        if !suggestions.is_empty() {
+            println!("\n💡 Additional Steps:");
+            for suggestion in &suggestions {
+                println!("   • {}", suggestion);
+            }
+        }
+        println!();
+    }
+
+    if verbose && !repair {
+        println!("📊 Detailed Diagnostics:");
+        println!("   Snapshots: {}", snapshots_count);
+        println!("   Data files (clear): {}", data_files_count);
+        println!("   Data files (encrypted): {}", encrypted_files_count);
+        println!("   Total size: {:.2} MB", total_size_mb);
+    }
+
+    Ok(BackupDiagnostics {
+        backup_path: backup_path.to_string_lossy().to_string(),
+        status,
+        issues,
+        warnings,
+        suggestions,
+        details: DiagnosticDetails {
+            structure_valid,
+            snapshots_count,
+            data_files_count,
+            encrypted_files_count,
+            total_size_mb,
+        },
+    })
+}
+
+fn print_diagnostics(diagnostics: &BackupDiagnostics) {
+    println!("📋 Backup Diagnostics Report");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("📁 Path: {}", diagnostics.backup_path);
+    println!("Status: {}\n", diagnostics.status);
+
+    if !diagnostics.issues.is_empty() {
+        println!("🔴 Issues:");
+        for issue in &diagnostics.issues {
+            println!("   {}", issue);
+        }
+        println!();
+    }
+
+    if !diagnostics.warnings.is_empty() {
+        println!("🟡 Warnings:");
+        for warning in &diagnostics.warnings {
+            println!("   {}", warning);
+        }
+        println!();
+    }
+
+    println!("📊 Details:");
+    println!(
+        "   Structure valid: {}",
+        if diagnostics.details.structure_valid {
+            "✅ Yes"
+        } else {
+            "❌ No"
+        }
+    );
+    println!("   Snapshots: {}", diagnostics.details.snapshots_count);
+    println!(
+        "   Data files (unencrypted): {}",
+        diagnostics.details.data_files_count
+    );
+    println!(
+        "   Data files (encrypted): {}",
+        diagnostics.details.encrypted_files_count
+    );
+    println!(
+        "   Total size: {:.2} MB\n",
+        diagnostics.details.total_size_mb
+    );
+
+    if !diagnostics.suggestions.is_empty() {
+        println!("💡 Suggestions:");
+        for suggestion in &diagnostics.suggestions {
+            println!("   • {}", suggestion);
+        }
+        println!();
+    }
+
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 }
 
 async fn sync_changed_files(src: &PathBuf, dst: &Path) -> Result<usize, String> {
