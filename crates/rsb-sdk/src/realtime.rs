@@ -1,5 +1,5 @@
+use crate::backup::perform_backup;
 use crate::config::Config;
-use crate::core::perform_backup;
 use crate::utils::ensure_directory_exists;
 use chrono::{DateTime, Utc};
 use notify::{RecursiveMode, Result as NotifyResult, Watcher};

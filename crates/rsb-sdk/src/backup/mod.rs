@@ -1,4 +1,5 @@
 // Backup modules organized by responsibility
+pub mod diagnostic;
 pub mod discovery;
 pub mod metadata;
 pub mod processing;

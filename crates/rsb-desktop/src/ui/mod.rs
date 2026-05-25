@@ -1,5 +1,6 @@
 pub mod app;
 pub mod app_preferences;
+mod backup_integrity_screen;
 mod backup_screen;
 mod config_screen;
 mod create_profile_screen;

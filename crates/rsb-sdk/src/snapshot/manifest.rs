@@ -9,10 +9,6 @@ use std::path::{Path, PathBuf};
 use tracing::{error, info};
 use zstd::stream::copy_decode;
 
-/// ===============================
-/// Chunk Audit
-/// ===============================
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkReport {
     pub file_path: PathBuf,
@@ -35,10 +31,6 @@ pub fn log_chunk_metadata(
 
     Ok(())
 }
-
-/// ===============================
-/// Write Snapshot Manifest
-/// ===============================
 
 pub async fn write_manifest(
     storage: &dyn Storage,
@@ -72,10 +64,6 @@ pub async fn write_manifest(
     Ok(snapshot_path)
 }
 
-/// ===============================
-/// Read Manifest
-/// ===============================
-
 pub async fn read_manifest(
     storage: &dyn Storage,
     path: &str,
@@ -104,10 +92,6 @@ pub async fn read_manifest(
 
     Ok(String::from_utf8(raw)?)
 }
-
-/// ===============================
-/// Find Latest Snapshot
-/// ===============================
 
 pub async fn find_latest_snapshot(
     storage: &dyn Storage,

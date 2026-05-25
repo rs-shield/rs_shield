@@ -8,13 +8,18 @@ A complete guide for end users to backup, restore, and manage their data with RS
 
 1. [Installation](#installation)
 2. [Desktop App](#desktop-app)
-3. [FIDO2 Security Keys](#fido2-security-keys)
+3. [FIDO2 Security Keys & Authentication](#fido2-security-keys--authentication)
 4. [Configuration](#configuration)
 5. [Backup Operations](#backup-operations)
 6. [Restore Operations](#restore-operations)
-7. [S3 Storage Setup](#s3-storage-setup)
-8. [Troubleshooting](#troubleshooting)
-9. [FAQ](#faq)
+7. [Advanced Features](#advanced-features)
+   - [Snapshots & Versioning](#snapshots--versioning)
+   - [Scheduled Backups](#scheduled-backups)
+   - [Real-Time Sync](#real-time-sync)
+   - [Backup Diagnostics](#backup-diagnostics)
+8. [S3 Storage Setup](#s3-storage-setup)
+9. [Troubleshooting](#troubleshooting)
+10. [FAQ](#faq)
 
 ---
 
@@ -33,7 +38,7 @@ curl -L https://github.com/yourusername/rs-shield/releases/download/latest/rs-sh
 
 ---
 
-## FIDO2 Security Keys
+## FIDO2 Security Keys & Authentication
 
 RS Shield supports FIDO2/WebAuthn standard for hardware-based authentication using security keys. This provides phishing-resistant, cryptographically secure authentication.
 
@@ -122,6 +127,74 @@ rsb auth revoke --user-id user@example.com
 # Re-register if needed
 rsb auth register --user-id user@example.com --name "Replacement Key"
 ```
+
+### Authentication Methods
+
+RS Shield supports two main authentication methods:
+
+#### 1. FIDO2 Security Key (Recommended)
+
+Provides the strongest security with hardware-based authentication:
+
+```bash
+rsb login --user-id user@example.com
+```
+
+Touch your security key when prompted. No password needed.
+
+**Advantages:**
+- ✅ Phishing-resistant
+- ✅ No password to forget
+- ✅ Works offline
+- ✅ Fast authentication
+
+#### 2. Recovery Codes
+
+Emergency backup authentication method:
+
+```bash
+rsb login --user-id user@example.com --recovery
+# Enter recovery code when prompted
+```
+
+**Important:**
+- Use recovery codes only if your security key is unavailable
+- Each recovery code can be used only once
+- Keep backup copies in a secure location (password manager)
+
+#### Generating Recovery Codes
+
+```bash
+rsb auth generate-codes
+# Save these codes somewhere secure!
+```
+
+Output:
+```
+🔐 Recovery Codes (keep safe):
+
+1. XXXX-XXXX-XXXX-XXXX-1
+2. XXXX-XXXX-XXXX-XXXX-2
+3. XXXX-XXXX-XXXX-XXXX-3
+...
+```
+
+### Best Practices
+
+1. **Register Multiple Keys**
+   - Primary: YubiKey in a safe
+   - Backup: YubiKey in wallet
+   - Tertiary: Biometric (Touch ID/Windows Hello)
+
+2. **Store Recovery Codes**
+   - Use a password manager (Bitwarden, 1Password, etc.)
+   - Print and store in safe
+   - Never email or cloud sync unencrypted
+
+3. **Regular Updates**
+   - Register new keys as you acquire them
+   - Revoke compromised keys immediately
+   - Update recovery codes quarterly
 
 ---
 
@@ -295,6 +368,203 @@ Use the file browser to select:
 
 ---
 
+## Advanced Features
+
+### Snapshots & Versioning
+
+RS Shield automatically creates snapshots of each backup state, allowing you to access multiple versions of your data.
+
+#### Viewing Snapshots
+
+1. **Select Backup** from the sidebar
+2. **Click "Snapshots" Tab**
+3. **View Timeline:**
+   - Date and time of each snapshot
+   - File count at that time
+   - Data size for that snapshot
+
+#### Comparing Snapshots
+
+Compare two snapshots to see what changed:
+
+```bash
+# Via CLI
+rsb snapshots diff --backup /backup/docs --from snap-2026-05-20 --to snap-2026-05-25
+```
+
+**Shows:**
+- Files added
+- Files deleted
+- Files modified
+
+#### Accessing Historical Data
+
+Restore from a specific snapshot:
+
+1. **Click Snapshots Tab**
+2. **Select desired snapshot date**
+3. **Click "Restore from this snapshot"**
+4. **Choose restore location**
+5. **Confirm restoration**
+
+### Scheduled Backups
+
+Automate your backups to run at specific times.
+
+#### Using Cron (Linux/macOS)
+
+Generate cron schedule:
+
+```bash
+rsb schedule --config docs.toml --format cron
+```
+
+Add to crontab:
+
+```bash
+crontab -e
+# Paste the output from schedule command
+```
+
+Common patterns:
+```bash
+# Daily at 2 AM
+0 2 * * * /usr/local/bin/rsb backup docs.toml
+
+# Every 6 hours
+0 */6 * * * /usr/local/bin/rsb backup docs.toml
+
+# Every Monday at 1 AM
+0 1 * * 1 /usr/local/bin/rsb backup docs.toml
+```
+
+#### Using Systemd (Linux)
+
+Generate systemd service:
+
+```bash
+rsb schedule --config docs.toml --format systemd
+```
+
+Create service file `/etc/systemd/system/rsb-backup.service`:
+
+```ini
+[Unit]
+Description=RS Shield Backup
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/rsb backup /path/to/docs.toml
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Create timer `/etc/systemd/system/rsb-backup.timer`:
+
+```ini
+[Unit]
+Description=RS Shield Backup Timer
+Requires=rsb-backup.service
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable rsb-backup.timer
+sudo systemctl start rsb-backup.timer
+```
+
+### Real-Time Sync
+
+Monitor a folder and automatically backup changes as they happen.
+
+#### CLI Usage
+
+```bash
+rsb watch --config docs.toml --sync-to /tmp/sync --key mypassword
+```
+
+Monitor output:
+```
+✅ Sync: 5 new/modified files synchronized.
+💾 Backup #1: 1050 files total, 5 processed
+```
+
+#### With Health Checks
+
+Monitor backup health with external service:
+
+```bash
+rsb watch --config docs.toml \
+  --sync-to /tmp/sync \
+  --key mypassword \
+  --healthcheck-url https://healthchecks.io/ping/your-uuid
+```
+
+### Backup Diagnostics
+
+Identify and repair backup issues.
+
+#### Running Diagnostics
+
+```bash
+# Simple check
+rsb diagnose --backup /backup/docs
+
+# Detailed check
+rsb diagnose --backup /backup/docs --verbose
+
+# JSON output (for automation)
+rsb diagnose --backup /backup/docs --json
+```
+
+#### What Gets Checked
+
+- File integrity (hashes)
+- Encryption validity
+- Compression status
+- Metadata consistency
+- Missing or corrupt snapshots
+
+#### Automatic Repair
+
+Attempt to fix detected issues:
+
+```bash
+rsb diagnose --backup /backup/docs --repair
+```
+
+**Caution:** Creates backup before attempting repairs.
+
+#### Advanced Verification
+
+Verify without decryption (fast check):
+
+```bash
+# Via profile
+rsb verify --config docs.toml
+
+# Quick verify via backup path (hashes only)
+rsb verify --backup /backup/docs --quick
+
+# Full verify (with decryption)
+rsb verify --backup /backup/docs
+
+# Generate HTML report
+rsb verify --backup /backup/docs --report
+```
+
+---
+
 ## S3 Storage Setup
 
 ### AWS S3
@@ -450,6 +720,21 @@ sudo apt install libgtk-3-0 libwebkit2gtk-4.0-37
 
 ### Q: Does RS Shield delete old backups automatically?
 **A:** Use "Prune" feature to remove old incremental backups. Sets retention policy.
+
+### Q: Can I access previous versions of my files?
+**A:** Yes! Use Snapshots to access any previous backup state. Each snapshot represents a complete backup at a specific time.
+
+### Q: How do I schedule automated backups?
+**A:** Use `rsb schedule` command to generate cron/systemd instructions, or set up through the Desktop app's scheduler.
+
+### Q: What if my security key is lost?
+**A:** Use recovery codes to authenticate and create new security key registrations. Keep recovery codes in a safe location.
+
+### Q: Can I repair a corrupted backup?
+**A:** Use `rsb diagnose --repair` to automatically attempt repairs. Always test restoration afterward.
+
+### Q: How do snapshots work?
+**A:** Every backup creates a snapshot. You can browse snapshots, compare changes, and restore from any snapshot point in time.
 
 ---
 

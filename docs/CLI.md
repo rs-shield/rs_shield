@@ -7,6 +7,10 @@ Complete command-line interface documentation for RS Shield.
 1. [Installation](#installation)
 2. [Global Options](#global-options)
 3. [Commands](#commands)
+   - [Backup & Restore](#backup--restore-commands)
+   - [Verification & Diagnostics](#verification--diagnostics-commands)
+   - [Management](#management-commands)
+   - [Authentication](#authentication-commands)
 4. [Examples](#examples)
 5. [Exit Codes](#exit-codes)
 
@@ -61,7 +65,9 @@ RS_SHIELD_HOME=/path    # Configuration directory
 
 ## Commands
 
-### Create Profile
+### Backup & Restore Commands
+
+#### Create Profile
 
 Create a new backup profile configuration.
 
@@ -174,34 +180,47 @@ rsb restore --backup /backup/docs --output ~/restored --date 2026-02-01
 rsb restore --backup s3://my-backups/docs --output ~/restored
 ```
 
-### Verify
+#### Verify
 
-Verify backup integrity.
+Verify backup integrity (by config file or direct path).
 
 ```bash
-rsb verify [OPTIONS] --backup <PATH>
+rsb verify [OPTIONS]
 
-OPTIONS:
-  -b, --backup <PATH>            Backup to verify
-  -p, --password <PASSWORD>      Decryption password (if encrypted)
-  --quick                        Quick check (skip full verification)
+OPTIONS (use one of):
+  -c, --config <FILE>            Path to profile configuration file
+  -b, --backup <PATH>            Direct path to backup folder
+  -s, --snapshot <ID>            Specific snapshot ID to verify
+  -k, --key <PASSWORD>           Decryption password (if encrypted)
+  --quick                        Quick verification (hash only, skip decryption)
+  -f, --fast                     Fast verification (hash only, no decryption)
   -q, --quiet                    Suppress output
+  -r, --report                   Generate HTML report
 ```
 
 **Examples:**
 
 ```bash
-# Verify backup
+# Verify via profile
+rsb verify --config docs.toml
+
+# Verify direct backup path
 rsb verify --backup /backup/docs
 
 # Quick check without decryption
 rsb verify --backup /backup/docs --quick
 
-# Verbose output
-rsb verify --backup /backup/docs --verbose
+# Verify specific snapshot
+rsb verify --backup /backup/docs --snapshot snap-2026-05-25
+
+# Generate report
+rsb verify --backup /backup/docs --report
+
+# Verify S3 backup
+rsb verify --backup s3://my-backups/docs --key mypassword
 ```
 
-### Prune
+#### Prune
 
 Remove old backup files and optimize storage.
 
@@ -228,7 +247,215 @@ rsb prune --backup /backup/docs --retention 6m
 rsb prune --backup /backup/docs --retention 1y
 ```
 
-### List Profiles
+### Verification & Diagnostics Commands
+
+#### Diagnose
+
+Diagnose and repair backup issues.
+
+```bash
+rsb diagnose [OPTIONS] --backup <PATH>
+
+OPTIONS:
+  -b, --backup <PATH>            Backup path to diagnose
+  -k, --key <PASSWORD>           Decryption password
+  -v, --verbose                  Detailed diagnostics output
+  -j, --json                     Output in JSON format
+  --repair                       Attempt to repair detected issues
+```
+
+**Examples:**
+
+```bash
+# Run diagnostics
+rsb diagnose --backup /backup/docs
+
+# Verbose output
+rsb diagnose --backup /backup/docs --verbose
+
+# JSON output for automation
+rsb diagnose --backup /backup/docs --json
+
+# Attempt repairs
+rsb diagnose --backup /backup/docs --repair
+
+# Diagnose encrypted backup
+rsb diagnose --backup /backup/docs --key mypassword --verbose
+```
+
+### Snapshots
+
+Manage backup snapshots and versions.
+
+```bash
+rsb snapshots [OPTIONS] <COMMAND>
+
+COMMANDS:
+  list          List all snapshots in a backup
+  info          Show detailed snapshot information
+  diff          Compare two snapshots
+  delete        Remove a snapshot
+```
+
+#### List Snapshots
+
+```bash
+rsb snapshots list --backup <PATH>
+
+OPTIONS:
+  -b, --backup <PATH>            Backup path
+  -f, --format <FORMAT>          Output format: table, json [default: table]
+```
+
+**Examples:**
+
+```bash
+# List all snapshots
+rsb snapshots list --backup /backup/docs
+
+# JSON output
+rsb snapshots list --backup /backup/docs --format json
+```
+
+#### Snapshot Info
+
+```bash
+rsb snapshots info --backup <PATH> --snapshot <ID>
+
+OPTIONS:
+  -b, --backup <PATH>            Backup path
+  -s, --snapshot <ID>            Snapshot ID
+```
+
+**Examples:**
+
+```bash
+# Show snapshot details
+rsb snapshots info --backup /backup/docs --snapshot snap-2026-05-25
+```
+
+#### Compare Snapshots
+
+```bash
+rsb snapshots diff --backup <PATH> --from <ID> --to <ID>
+
+OPTIONS:
+  -b, --backup <PATH>            Backup path
+  --from <ID>                    First snapshot ID
+  --to <ID>                      Second snapshot ID
+```
+
+**Examples:**
+
+```bash
+# Compare two snapshots
+rsb snapshots diff --backup /backup/docs --from snap-2026-05-20 --to snap-2026-05-25
+```
+
+### Management Commands
+
+#### Schedule
+
+Display scheduling instructions for automated backups.
+
+```bash
+rsb schedule [OPTIONS] --config <FILE>
+
+OPTIONS:
+  -c, --config <FILE>            Profile configuration file
+  -f, --format <FORMAT>          Format: cron, systemd [default: cron]
+```
+
+**Examples:**
+
+```bash
+# Get cron instruction
+rsb schedule --config docs.toml --format cron
+
+# Output:
+# 0 3 * * * "/usr/local/bin/rsb" backup "/home/user/docs.toml" --key "PASSWORD"
+
+# Get systemd timer instruction
+rsb schedule --config docs.toml --format systemd
+```
+
+### Watch
+
+Enable real-time file synchronization and automated backups.
+
+```bash
+rsb watch [OPTIONS] --config <FILE> --sync-to <PATH>
+
+OPTIONS:
+  -c, --config <FILE>            Profile configuration file
+  --sync-to <PATH>               Directory to sync changes to
+  -k, --key <PASSWORD>           Encryption password
+  -i, --interval <SECONDS>       Check interval [default: 2]
+  --healthcheck-url <URL>        Healthcheck endpoint for monitoring
+```
+
+**Examples:**
+
+```bash
+# Watch folder and auto-backup
+rsb watch --config docs.toml --sync-to /tmp/sync --key mypassword
+
+# With healthcheck
+rsb watch --config docs.toml --sync-to /tmp/sync --key mypassword \
+  --healthcheck-url https://healthchecks.io/ping/your-uuid
+```
+
+### Authentication Commands
+
+#### Login
+
+Authenticate with FIDO2 security key or recovery code.
+
+```bash
+rsb login [OPTIONS] --user-id <ID>
+
+OPTIONS:
+  -u, --user-id <ID>             User identifier (email or username)
+  --recovery                     Use recovery code instead of FIDO2
+```
+
+**Examples:**
+
+```bash
+# Login with FIDO2 key
+rsb login --user-id user@example.com
+
+# Login with recovery code
+rsb login --user-id user@example.com --recovery
+# Then enter recovery code when prompted
+```
+
+#### Server
+
+Start authentication server for FIDO2/WebAuthn.
+
+```bash
+rsb server [OPTIONS]
+
+OPTIONS:
+  -p, --port <PORT>              Server port [default: 3000]
+```
+
+**Examples:**
+
+```bash
+# Start on default port 3000
+rsb server
+
+# Start on custom port
+rsb server --port 8080
+
+# Access at http://localhost:3000
+```
+
+### Management Commands
+
+#### List Profiles
 
 List all available backup profiles.
 
@@ -253,7 +480,7 @@ rsb list-profiles --format json
 rsb list-profiles --directory ~/.backup/profiles
 ```
 
-### Configuration
+#### Configuration
 
 Manage credentials and settings.
 
@@ -283,7 +510,7 @@ rsb config list
 rsb config reset --confirm
 ```
 
-### Security KeyAuthentication
+#### FIDO2 Security Key Management
 
 Manage hardware security keys and FIDO2/WebAuthn credentials for phishing-resistant authentication.
 

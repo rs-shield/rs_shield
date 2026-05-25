@@ -4,8 +4,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rsb_sdk::{CancellationToken, config, perform_verify};
 use rsb_sdk::operation::operations_helpers::record_verify_operation;
+use rsb_sdk::{CancellationToken, config, perform_verify};
 
 use crate::ui::{
     app::AppConfig,

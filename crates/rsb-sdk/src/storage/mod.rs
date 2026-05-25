@@ -61,7 +61,17 @@ impl Storage for LocalStorage {
         let mut results = Vec::new();
 
         if !dir.exists() {
-            return Ok(results);
+            // 🐛 Fix: Return informative error instead of silent empty list
+            // This helps users diagnose backup corruption or incomplete copies
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "Backup structure incomplete: '{}' directory not found. \
+                    This may indicate a corrupted backup or incomplete copy. \
+                    Check that the entire backup folder was copied.",
+                    prefix
+                ),
+            ));
         }
 
         let mut entries = fs::read_dir(dir).await?;
