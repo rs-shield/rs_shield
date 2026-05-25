@@ -45,7 +45,6 @@ impl SnapshotRepository {
         Ok(snapshots)
     }
 
-    /// Buscar snapshot por ID
     pub fn get(&self, id: &str) -> Result<Snapshot> {
         let path = self.path.join(format!("{}.json", id));
 
@@ -59,7 +58,6 @@ impl SnapshotRepository {
         Ok(snapshot)
     }
 
-    /// Remover snapshot
     pub fn delete(&self, id: &str) -> Result<()> {
         let path = self.path.join(format!("{}.json", id));
 
@@ -72,7 +70,6 @@ impl SnapshotRepository {
         Ok(())
     }
 
-    /// Salvar snapshot
     pub fn save(&self, snapshot: &Snapshot) -> Result<()> {
         fs::create_dir_all(&self.path)?;
 

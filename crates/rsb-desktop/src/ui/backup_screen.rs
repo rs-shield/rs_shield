@@ -1,5 +1,6 @@
 use chrono::Local;
 use dioxus::prelude::*;
+use rsb_sdk::backup::perform_backup_with_cancellation;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -214,7 +215,7 @@ pub fn BackupScreen() -> Element {
                 };
 
                 let token = cancellation_token();
-                core::backup::perform_backup_with_cancellation(
+                perform_backup_with_cancellation(
                     &cfg,
                     &mode,
                     key_opt.as_deref(),

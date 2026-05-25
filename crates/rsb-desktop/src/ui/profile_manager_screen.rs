@@ -12,17 +12,14 @@ pub struct ProfileEntry {
     pub created: String,
 }
 
-/// Profile Manager - Basic Operations
 pub struct ProfileManager;
 
 impl ProfileManager {
-    /// Default profiles directory
     fn profiles_dir() -> PathBuf {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         home.join(".rsb-desktop")
     }
 
-    /// List all existing profiles
     pub fn list_profiles() -> Vec<ProfileEntry> {
         let profiles_dir = Self::profiles_dir();
         let mut profiles = Vec::new();
@@ -70,7 +67,6 @@ impl ProfileManager {
         profiles
     }
 
-    /// Delete a profile
     pub fn delete_profile(profile_path: &PathBuf) -> Result<(), String> {
         fs::remove_file(profile_path).map_err(|e| format!("Error deleting profile: {}", e))
     }
@@ -124,7 +120,6 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
 
     rsx! {
         div { class: "flex flex-col h-full gap-6 p-6 bg-slate-50 dark:bg-slate-900",
-            // Header
             div {
                 h1 { class: "text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2", "📋 Profile Management" }
                 p { class: "text-slate-600 dark:text-slate-400",
@@ -132,14 +127,12 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                 }
             }
 
-            // Status Message
             if show_status() {
                 div { class: "p-4 rounded-lg {bg_class} border {text_class}",
                     p { "{status_msg}" }
                 }
             }
 
-            // Perfis List
             if profiles().is_empty() {
                 div { class: "flex flex-col items-center justify-center flex-1 gap-4",
                     div { class: "text-6xl", "📭" }
@@ -167,7 +160,6 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                 }
             }
 
-            // Delete Confirmation Modal
             if let Some(profile) = to_delete() {
                     div { class: "fixed inset-0 bg-black/50 flex items-center justify-center z-50",
                         div { class: "bg-white dark:bg-slate-800 rounded-lg p-6 max-w-md shadow-xl",
@@ -193,7 +185,6 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                     }
             }
 
-            // Action Buttons
             div { class: "flex gap-4 pt-4 border-t border-slate-200 dark:border-slate-700",
                 button {
                     class: "btn btn-success flex-1",

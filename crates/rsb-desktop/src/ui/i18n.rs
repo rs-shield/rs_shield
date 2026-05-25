@@ -278,7 +278,6 @@ pub const PT_STRINGS: Translations = Translations {
 };
 
 pub const EN_STRINGS: Translations = Translations {
-    //
     nav_backup: "Backup",
     nav_restore: "Restore",
     nav_verify: "Verify",

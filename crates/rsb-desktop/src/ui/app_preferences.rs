@@ -33,7 +33,6 @@ impl Default for AppPreferences {
 }
 
 impl AppPreferences {
-    /// Obter o caminho do arquivo de preferências
     fn get_preferences_path() -> std::path::PathBuf {
         if let Some(home) = dirs::home_dir() {
             home.join(".rs-shield").join("app_preferences.json")
@@ -42,7 +41,6 @@ impl AppPreferences {
         }
     }
 
-    /// Carregar preferências do arquivo
     pub fn load() -> Self {
         let path = Self::get_preferences_path();
 
@@ -55,7 +53,6 @@ impl AppPreferences {
         Self::default()
     }
 
-    /// Salvar preferências no arquivo
     pub fn save(&self) -> std::io::Result<()> {
         let path = Self::get_preferences_path();
 

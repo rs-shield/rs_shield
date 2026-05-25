@@ -18,7 +18,7 @@ pub mod metrics;
 
 pub use crate::core::cancellation::CancellationToken;
 pub use config::{Config, create_profile, load_config};
-pub use core::{perform_backup, perform_prune, perform_restore};
+pub use core::{perform_prune, perform_restore};
 pub use credentials::{CredentialsManager, SecureString, encryption};
 pub use integrity::perform_verify;
 pub use realtime::{
