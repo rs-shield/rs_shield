@@ -1,6 +1,6 @@
-use clap::{Parser, Subcommand};
 use anyhow::Result;
 use axum::response::Html;
+use clap::{Parser, Subcommand};
 use rsb_sdk::credentials::Fido2Manager;
 use rsb_sdk::fido2::fido2_web;
 use std::path::PathBuf;

@@ -1,7 +1,9 @@
-use clap::{Subcommand};
-use std::path::{PathBuf};
+use clap::Subcommand;
+use std::path::PathBuf;
 
-use crate::command::{config_cmd::ConfigCommand, fido2_cmd::Fido2Command, snapshot_cmd::SnapshotCommand};
+use crate::command::{
+    config_cmd::ConfigCommand, fido2_cmd::Fido2Command, snapshot_cmd::SnapshotCommand,
+};
 
 #[derive(clap::ValueEnum, Clone, Copy)]
 pub enum ListProfilesFormat {
@@ -280,8 +282,6 @@ pub enum Commands {
         #[arg(short = 'f', long, value_enum, default_value = "table")]
         format: ListProfilesFormat,
     },
-
-
 
     /// Diagnose backup issues
     Diagnose {

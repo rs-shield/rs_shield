@@ -4,7 +4,7 @@ use crate::ui::{
     i18n::get_texts,
     profile_loader::{ProfileData, load_profile},
 };
- use rsb_sdk::operation::operations_helpers::record_prune_operation;
+use rsb_sdk::operation::operations_helpers::record_prune_operation;
 
 use dioxus::prelude::*;
 use rsb_sdk::{config, core};

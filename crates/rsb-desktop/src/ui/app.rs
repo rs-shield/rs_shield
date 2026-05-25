@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use dioxus_desktop::{LogicalSize, use_window};
-use tokio::sync::Mutex;
-use rsb_sdk::operation::operations::OperationsManager;
 use rsb_sdk::metrics::system::{
-        SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
-        get_system_metrics,
-    };
+    SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
+    get_system_metrics,
+};
+use rsb_sdk::operation::operations::OperationsManager;
+use tokio::sync::Mutex;
 
 use crate::ui::{
     app_preferences::AppPreferences,

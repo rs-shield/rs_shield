@@ -1,5 +1,5 @@
 use chrono::Local;
-use clap::{Parser};
+use clap::Parser;
 use rsb_cli::command::list_profiles_cmd::{ListProfilesCmd, OutputFormat};
 use rsb_cli::command::main_cmd::{Commands, ListProfilesFormat};
 use rsb_sdk::backup::diagnostic::{print_diagnostics, run_backup_diagnostics, sync_changed_files};
@@ -11,7 +11,7 @@ use rsb_sdk::server::routes::check_fido2_auth;
 use rsb_sdk::utils::{calculate_retention_backups, ensure_directory_exists, send_healthcheck};
 use rsb_sdk::{config, core, credentials::Fido2Manager};
 use std::fs;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{Level, info, warn};
@@ -26,7 +26,6 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
-
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -379,7 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("📄 Report generated at: {}", filename.display());
             }
-                    }
+        }
         Commands::Verify {
             config,
             backup,
@@ -428,8 +427,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 (cfg, format!("Backup: {}", backup_path.display()))
             } else {
                 return Err(
-                    "❌ Error: Either --config <FILE> or --backup <PATH> is required"
-                        .into(),
+                    "❌ Error: Either --config <FILE> or --backup <PATH> is required".into(),
                 );
             };
 
@@ -751,7 +749,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let rp_id = "localhost";
 
             let manager = Fido2Manager::new(origin, rp_id, "RSB CLI")?;
-            
+
             cmd.execute(Arc::new(Mutex::new(manager))).await?;
         }
         Commands::Snapshots(cmd) => {
@@ -800,4 +798,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

@@ -2,8 +2,8 @@
 
 use ignore::{Walk, WalkBuilder};
 use memmap2::Mmap;
-use tracing::warn;
 use std::path::{Path, PathBuf};
+use tracing::warn;
 
 pub fn expand_path(path: &str) -> PathBuf {
     // First, expand ~ if path starts with it

@@ -4,7 +4,6 @@ use walkdir::WalkDir;
 
 use crate::utils::ensure_directory_exists_async;
 
-
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct BackupDiagnostics {
     backup_path: String,
@@ -83,15 +82,11 @@ pub async fn run_backup_diagnostics(
         0
     };
 
-
     let mut data_files_count = 0;
     let mut encrypted_files_count = 0;
     let mut total_size = 0u64;
 
-    for entry in WalkDir::new(&data_dir)
-        .into_iter()
-        .filter_map(Result::ok)
-    {
+    for entry in WalkDir::new(&data_dir).into_iter().filter_map(Result::ok) {
         let path = entry.path();
 
         if let Ok(metadata) = entry.metadata() {
@@ -240,7 +235,8 @@ pub async fn sync_changed_files(src: &PathBuf, dst: &Path) -> Result<usize, Stri
                     parent
                         .to_str()
                         .ok_or("Invalid path characters in destination")?,
-                ).await?;
+                )
+                .await?;
             }
 
             let should_copy = if !dst_path.exists() {
