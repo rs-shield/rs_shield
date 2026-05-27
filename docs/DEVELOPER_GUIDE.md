@@ -23,9 +23,9 @@ RS Shield follows a **modular, layered architecture**:
 ┌─────────────────────────────────────────────┐
 │         Desktop UI (Dioxus + Tailwind)      │  rsb-desktop/
 ├─────────────────────────────────────────────┤
-│         CLI Interface                        │  rsb-cli/
+│         CLI Interface (clap)                 │  rsb-cli/
 ├─────────────────────────────────────────────┤
-│  Core Engine (Backup/Restore/S3/Crypto)    │  rsb-core/
+│  Core Engine (Backup/Restore/Crypto/S3)    │  rsb-sdk/
 ├─────────────────────────────────────────────┤
 │    OS APIs (Tokio, System, Filesystem)      │
 └─────────────────────────────────────────────┘
@@ -45,62 +45,97 @@ RS Shield follows a **modular, layered architecture**:
 
 ```
 rs-shield/
-├── rsb-core/                    # Core library (reusable)
-│   ├── src/
-│   │   ├── lib.rs             # Library root
-│   │   ├── main.rs            # Standalone binary (testing)
-│   │   ├── config/
-│   │   │   └── mod.rs         # Configuration management
-│   │   ├── core/
-│   │   │   ├── mod.rs         # Main module
-│   │   │   ├── backup.rs      # Backup engine
-│   │   │   ├── restore.rs     # Restore engine
-│   │   │   ├── manifest.rs    # Backup manifest/metadata
-│   │   │   ├── prune.rs       # Cleanup/retention
-│   │   │   ├── storage_backend.rs  # Abstract storage
-│   │   │   ├── file_processor.rs   # File handling
-│   │   │   ├── email_notifications.rs
-│   │   │   ├── notification_logger.rs
-│   │   │   └── resource_monitor.rs  # CPU/Battery monitoring
-│   │   ├── crypto/
-│   │   │   ├── mod.rs          # Encryption/Decryption
-│   │   │   └── ...
-│   │   ├── storage/
-│   │   │   ├── local.rs        # Filesystem storage
-│   │   │   ├── s3.rs           # S3 backend
-│   │   │   └── mod.rs
-│   │   ├── credentials/
-│   │   │   └── credentials_manager.rs  # Keyring management
-│   │   ├── utils/
-│   │   │   └── mod.rs          # Helper functions
-│   │   ├── realtime.rs         # Real-time sync
-│   │   └── report.rs           # Backup reports
-│   ├── tests/
-│   │   └── *.rs               # Integration tests
-│   └── Cargo.toml
+├── crates/
+│   ├── rsb-sdk/                     # Core library (reusable SDK)
+│   │   ├── src/
+│   │   │   ├── lib.rs               # Library root
+│   │   │   ├── auth/                # Authentication & JWT
+│   │   │   ├── backup/              # Backup engine
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── diagnostic.rs    # Backup diagnostics
+│   │   │   │   ├── discovery.rs     # File discovery
+│   │   │   │   ├── metadata.rs      # Backup metadata
+│   │   │   │   ├── processing.rs    # File processing
+│   │   │   │   ├── progress.rs      # Progress tracking
+│   │   │   │   ├── stats.rs         # Backup statistics
+│   │   │   │   └── threading.rs     # Multi-threading
+│   │   │   ├── config/              # Configuration management
+│   │   │   ├── core/                # Core operations
+│   │   │   │   ├── mod.rs
+│   │   │   │   ├── cancellation.rs  # Cancellation support
+│   │   │   │   ├── manifest.rs      # Manifest management
+│   │   │   │   ├── prune.rs         # Cleanup/retention
+│   │   │   │   ├── restore.rs       # Restore engine
+│   │   │   │   ├── storage_backend.rs # Storage abstraction
+│   │   │   │   ├── storage_ops.rs   # Storage operations
+│   │   │   │   ├── file_processor.rs # File handling
+│   │   │   │   ├── resource_monitor.rs # CPU/Battery monitoring
+│   │   │   │   ├── types.rs         # Core type definitions
+│   │   │   │   ├── notification_logger.rs
+│   │   │   │   ├── notification_history.rs
+│   │   │   │   ├── email_notifications.rs
+│   │   │   │   └── chat_integrations.rs
+│   │   │   ├── credentials/         # Credential management
+│   │   │   ├── crypto/              # Encryption/Decryption (AES-256-GCM)
+│   │   │   ├── fido2/               # FIDO2/WebAuthn
+│   │   │   ├── integrity/           # Verification & integrity checks
+│   │   │   ├── metrics/             # Metrics & monitoring
+│   │   │   ├── operation/           # Operation definitions
+│   │   │   ├── repository/          # Repository pattern
+│   │   │   ├── s3_check.rs          # S3 connectivity checks
+│   │   │   ├── server/              # Authentication server
+│   │   │   ├── snapshot/            # Snapshot management
+│   │   │   ├── storage/             # Storage backends (local, S3)
+│   │   │   ├── utils/               # Utility functions
+│   │   │   ├── realtime.rs          # Real-time sync
+│   │   │   ├── report.rs            # Backup reports
+│   │   │   └── portable_restore.rs  # Portable restore support
+│   │   ├── tests/                   # Integration tests
+│   │   └── Cargo.toml
+│   │
+│   ├── rsb-cli/                     # Command-line interface
+│   │   ├── src/
+│   │   │   ├── main.rs              # CLI entry point
+│   │   │   ├── command/
+│   │   │   │   ├── main_cmd.rs      # Command definitions
+│   │   │   │   ├── config_cmd.rs    # Config subcommands
+│   │   │   │   ├── fido2_cmd.rs     # FIDO2 subcommands
+│   │   │   │   ├── snapshot_cmd.rs  # Snapshot subcommands
+│   │   │   │   └── list_profiles_cmd.rs
+│   │   │   └── assets/
+│   │   ├── Cargo.toml
+│   │   ├── CLI_GUIDE.md
+│   │   └── README.md
+│   │
+│   └── rsb-desktop/                 # Desktop GUI (Dioxus + Tailwind)
+│       ├── src/
+│       │   ├── main.rs              # App entry point
+│       │   └── ui/
+│       │       ├── mod.rs
+│       │       ├── backup_screen.rs
+│       │       ├── restore_screen.rs
+│       │       ├── verify_screen.rs
+│       │       ├── prune_screen.rs
+│       │       ├── realtime_sync_screen.rs
+│       │       └── ...
+│       ├── Dioxus.toml
+│       ├── tailwind.config.js
+│       ├── postcss.config.js
+│       ├── DESIGN_GUIDE.md
+│       └── Cargo.toml
 │
-├── rsb-cli/                    # Command-line interface
-│   ├── src/
-│   │   └── main.rs            # CLI entry point
-│   └── Cargo.toml
-│
-├── rsb-desktop/                # Desktop GUI
-│   ├── src/
-│   │   ├── main.rs            # App entry
-│   │   ├── ui/
-│   │   │   ├── backup_screen.rs
-│   │   │   ├── restore_screen.rs
-│   │   │   ├── verify_screen.rs
-│   │   │   ├── prune_screen.rs
-│   │   │   ├── realtime_sync_screen.rs
-│   │   │   └── ...
-│   │   └── i18n/              # Internationalization
-│   ├── tailwind.config.js     # Tailwind CSS config
-│   └── Cargo.toml
-│
-├── tests/                     # Workspace-level tests
-├── Cargo.toml                 # Workspace manifest
-└── README.md
+├── tests/                           # Workspace-level integration tests
+├── docs/                            # Documentation
+│   ├── CLI.md
+│   ├── USER_GUIDE.md
+│   ├── DEVELOPER_GUIDE.md
+│   ├── TROUBLESHOOTING_PORTABILITY.md
+│   └── ...
+├── Cargo.toml                       # Workspace manifest
+├── Cargo.lock
+├── deny.toml                        # Security audit config
+├── README.md
+└── LICENSE
 ```
 
 ---
@@ -185,7 +220,7 @@ create_profile("my-backup",
 
 ### rsb_sdk::core::backup
 
-Core backup engine - incremental, encrypted backups.
+Core backup engine - incremental, encrypted backups with multi-threading support.
 
 ```rust
 pub async fn perform_backup(
@@ -293,7 +328,7 @@ RS Shield implements W3C WebAuthn standard authentication using the `webauthn-rs
 └────────────────┬───────────────────────────────────────┘
                │
          ┌─────────┴──────────┐
-         │ Fido2Manager       │  (rsb-core)
+         │ Fido2Manager       │  (rsb-sdk)
          └─────────┬──────────┘
                │
          ┌─────────┴──────────────────────┐
@@ -313,7 +348,7 @@ RS Shield implements W3C WebAuthn standard authentication using the `webauthn-rs
 
 #### Fido2Manager
 
-**Location:** `rsb-core/src/credentials/fido2.rs`
+**Location:** `crates/rsb-sdk/src/fido2/mod.rs` and `crates/rsb-sdk/src/credentials/`
 
 Main orchestrator for FIDO2 operations:
 
@@ -408,7 +443,7 @@ chrono = { version = "*", features = ["serde"] }
 
 ### Testing
 
-**Unit Tests:** `rsb-core/src/credentials/fido2.rs#[cfg(test)]`
+**Unit Tests:** `crates/rsb-sdk/src/fido2/mod.rs#[cfg(test)]`
 
 ```rust
 #[test]
@@ -428,7 +463,7 @@ fn test_list_empty() {/* List operations on empty store */}
 cargo test --release
 
 # FIDO2 module only
-cargo test --lib credentials::fido2
+cargo test fido2
 
 # With output
 cargo test --release -- --nocapture
@@ -451,19 +486,62 @@ rsb fido2 revoke --user-id user@example.com
 
 ## Building & Testing
 
+### Prerequisites
+
+- **Rust 1.70+** - Install from [rustup.rs](https://rustup.rs)
+- **OpenSSL** - Required for cryptography
+- **C compiler** - For FIDO2 dependencies
+
+**macOS:**
+```bash
+brew install openssl
+export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get install libssl-dev pkg-config build-essential
+```
+
 ### Build Commands
 
 ```bash
-# Development build
+# Development build (all crates)
 cargo build
 
-# Release build (optimized)
+# Release build (optimized, all crates)
 cargo build --release
 
-# Specific package
-cargo build -p rsb-core
-cargo build -p rsb-cli
-cargo build -p rsb-desktop
+# Specific crate
+cargo build -p rsb-sdk --release    # Core library
+cargo build -p rsb-cli --release    # CLI tool
+cargo build -p rsb-desktop --release # Desktop GUI
+```
+
+### Running the CLI
+
+```bash
+# Show available commands
+cargo run -p rsb-cli -- --help
+
+# Create profile
+cargo run -p rsb-cli -- create-profile --name my-backup --source /home/user/docs
+
+# List profiles
+cargo run -p rsb-cli -- list-profiles
+
+# Perform backup
+cargo run -p rsb-cli -- backup --profile my-backup
+
+# Verify backup integrity
+cargo run -p rsb-cli -- verify --backup /path/to/backup
+
+# Diagnose backup issues
+cargo run -p rsb-cli -- diagnose --backup /path/to/backup
+
+# Restore from backup
+cargo run -p rsb-cli -- restore --backup /path/to/backup --destination /tmp/restored
 ```
 
 ### Testing
@@ -472,46 +550,91 @@ cargo build -p rsb-desktop
 # Run all tests
 cargo test --workspace
 
-# Run tests for specific package
-cargo test -p rsb-core
+# Run tests for specific crate
+cargo test -p rsb-sdk
+cargo test -p rsb-cli
 
-# Run specific test
+# Run specific test file
+cargo test --test integration_tests
+
+# Run specific test function
 cargo test backup_incremental
 
-# With output
+# Run with output
 cargo test -- --nocapture
+
+# Run with debug logging
+RUST_LOG=debug cargo test -- --nocapture
 
 # Performance tests (may take longer)
 cargo test --release -- --ignored
 ```
+
+### Test Organization
+
+**Unit Tests:**
+- Located within each module (inline `#[cfg(test)]`)
+- Test specific functions/components
+- Examples: `crates/rsb-sdk/src/crypto/mod.rs#[cfg(test)]`
+
+**Integration Tests:**
+- Located in `crates/rsb-sdk/tests/` directory
+- Test complete workflows (backup → restore)
+- Examples: `backup_integration_tests.rs`, `restore_integration_tests.rs`
+
+**Workspace Tests:**
+- Located in `tests/` directory (root level)
+- Test cross-crate functionality
+- Run with: `cargo test --test integration_tests`
 
 ### Test Coverage
 
 Generate coverage report (requires `tarpaulin`):
 
 ```bash
+# Install tarpaulin
 cargo install cargo-tarpaulin
 
+# Generate HTML coverage report
 cargo tarpaulin --workspace \
     --out Html \
     --output-dir coverage \
-    --timeout 300
+    --timeout 300 \
+    --skip-clean
 ```
 
 ### Linting & Formatting
 
 ```bash
-# Format code
-cargo fmt
+# Format all code
+cargo fmt --all
 
-# Check formatting
-cargo fmt -- --check
+# Check formatting (without modifying)
+cargo fmt --all -- --check
 
 # Lint with clippy
 cargo clippy --all-targets --all-features
 
-# Fix clippy warnings
-cargo clippy --fix --all-targets --all-features
+# Fix clippy warnings automatically
+cargo clippy --fix --allow-dirty --all-targets --all-features
+
+# Security audit (deny.toml)
+cargo deny check
+
+# Check for outdated dependencies
+cargo outdated
+```
+
+### Continuous Integration
+
+Before submitting a pull request, run:
+
+```bash
+# Full CI-like checks
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features
+cargo test --all
+cargo deny check
 ```
 
 ---
@@ -533,28 +656,33 @@ cargo clippy --fix --all-targets --all-features
    git checkout -b feature/my-feature
    ```
 
-2. **Implement in rsb-core first** (library)
-   - Core logic independent of UI
-   - Add tests in `tests/` folder
+2. **Implement in rsb-sdk first** (core library)
+   - Core logic independent of UI/CLI
+   - Add tests in `crates/rsb-sdk/tests/` folder
+   - Update module documentation
 
 3. **Update CLI** (rsb-cli) if needed
-   - Add command/subcommand
-   - Add help text
+   - Add command/subcommand in `src/command/`
+   - Add help text via clap derive macros
+   - Test with: `cargo run -p rsb-cli -- --help`
 
 4. **Update GUI** (rsb-desktop) if needed
-   - Add new screen or modify existing
-   - Test on all platforms
+   - Add new screen or modify existing in `src/ui/`
+   - Test on all platforms (Windows, macOS, Linux)
+   - Ensure Tailwind CSS styling is consistent
 
 5. **Update documentation:**
-   - Code comments
-   - README.md
-   - docs/DEVELOPER_GUIDE.md
+   - Add rustdoc comments to public API
+   - Update [docs/CLI.md](docs/CLI.md) if adding commands
+   - Update [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for user-facing changes
+   - Update this DEVELOPER_GUIDE.md if architecture changes
 
 6. **Run full test suite:**
    ```bash
-   cargo test --workspace
-   cargo clippy --all-targets
-   cargo fmt
+   cargo fmt --all
+   cargo clippy --all-targets --all-features
+   cargo test --all
+   cargo deny check
    ```
 
 7. **Submit pull request**
@@ -660,7 +788,7 @@ tracing_subscriber::registry()
 ```bash
 # Run with debug logging
 RUST_LOG=debug cargo run
-RUST_LOG=rsb_core=debug,rsb_cli=info cargo run
+RUST_LOG=rsb_sdk=debug,rsb_cli=info cargo run -p rsb-cli
 ```
 
 ### Debugging in VSCode

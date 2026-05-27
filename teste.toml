@@ -1,0 +1,18 @@
+source_path = "/Users/marciozebedeu/Documents/termos"
+destination_path = "/Users/marciozebedeu/Music/"
+exclude_patterns = [
+    "*.tmp",
+    "*.log",
+    "node_modules",
+    "target",
+    ".git",
+    ".vscode",
+    ".idea",
+    ".DS_Store",
+    "_restored",
+]
+backup_mode = "incremental"
+pause_on_low_battery = 20
+pause_on_high_cpu = 65
+compression_level = 3
+channel_buffer_size = 8192

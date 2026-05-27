@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use chrono::Local;
 use clap::Parser;
 use rsb_cli::command::list_profiles_cmd::{ListProfilesCmd, OutputFormat};
@@ -121,6 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Backup {
             config,
+            backup,
             mode,
             key,
             dry_run,
@@ -132,10 +134,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             healthcheck_url,
         } => {
             let _auth_token = check_fido2_auth().await?;
-            if !config.exists() {
+            
+            // Resolve config or backup path
+            let config_path = match (config, backup) {
+                (Some(c), _) => c.clone(),
+                (None, Some(b)) => b.clone(),
+                (None, None) => {
+                    // Try to auto-discover .toml in current dir
+                    let current = std::env::current_dir()?;
+                    let mut found = None;
+                    for entry in std::fs::read_dir(&current)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                            found = Some(path);
+                            break;
+                        }
+                    }
+                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                }
+            };
+            
+            if !config_path.exists() {
                 eprintln!(
                     "❌ Error: Configuration file not found: {}",
-                    config.display()
+                    config_path.display()
                 );
                 eprintln!();
                 eprintln!("📋 Create a new profile first:");
@@ -145,12 +168,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!();
                 eprintln!("   Then execute backup:");
                 eprintln!("   rsb backup mybackup.toml");
-                return Err(format!("Configuration file not found: {}", config.display()).into());
+                return Err(format!("Configuration file not found: {}", config_path.display()).into());
             }
 
             send_healthcheck(&healthcheck_url, "/start").await;
 
-            let mut cfg = config::load_config(&config)?;
+            let mut cfg = config::load_config(&config_path)?;
 
             println!("\n💾 Backup Storage Type");
             println!("   1. S3 or S3-compatible (AWS, MinIO, Wasabi, etc.)");
@@ -166,9 +189,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if use_s3 {
                 println!("\n📦 Configuring S3 Storage");
                 println!("   Please provide bucket name, region, and endpoint URL...\n");
-                config::prompt_for_s3_config(&config)?;
+                config::prompt_for_s3_config(&config_path)?;
 
-                cfg = config::load_config(&config)?;
+                cfg = config::load_config(&config_path)?;
                 println!("✅ S3 configuration updated. Starting backup...\n");
             } else {
                 cfg.s3 = None;
@@ -243,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✅ Backup completed.");
 
             if report {
-                report_data.profile_path = config.to_string_lossy().to_string();
+                report_data.profile_path = config_path.to_string_lossy().to_string();
                 let html = rsb_sdk::report::generate_html(&report_data);
                 let filename = PathBuf::from(format!(
                     "rsb-report-backup-{}.html",
@@ -280,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .to_string();
                 (cfg, name)
             } else if let Some(ref backup_path) = backup {
-                // Direct backup mode: create minimal config from backup path
+                // Direct backup mode: use portable restore function
                 if !backup_path.exists() {
                     eprintln!("❌ Error: Backup path not found: {}", backup_path.display());
                     return Err(format!("Backup not found: {}", backup_path.display()).into());
@@ -288,25 +311,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("📁 Restoring from backup: {}", backup_path.display());
 
-                // Create a minimal config for restoration from backup directory
-                let cfg = config::Config {
-                    source_path: "direct-restore".to_string(),
-                    destination_path: backup_path.to_string_lossy().to_string(),
-                    exclude_patterns: Vec::new(),
-                    encryption_key: key.clone(),
-                    encrypt_patterns: None,
-                    pause_on_low_battery: None,
-                    pause_on_high_cpu: None,
-                    compression_level: None,
-                    backup_mode: "incremental".to_string(),
-                    s3_bucket: None,
-                    s3_region: None,
-                    s3_endpoint: None,
-                    s3: None,
-                    s3_buckets: None,
-                    max_threads: None,
-                    channel_buffer_size: 8192,
-                };
+                // Validate backup structure before attempting restore
+                let validation = rsb_sdk::validate_backup_structure(backup_path);
+                if !validation.is_valid {
+                    eprintln!("⚠️  Backup validation issues detected:");
+                    for issue in &validation.issues {
+                        eprintln!("  ❌ {}", issue);
+                    }
+                    for warning in &validation.warnings {
+                        eprintln!("  ⚠️  {}", warning);
+                    }
+                    println!("💡 Suggestions:");
+                    for suggestion in &validation.suggestions {
+                        println!("  • {}", suggestion);
+                    }
+                    return Err("Backup validation failed".into());
+                }
+
+                println!(
+                    "✅ Backup validation passed. Found {} snapshots, {} data files",
+                    validation.snapshots_count, validation.data_files_count
+                );
+
+                // Create config using portable restore function
+                let cfg = rsb_sdk::config_from_backup_path(backup_path, key.clone())
+                    .map_err(|e| format!("Failed to create config from backup: {}", e))?;
+
                 let name = backup_path
                     .file_name()
                     .and_then(|s| s.to_str())
@@ -348,12 +378,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Verify restored files if requested
             if verify {
                 println!("🔍 Verifying restored files integrity...");
-                // Create a temporary config for verification pointing to restored location
-                let restored_path = target_for_verify;
-                warn!(
-                    "📋 Post-restore verification pending for: {}",
-                    restored_path.display()
-                );
+                
+                // Run verification on the backup data to ensure integrity
+                match perform_verify(&cfg, snapshot.as_deref(), false, false, None, None).await {
+                    Ok(verify_report) => {
+                        println!("✅ Verification passed!");
+                        println!("   📊 Snapshots verified: {}", verify_report.total_files);
+                        println!("   ✔️  Files processed: {}", verify_report.files_processed);
+                        
+                        // Merge verification data into restore report
+                        report_data.total_files = verify_report.total_files;
+                        report_data.files_processed = verify_report.files_processed;
+                    }
+                    Err(e) => {
+                        eprintln!("⚠️  Verification warning: {}", e);
+                        eprintln!("   Files may have integrity issues. Please review manually.");
+                    }
+                }
             }
 
             println!("✅ Restore completed.");
@@ -400,30 +441,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 (cfg, config_path.to_string_lossy().to_string())
             } else if let Some(backup_path) = backup {
-                // Verify via direct backup path
+                // Verify via direct backup path using portable restore function
                 if !backup_path.exists() {
                     eprintln!("❌ Error: Backup path not found: {}", backup_path.display());
                     return Err(format!("Backup not found: {}", backup_path.display()).into());
                 }
-                // Create minimal config for direct backup verification
-                let cfg = config::Config {
-                    source_path: "dummy".to_string(),
-                    destination_path: backup_path.to_string_lossy().to_string(),
-                    exclude_patterns: Vec::new(),
-                    encryption_key: key.clone(),
-                    encrypt_patterns: None,
-                    pause_on_low_battery: None,
-                    pause_on_high_cpu: None,
-                    compression_level: None,
-                    backup_mode: "incremental".to_string(),
-                    s3_bucket: None,
-                    s3_region: None,
-                    s3_endpoint: None,
-                    s3: None,
-                    s3_buckets: None,
-                    max_threads: None,
-                    channel_buffer_size: 8192,
-                };
+                // Create config using portable restore function
+                let cfg = rsb_sdk::config_from_backup_path(&backup_path, key.clone())
+                    .map_err(|e| format!("Failed to create config from backup: {}", e))?;
                 (cfg, format!("Backup: {}", backup_path.display()))
             } else {
                 return Err(
@@ -458,6 +483,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Prune {
             config,
+            backup,
             keep_last,
             retention,
             dry_run,
@@ -466,7 +492,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let _auth_token = check_fido2_auth().await?;
             send_healthcheck(&healthcheck_url, "/start").await;
-            let cfg = config::load_config(&config)?;
+            
+            // Resolve config or backup path
+            let config_path = match (config, backup) {
+                (Some(c), _) => c.clone(),
+                (None, Some(b)) => b.clone(),
+                (None, None) => {
+                    let current = std::env::current_dir()?;
+                    let mut found = None;
+                    for entry in std::fs::read_dir(&current)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                            found = Some(path);
+                            break;
+                        }
+                    }
+                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                }
+            };
+            
+            let cfg = config::load_config(&config_path)?;
 
             // Determine the number of backups to keep
             let keep_count = if let Some(count) = keep_last {
@@ -501,8 +547,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             send_healthcheck(&healthcheck_url, "").await;
             info!("Prune completed.");
         }
-        Commands::Schedule { config, format } => {
-            let abs_config = std::fs::canonicalize(&config).unwrap_or(config.clone());
+        Commands::Schedule { config, backup, format } => {
+            // Resolve config or backup path
+            let config_path = match (config, backup) {
+                (Some(c), _) => c.clone(),
+                (None, Some(b)) => b.clone(),
+                (None, None) => {
+                    let current = std::env::current_dir()?;
+                    let mut found = None;
+                    for entry in std::fs::read_dir(&current)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                            found = Some(path);
+                            break;
+                        }
+                    }
+                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                }
+            };
+            
+            let abs_config = std::fs::canonicalize(&config_path).unwrap_or(config_path.clone());
             let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rsb"));
 
             let exe_str = format!("\"{}\"", exe.display());
@@ -526,13 +591,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Watch {
             config,
+            backup,
             sync_to,
             key,
             interval,
             healthcheck_url,
         } => {
             let _auth_token = check_fido2_auth().await?;
-            let mut cfg = config::load_config(&config)?;
+            
+            // Resolve config or backup path
+            let config_path = match (config, backup) {
+                (Some(c), _) => c.clone(),
+                (None, Some(b)) => b.clone(),
+                (None, None) => {
+                    let current = std::env::current_dir()?;
+                    let mut found = None;
+                    for entry in std::fs::read_dir(&current)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                            found = Some(path);
+                            break;
+                        }
+                    }
+                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                }
+            };
+            
+            let mut cfg = config::load_config(&config_path)?;
             cfg.encryption_key = Some(key);
 
             if let Some(url) = healthcheck_url {

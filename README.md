@@ -13,6 +13,9 @@
 - 📊 **Detailed Reports** - Comprehensive backup reports with statistics
 - 🔔 **Smart Notifications** - Email, webhooks, and system notifications
 - 🔋 **Resource Aware** - Automatic pauses on low battery or high CPU
+- 🎒 **Portable Backups** - Create backups without config files, perfect for external drives and cross-computer restores
+- ⚙️ **Automatic Deduplication** - Intelligent duplicate detection saves storage and speeds up backups
+- 📸 **Snapshot Comparison** - Compare two backup snapshots to see exactly what changed
 
 ## 🚀 Quick Start
 

@@ -145,6 +145,14 @@ pub struct Translations {
     pub generate_recovery_codes_button: &'static str,
     pub recovery_codes_generated_success: &'static str,
     pub use_recovery_code_link: &'static str,
+    pub portable_mode_label: &'static str,
+    pub select_backup_directly: &'static str,
+    pub portable_backup_loaded: &'static str,
+    pub backup_validation_failed: &'static str,
+    pub snapshots_found: &'static str,
+    pub data_files_found: &'static str,
+    pub portable_restore_hint: &'static str,
+    pub load_backup_directly: &'static str,
 }
 
 pub const PT_STRINGS: Translations = Translations {
@@ -275,6 +283,14 @@ pub const PT_STRINGS: Translations = Translations {
     recovery_codes_generated_success: "Códigos de recuperação gerados com sucesso! Guarde-os em local seguro.",
     generate_recovery_codes_button: "Gerar Códigos de Recuperação",
     use_recovery_code_link: "Perdeu o acesso? Use um código de recuperação",
+    portable_mode_label: "📱 Modo Portável",
+    select_backup_directly: "Selecione a pasta de backup",
+    portable_backup_loaded: "✅ Backup portável carregado",
+    backup_validation_failed: "❌ Validação do backup falhou",
+    snapshots_found: "Snapshots encontrados",
+    data_files_found: "Ficheiros de dados encontrados",
+    portable_restore_hint: "Restaure diretamente de uma pasta de backup sem ficheiro de configuração",
+    load_backup_directly: "📁 Carregar Backup Diretamente",
 };
 
 pub const EN_STRINGS: Translations = Translations {
@@ -405,6 +421,14 @@ pub const EN_STRINGS: Translations = Translations {
     recovery_codes_generated_success: "Recovery codes successfully generated! Store them in a safe place.",
     generate_recovery_codes_button: "Generate Recovery Codes",
     use_recovery_code_link: "Lost access? Use a recovery code",
+    portable_mode_label: "📱 Portable Mode",
+    select_backup_directly: "Select backup folder",
+    portable_backup_loaded: "✅ Portable backup loaded",
+    backup_validation_failed: "❌ Backup validation failed",
+    snapshots_found: "Snapshots found",
+    data_files_found: "Data files found",
+    portable_restore_hint: "Restore directly from a backup folder without a configuration file",
+    load_backup_directly: "📁 Load Backup Directly",
 };
 
 pub fn get_texts(lang: Language) -> &'static Translations {

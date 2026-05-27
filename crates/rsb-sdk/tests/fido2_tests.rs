@@ -37,8 +37,8 @@ fn test_fido2_storage_path() {
 fn test_fido2_get_nonexistent_credential() {
     let manager = Fido2Manager::new("http://localhost:3000", "localhost", "Test FIDO2").unwrap();
 
-    let result = manager.get_credential("nonexistent");
-    assert!(result.is_none());
+    let result = manager.list_user_credentials("nonexistent");
+    assert!(result.is_empty());
 }
 
 #[test]

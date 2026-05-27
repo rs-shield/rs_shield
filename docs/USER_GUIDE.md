@@ -17,6 +17,8 @@ A complete guide for end users to backup, restore, and manage their data with RS
    - [Scheduled Backups](#scheduled-backups)
    - [Real-Time Sync](#real-time-sync)
    - [Backup Diagnostics](#backup-diagnostics)
+   - [Portable Mode](#portable-mode-new) (NEW!)
+   - [Automatic Deduplication](#automatic-deduplication) (NEW!)
 8. [S3 Storage Setup](#s3-storage-setup)
 9. [Troubleshooting](#troubleshooting)
 10. [FAQ](#faq)
@@ -376,6 +378,7 @@ RS Shield automatically creates snapshots of each backup state, allowing you to 
 
 #### Viewing Snapshots
 
+**Desktop App:**
 1. **Select Backup** from the sidebar
 2. **Click "Snapshots" Tab**
 3. **View Timeline:**
@@ -383,29 +386,75 @@ RS Shield automatically creates snapshots of each backup state, allowing you to 
    - File count at that time
    - Data size for that snapshot
 
-#### Comparing Snapshots
+**Command Line:**
+```bash
+# List all snapshots
+rsb snapshots list --config mybackup.toml
+
+# Or using portable mode
+rsb snapshots list --backup /backup/docs
+
+# Show snapshot details
+rsb snapshots show 2026-05-25T10:30:00 --config mybackup.toml
+```
+
+#### Comparing Snapshots (NEW!)
 
 Compare two snapshots to see what changed:
 
-```bash
-# Via CLI
-rsb snapshots diff --backup /backup/docs --from snap-2026-05-20 --to snap-2026-05-25
-```
+**Desktop App:**
+1. **Click Snapshots Tab**
+2. **Select two snapshots**
+3. **Click "Compare"**
+4. **View changes:** Added, Removed, Modified files
 
-**Shows:**
-- Files added
-- Files deleted
-- Files modified
+**Command Line:**
+```bash
+# Compare two snapshots
+rsb snapshots diff 2026-05-20T10:00:00 2026-05-25T10:00:00 --config mybackup.toml
+
+# Or using portable backup path
+rsb snapshots diff snap1 snap2 --backup /backup/docs
+
+# Shows:
+# ✅ Added files
+# ❌ Removed files
+# 🔄 Modified files (with size changes)
+```
 
 #### Accessing Historical Data
 
 Restore from a specific snapshot:
 
+**Desktop App:**
 1. **Click Snapshots Tab**
 2. **Select desired snapshot date**
 3. **Click "Restore from this snapshot"**
 4. **Choose restore location**
 5. **Confirm restoration**
+
+**Command Line:**
+```bash
+# Restore from specific snapshot
+rsb restore --config mybackup.toml --snapshot 2026-05-25T10:30:00 --output ~/restored
+
+# Or using portable mode
+rsb restore --backup /backup/docs --snapshot snap-id --output ~/restored
+```
+
+### Snapshot Management
+
+#### Deleting Snapshots
+
+Remove specific snapshots to free space:
+
+```bash
+# Delete a snapshot
+rsb snapshots delete 2026-05-20T10:00:00 --config mybackup.toml
+
+# Or using backup path
+rsb snapshots delete snap-id --backup /backup/docs
+```
 
 ### Scheduled Backups
 
@@ -561,6 +610,133 @@ rsb verify --backup /backup/docs
 
 # Generate HTML report
 rsb verify --backup /backup/docs --report
+```
+
+---
+
+## Portable Mode (NEW!)
+
+Portable mode allows you to create and restore backups **without needing a config file**. This is perfect for:
+- External drives and USB backups
+- Backing up to cloud storage
+- Restoring on different computers
+- Cross-platform backup workflows
+
+### How It Works
+
+Instead of creating a config file, use the `--backup` flag to specify your backup destination directly:
+
+```bash
+# Create portable backup
+rsb backup --backup /media/external/my-backup
+
+# Verify the backup
+rsb verify --backup /media/external/my-backup
+
+# Restore on any computer
+rsb restore --backup /media/external/my-backup --output ~/restored
+
+# List snapshots anywhere
+rsb snapshots list --backup /media/external/my-backup
+
+# Compare snapshots across computers
+rsb snapshots diff snap1 snap2 --backup /media/external/my-backup
+```
+
+### Portable Backup Workflow Example
+
+**Computer A (Backup):**
+```bash
+# 1. Insert external drive
+# 2. Create portable backup (no config needed!)
+rsb backup --backup /mnt/external-drive/backup
+
+# 3. Verify backup
+rsb verify --backup /mnt/external-drive/backup
+```
+
+**Computer B (Restore):**
+```bash
+# 1. Connect same external drive
+# 2. List available snapshots
+rsb snapshots list --backup /mnt/external-drive/backup
+
+# 3. Restore files
+rsb restore --backup /mnt/external-drive/backup --output ~/restored
+```
+
+### Config vs Portable Mode Comparison
+
+| Feature | Config Mode | Portable Mode |
+|---------|------------|---------------|
+| **Setup** | Create config file | Use --backup flag |
+| **Works across computers** | Limited | ✅ Yes |
+| **External drives** | Limited | ✅ Perfect |
+| **Use case** | Regular scheduled backups | One-time, portable backups |
+| **Best for** | Desktop automation | USB drives, cloud sync |
+
+### Auto-Discovery
+
+All commands automatically look for `.toml` files in the current directory. You can omit the config file if it's nearby:
+
+```bash
+# If mybackup.toml is in current directory:
+rsb backup          # Auto-discovers mybackup.toml
+rsb verify          # Auto-discovers mybackup.toml
+rsb snapshots list  # Auto-discovers mybackup.toml
+```
+
+---
+
+## Automatic Deduplication
+
+RS Shield automatically deduplicates your files to **save storage space and backup time**.
+
+### How It Works
+
+1. **Content-based hashing**: Each file is hashed based on its content
+2. **Duplicate detection**: If a file with the same hash already exists in the backup, it's skipped
+3. **Transparent optimization**: Happens automatically, no configuration needed
+
+### Storage Savings Example
+
+```
+First backup:
+  ├─ Documents: 100 files (500 MB)
+  ├─ Photos: 50 files (2 GB)
+  └─ Code projects: 30 files (50 MB)
+  Total: 180 files, 2.55 GB stored
+
+Second backup (added 20 new files):
+  ├─ New documents: 10 files (50 MB) [NEW]
+  ├─ New photos: 5 files (100 MB) [NEW]
+  ├─ Existing files (not changed): 165 files [SKIPPED - deduplicated ✓]
+  └─ Modified code: 5 files (15 MB) [NEW]
+  
+Result:
+  - Only 20 new files processed
+  - 165 duplicate files skipped
+  - Backup time reduced by ~90%
+  - Storage increase: 165 MB (vs 2.55 GB without dedup)
+```
+
+### Benefits
+
+- **Reduced storage**: Identical files don't consume extra space
+- **Faster backups**: Duplicate files skip compression and encryption
+- **Cross-snapshot dedup**: Works across multiple backup snapshots
+- **Transparent**: No manual configuration needed
+
+### Monitoring Deduplication
+
+When you backup, RS Shield shows:
+```
+💾 Backup Progress
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Files:  165 / 180
+Skipped (duplicates): 15 ✓
+Size: 2.45 GB / 2.55 GB
+Progress: 92%
 ```
 
 ---
