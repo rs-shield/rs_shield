@@ -69,7 +69,7 @@ rand = "0.10"
 
 # Security
 keyring = "2.3.3"
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.4"
 
 # WebAuthn / FIDO2
 webauthn-rs = { version = "0.5.4", default-features = false, features = [
