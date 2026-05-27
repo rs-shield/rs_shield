@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rsb_sdk::operation::operations_helpers::record_restore_operation;
-use rsb_sdk::{CancellationToken, config, core};
+use rsb_sdk::{CancellationToken, config};
 
 use crate::ui::{
     app::AppConfig,
@@ -167,10 +167,11 @@ pub fn RestoreScreen() -> Element {
                 }
 
                 // Use portable restore function to support both config and direct backup paths
-                let config_path_opt = if profile_path.read().as_os_str().is_empty() {
+                let profile_path_str = profile_path.read();
+                let config_path_opt = if profile_path_str.as_os_str().is_empty() {
                     None
                 } else {
-                    Some(profile_path.read().as_path())
+                    Some(profile_path_str.as_path())
                 };
 
                 let backup_path_opt = if bkp.as_os_str().is_empty() {
