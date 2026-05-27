@@ -1,6 +1,7 @@
 use crate::ui::app::AppConfig;
 use crate::ui::error_handler::format_user_error;
 use crate::ui::i18n::get_texts;
+use crate::ui::loading_state::{LoadingOverlay, LoadingStyle};
 use axum::response::Html;
 use dioxus::prelude::*;
 use rsb_sdk::credentials::Fido2Manager;
@@ -97,6 +98,17 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
     };
 
     rsx! {
+        // Loading overlay
+        LoadingOverlay {
+            is_visible: is_authenticating(),
+            style: LoadingStyle::Spinner,
+            message: if show_recovery_input() {
+                "Verifying recovery code...".to_string()
+            } else {
+                "Authenticating with FIDO2...".to_string()
+            },
+        }
+
         div { class: "flex flex-col items-center justify-center min-h-[400px] py-12",
             div { class: "w-full max-w-md bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-8",
                 div { class: "text-center mb-8",

@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::Local;
 use clap::Parser;
 use rsb_cli::command::list_profiles_cmd::{ListProfilesCmd, OutputFormat};
@@ -134,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             healthcheck_url,
         } => {
             let _auth_token = check_fido2_auth().await?;
-            
+
             // Resolve config or backup path
             let config_path = match (config, backup) {
                 (Some(c), _) => c.clone(),
@@ -151,10 +151,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         }
                     }
-                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                    found.ok_or_else(|| {
+                        anyhow!("No config found. Use --config <path> or --backup <path>")
+                    })?
                 }
             };
-            
+
             if !config_path.exists() {
                 eprintln!(
                     "❌ Error: Configuration file not found: {}",
@@ -168,7 +170,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!();
                 eprintln!("   Then execute backup:");
                 eprintln!("   rsb backup mybackup.toml");
-                return Err(format!("Configuration file not found: {}", config_path.display()).into());
+                return Err(
+                    format!("Configuration file not found: {}", config_path.display()).into(),
+                );
             }
 
             send_healthcheck(&healthcheck_url, "/start").await;
@@ -378,14 +382,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Verify restored files if requested
             if verify {
                 println!("🔍 Verifying restored files integrity...");
-                
+
                 // Run verification on the backup data to ensure integrity
                 match perform_verify(&cfg, snapshot.as_deref(), false, false, None, None).await {
                     Ok(verify_report) => {
                         println!("✅ Verification passed!");
                         println!("   📊 Snapshots verified: {}", verify_report.total_files);
                         println!("   ✔️  Files processed: {}", verify_report.files_processed);
-                        
+
                         // Merge verification data into restore report
                         report_data.total_files = verify_report.total_files;
                         report_data.files_processed = verify_report.files_processed;
@@ -492,7 +496,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let _auth_token = check_fido2_auth().await?;
             send_healthcheck(&healthcheck_url, "/start").await;
-            
+
             // Resolve config or backup path
             let config_path = match (config, backup) {
                 (Some(c), _) => c.clone(),
@@ -508,10 +512,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         }
                     }
-                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                    found.ok_or_else(|| {
+                        anyhow!("No config found. Use --config <path> or --backup <path>")
+                    })?
                 }
             };
-            
+
             let cfg = config::load_config(&config_path)?;
 
             // Determine the number of backups to keep
@@ -547,7 +553,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             send_healthcheck(&healthcheck_url, "").await;
             info!("Prune completed.");
         }
-        Commands::Schedule { config, backup, format } => {
+        Commands::Schedule {
+            config,
+            backup,
+            format,
+        } => {
             // Resolve config or backup path
             let config_path = match (config, backup) {
                 (Some(c), _) => c.clone(),
@@ -563,10 +573,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         }
                     }
-                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                    found.ok_or_else(|| {
+                        anyhow!("No config found. Use --config <path> or --backup <path>")
+                    })?
                 }
             };
-            
+
             let abs_config = std::fs::canonicalize(&config_path).unwrap_or(config_path.clone());
             let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rsb"));
 
@@ -598,7 +610,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             healthcheck_url,
         } => {
             let _auth_token = check_fido2_auth().await?;
-            
+
             // Resolve config or backup path
             let config_path = match (config, backup) {
                 (Some(c), _) => c.clone(),
@@ -614,10 +626,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         }
                     }
-                    found.ok_or_else(|| anyhow!("No config found. Use --config <path> or --backup <path>"))?
+                    found.ok_or_else(|| {
+                        anyhow!("No config found. Use --config <path> or --backup <path>")
+                    })?
                 }
             };
-            
+
             let mut cfg = config::load_config(&config_path)?;
             cfg.encryption_key = Some(key);
 

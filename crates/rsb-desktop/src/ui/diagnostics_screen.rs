@@ -1,5 +1,9 @@
+use crate::ui::{
+    app::AppConfig,
+    i18n::get_texts,
+    loading_state::{LoadingOverlay, LoadingStyle},
+};
 use dioxus::prelude::*;
-use crate::ui::app::AppConfig;
 
 #[derive(Clone, Debug)]
 struct DiagnosticInfo {
@@ -36,7 +40,8 @@ impl DiagnosticStatus {
 
 #[component]
 pub fn DiagnosticsScreen() -> Element {
-    let _app_config = use_context::<AppConfig>();
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
 
     let mut diagnostics = use_signal(Vec::<DiagnosticInfo>::new);
     let mut is_loading = use_signal(|| false);
@@ -58,39 +63,39 @@ pub fn DiagnosticsScreen() -> Element {
 
             let mut diags = vec![
                 DiagnosticInfo {
-                    category: "Armazenamento".to_string(),
+                    category: "Storage".to_string(),
                     status: DiagnosticStatus::Healthy,
-                    message: "Espaço em disco disponível: 250 GB".to_string(),
-                    details: Some("Diretório de backup: ~/backups".to_string()),
+                    message: "Disk space available: 250 GB".to_string(),
+                    details: Some("Backup directory: ~/backups".to_string()),
                 },
                 DiagnosticInfo {
-                    category: "Configuração".to_string(),
+                    category: "Configuration".to_string(),
                     status: DiagnosticStatus::Healthy,
-                    message: "Arquivo de configuração válido".to_string(),
-                    details: Some("Perfil padrão carregado com sucesso".to_string()),
+                    message: "Configuration file is valid".to_string(),
+                    details: Some("Default profile loaded successfully".to_string()),
                 },
                 DiagnosticInfo {
-                    category: "Criptografia".to_string(),
+                    category: "Encryption".to_string(),
                     status: DiagnosticStatus::Healthy,
-                    message: "Chave de criptografia disponível".to_string(),
-                    details: Some("Algoritmo: AES-256-GCM".to_string()),
+                    message: "Encryption key available".to_string(),
+                    details: Some("Algorithm: AES-256-GCM".to_string()),
                 },
                 DiagnosticInfo {
                     category: "FIDO2".to_string(),
                     status: DiagnosticStatus::Warning,
-                    message: "Nenhuma chave FIDO2 configurada".to_string(),
-                    details: Some("Recomenda-se adicionar uma chave para autenticação biométrica".to_string()),
+                    message: "No FIDO2 key configured".to_string(),
+                    details: Some("Consider adding a key for biometric authentication".to_string()),
                 },
                 DiagnosticInfo {
-                    category: "Último Backup".to_string(),
+                    category: "Last Backup".to_string(),
                     status: DiagnosticStatus::Healthy,
-                    message: "Backup realizado com sucesso".to_string(),
-                    details: Some("Tempo: 2 horas atrás | 1,234 arquivos | 12 GB".to_string()),
+                    message: "Backup completed successfully".to_string(),
+                    details: Some("Time: 2 hours ago | 1,234 files | 12 GB".to_string()),
                 },
             ];
 
             diagnostics.set(diags);
-            last_run.set(Some("Agora".to_string()));
+            last_run.set(Some("Now".to_string()));
             is_loading.set(false);
         });
     };
@@ -101,20 +106,27 @@ pub fn DiagnosticsScreen() -> Element {
 
     rsx! {
         div { class: "space-y-6",
+            // Loading overlay
+            LoadingOverlay {
+                is_visible: is_loading(),
+                style: LoadingStyle::Spinner,
+                message: texts.diagnostics_running.to_string(),
+            }
+
             // Header
             div { class: "flex justify-between items-center",
-                h2 { class: "text-2xl font-bold text-slate-900 dark:text-white", "🔧 Diagnósticos do Sistema" }
+                h2 { class: "text-2xl font-bold text-slate-900 dark:text-white", "🔧 {texts.diagnostics_title}" }
                 button {
                     class: "btn-primary py-2 px-4 flex items-center gap-2",
                     onclick: move |_| run_diagnostics(()),
                     disabled: is_loading(),
-                    if is_loading() { "⏳ Executando..." } else { "🔄 Executar Diagnóstico" }
+                    if is_loading() { "{texts.diagnostics_running}" } else { "{texts.diagnostics_run}" }
                 }
             }
 
             // Last run info
             if let Some(run_time) = last_run.read().as_ref() {
-                div { class: "text-xs text-slate-500 dark:text-slate-400", "Última execução: {run_time}" }
+                div { class: "text-xs text-slate-500 dark:text-slate-400", "Last run: {run_time}" }
             }
 
             // Diagnostics summary
@@ -123,7 +135,7 @@ pub fn DiagnosticsScreen() -> Element {
                     let healthy = diagnostics.read().iter().filter(|d| d.status == DiagnosticStatus::Healthy).count();
                     rsx! {
                         div { class: "p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50 rounded-lg",
-                            p { class: "text-sm font-semibold text-emerald-900 dark:text-emerald-100", "✅ Saudável" }
+                            p { class: "text-sm font-semibold text-emerald-900 dark:text-emerald-100", "{texts.diagnostics_healthy}" }
                             p { class: "text-2xl font-bold text-emerald-700 dark:text-emerald-400 mt-2", "{healthy}" }
                         }
                     }
@@ -133,7 +145,7 @@ pub fn DiagnosticsScreen() -> Element {
                     let warnings = diagnostics.read().iter().filter(|d| d.status == DiagnosticStatus::Warning).count();
                     rsx! {
                         div { class: "p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800/50 rounded-lg",
-                            p { class: "text-sm font-semibold text-yellow-900 dark:text-yellow-100", "⚠️ Avisos" }
+                            p { class: "text-sm font-semibold text-yellow-900 dark:text-yellow-100", "{texts.diagnostics_warnings}" }
                             p { class: "text-2xl font-bold text-yellow-700 dark:text-yellow-400 mt-2", "{warnings}" }
                         }
                     }
@@ -143,7 +155,7 @@ pub fn DiagnosticsScreen() -> Element {
                     let critical = diagnostics.read().iter().filter(|d| d.status == DiagnosticStatus::Critical).count();
                     rsx! {
                         div { class: "p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-lg",
-                            p { class: "text-sm font-semibold text-red-900 dark:text-red-100", "❌ Crítico" }
+                            p { class: "text-sm font-semibold text-red-900 dark:text-red-100", "{texts.diagnostics_critical}" }
                             p { class: "text-2xl font-bold text-red-700 dark:text-red-400 mt-2", "{critical}" }
                         }
                     }

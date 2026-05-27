@@ -2,7 +2,12 @@ use dioxus::prelude::*;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::ui::{app::AppConfig, i18n::get_texts, shared::ProgressBar};
+use crate::ui::{
+    app::AppConfig,
+    i18n::get_texts,
+    loading_state::{LoadingOverlay, LoadingStyle},
+    shared::ProgressBar,
+};
 
 #[derive(Clone, Debug)]
 struct IntegrityStatus {
@@ -21,7 +26,7 @@ pub fn BackupIntegrityScreen() -> Element {
     let mut app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
     let mut backup_path = use_signal(|| PathBuf::new());
-    let mut status_msg = use_signal(|| "🔍 Selecione uma pasta de backup".to_string());
+    let mut status_msg = use_signal(|| "🔍 Select a backup folder".to_string());
     let mut is_checking = use_signal(|| false);
     let mut progress = use_signal(|| 0.0);
     let mut integrity_result = use_signal(|| Option::<IntegrityStatus>::None);
@@ -30,8 +35,7 @@ pub fn BackupIntegrityScreen() -> Element {
         spawn(async move {
             if let Some(handle) = rfd::AsyncFileDialog::new().pick_folder().await {
                 backup_path.set(handle.path().to_path_buf());
-                status_msg
-                    .set("✅ Pasta selecionada. Clique em 'Verificar Integridade'".to_string());
+                status_msg.set("✅ Folder selected. Click 'Verify Integrity'".to_string());
                 integrity_result.set(None);
             }
         });
@@ -44,18 +48,18 @@ pub fn BackupIntegrityScreen() -> Element {
 
         let path = backup_path();
         if path.as_os_str().is_empty() {
-            status_msg.set("❌ Selecione uma pasta de backup".to_string());
+            status_msg.set("❌ Select a backup folder".to_string());
             return;
         }
 
         is_checking.set(true);
         progress.set(0.0);
-        status_msg.set("🔍 Verificando estrutura do backup...".to_string());
+        status_msg.set("🔍 Checking backup structure...".to_string());
 
         spawn(async move {
-            // Simular progresso
+            // Simulating progress
             progress.set(0.2);
-            status_msg.set("🔍 Contando snapshots...".to_string());
+            status_msg.set("🔍 Counting snapshots...".to_string());
 
             let snapshots_dir = path.join("snapshots");
             let data_dir = path.join("data");
@@ -67,16 +71,17 @@ pub fn BackupIntegrityScreen() -> Element {
             let mut suggestions = Vec::new();
 
             if !snapshots_dir.exists() {
-                issues.push("❌ Diretório 'snapshots/' não encontrado".to_string());
-                suggestions.push("Verifique se toda a pasta foi copiada".to_string());
+                issues.push("❌ 'snapshots/' directory not found".to_string());
+                suggestions.push("Verify that the entire folder was copied".to_string());
             }
             if !data_dir.exists() {
-                issues.push("❌ Diretório 'data/' não encontrado".to_string());
-                suggestions.push("Recópie o backup completo do computador original".to_string());
+                issues.push("❌ 'data/' directory not found".to_string());
+                suggestions
+                    .push("Re-copy the complete backup from the original computer".to_string());
             }
 
             progress.set(0.4);
-            status_msg.set("📊 Analisando conteúdo...".to_string());
+            status_msg.set("📊 Analyzing content...".to_string());
 
             // Contar snapshots
             let snapshots_count = fs::read_dir(&snapshots_dir)
@@ -107,8 +112,8 @@ pub fn BackupIntegrityScreen() -> Element {
             progress.set(0.8);
 
             if snapshots_count == 0 {
-                issues.push("⚠️  Nenhum snapshot encontrado".to_string());
-                suggestions.push("O backup pode estar corrompido ou incompleto".to_string());
+                issues.push("⚠️ No snapshots found".to_string());
+                suggestions.push("The backup may be corrupted or incomplete".to_string());
             }
 
             progress.set(1.0);
@@ -116,12 +121,14 @@ pub fn BackupIntegrityScreen() -> Element {
             let is_valid = structure_valid && snapshots_count > 0;
             let status = if is_valid {
                 format!(
-                    "✅ Backup válido\n   Snapshots: {}\n   Arquivos: {}",
+                    "✅ Integrity Report\n📁 {}\nSnapshots: {}\nNormal Files: {}\nEncrypted Files: {}\n✅ Your backup is ready to be restored on another computer!",
+                    path.to_string_lossy(),
                     snapshots_count,
-                    data_files_count + encrypted_files_count
+                    data_files_count,
+                    encrypted_files_count
                 )
             } else {
-                "❌ Backup inválido ou incompleto".to_string()
+                "❌ Backup is invalid or incomplete".to_string()
             };
 
             integrity_result.set(Some(IntegrityStatus {
@@ -136,9 +143,9 @@ pub fn BackupIntegrityScreen() -> Element {
             }));
 
             status_msg.set(if is_valid {
-                "✅ Verificação concluída com sucesso!".to_string()
+                "✅ Verification completed successfully!".to_string()
             } else {
-                "❌ Verificação concluída com problemas".to_string()
+                "❌ Verification completed with issues".to_string()
             });
 
             is_checking.set(false);
@@ -147,15 +154,23 @@ pub fn BackupIntegrityScreen() -> Element {
 
     rsx! {
         div { class: "tab-content",
-            h2 { class: "tab-title", "🔐 Verificar Integridade do Backup" }
+            // Loading overlay
+            LoadingOverlay {
+                is_visible: is_checking(),
+                style: LoadingStyle::ProgressBar,
+                message: status_msg().to_string(),
+                progress: progress(),
+            }
+
+            h2 { class: "tab-title", "{texts.integrity_report_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "Pasta do Backup" }
+                label { class: "label-text", "Backup Folder" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Selecione a pasta do backup",
+                        placeholder: "Select the backup folder",
                         value: "{backup_path.read().to_string_lossy()}",
                         disabled: true
                     }
@@ -181,13 +196,13 @@ pub fn BackupIntegrityScreen() -> Element {
                 class: "w-full btn-primary mb-4",
                 onclick: handle_check_integrity,
                 disabled: is_checking() || backup_path.read().as_os_str().is_empty(),
-                "🔍 Verificar Integridade"
+                "🔍 Verify Integrity"
             }
 
             if let Some(result) = integrity_result() {
                 div { class: "integrity-report",
                     h3 { class: "report-title",
-                        if result.is_valid { "✅ Relatório de Integridade" } else { "❌ Problemas Detectados" }
+                        if result.is_valid { "{texts.integrity_report_title}" } else { "❌ Issues Detected" }
                     }
 
                     div { class: "report-path",
@@ -196,22 +211,22 @@ pub fn BackupIntegrityScreen() -> Element {
 
                     div { class: "report-stats",
                         div { class: "stat-item",
-                            span { class: "stat-label", "Snapshots:" }
+                            span { class: "stat-label", "{texts.integrity_snapshots_count}:" }
                             span { class: "stat-value", "{result.snapshots_count}" }
                         }
                         div { class: "stat-item",
-                            span { class: "stat-label", "Arquivos (normais):" }
+                            span { class: "stat-label", "{texts.integrity_normal_files}:" }
                             span { class: "stat-value", "{result.data_files_count}" }
                         }
                         div { class: "stat-item",
-                            span { class: "stat-label", "Arquivos (encriptados):" }
+                            span { class: "stat-label", "{texts.integrity_encrypted_files}:" }
                             span { class: "stat-value", "{result.encrypted_files_count}" }
                         }
                     }
 
                     if !result.issues.is_empty() {
                         div { class: "issues-section",
-                            h4 { class: "issues-title", "🔴 Problemas:" }
+                            h4 { class: "issues-title", "🔴 Issues:" }
                             ul { class: "issues-list",
                                 for issue in result.issues.iter() {
                                     li { "{issue}" }
@@ -222,7 +237,7 @@ pub fn BackupIntegrityScreen() -> Element {
 
                     if !result.suggestions.is_empty() {
                         div { class: "suggestions-section",
-                            h4 { class: "suggestions-title", "💡 Sugestões:" }
+                            h4 { class: "suggestions-title", "💡 Suggestions:" }
                             ul { class: "suggestions-list",
                                 for suggestion in result.suggestions.iter() {
                                     li { "• {suggestion}" }
@@ -233,11 +248,11 @@ pub fn BackupIntegrityScreen() -> Element {
 
                     if result.is_valid {
                         div { class: "success-message",
-                            "✅ Seu backup está pronto para ser restaurado em outro computador!"
+                            "{texts.integrity_ready_to_restore}"
                         }
                     } else {
                         div { class: "warning-message",
-                            "⚠️  Resolva os problemas acima antes de tentar restaurar"
+                            "⚠️ Resolve the issues above before attempting to restore"
                         }
                     }
                 }

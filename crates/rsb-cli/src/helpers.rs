@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::fs;
 use std::path::PathBuf;
 
@@ -75,8 +75,8 @@ pub fn extract_destination_from_config(config_path: &PathBuf) -> Result<PathBuf>
     let config_content = fs::read_to_string(config_path)
         .map_err(|e| anyhow!("Failed to read config: {:?} - {}", config_path, e))?;
 
-    let config_table: toml::Table =
-        toml::from_str(&config_content).map_err(|e| anyhow!("Failed to parse config.toml: {}", e))?;
+    let config_table: toml::Table = toml::from_str(&config_content)
+        .map_err(|e| anyhow!("Failed to parse config.toml: {}", e))?;
 
     let dest_val = config_table
         .get("destination_path")

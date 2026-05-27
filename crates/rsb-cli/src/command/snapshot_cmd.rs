@@ -69,13 +69,22 @@ pub enum SnapshotCommand {
 impl SnapshotCommand {
     pub async fn execute(&self) -> Result<()> {
         match self {
-            SnapshotCommand::List { config, backup, key } => {
+            SnapshotCommand::List {
+                config,
+                backup,
+                key,
+            } => {
                 let dest_path = self.resolve_destination_path(config, backup)?;
                 let storage = LocalStorage::new(dest_path.to_string_lossy().as_ref());
                 self.list(&storage, key.as_deref()).await?
             }
 
-            SnapshotCommand::Show { config, backup, id, key } => {
+            SnapshotCommand::Show {
+                config,
+                backup,
+                id,
+                key,
+            } => {
                 let dest_path = self.resolve_destination_path(config, backup)?;
                 let storage = LocalStorage::new(dest_path.to_string_lossy().as_ref());
                 let path = format!("snapshots/{}.toml", id);
@@ -120,7 +129,13 @@ impl SnapshotCommand {
                 println!("✅ Snapshot deleted: {}", id);
             }
 
-            SnapshotCommand::Diff { config, backup, from, to, key } => {
+            SnapshotCommand::Diff {
+                config,
+                backup,
+                from,
+                to,
+                key,
+            } => {
                 let dest_path = self.resolve_destination_path(config, backup)?;
                 let storage = LocalStorage::new(dest_path.to_string_lossy().as_ref());
                 self.diff(&storage, from, to, key.as_deref()).await?

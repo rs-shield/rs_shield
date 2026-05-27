@@ -12,6 +12,7 @@ use crate::ui::{
     app::AppConfig,
     error_handler::format_user_error,
     i18n::get_texts,
+    loading_state::{LoadingOverlay, LoadingStyle},
     profile_loader::{ProfileData, load_profile},
     shared::ProgressBar,
 };
@@ -285,6 +286,14 @@ pub fn BackupScreen() -> Element {
     };
 
     rsx! {
+        // Loading overlay
+        LoadingOverlay {
+            is_visible: is_running(),
+            style: LoadingStyle::ProgressBar,
+            message: status_msg().to_string(),
+            progress: progress(),
+        }
+
         div { class: "card",
             h2 { class: "page-title", "{texts.backup_title}" }
 

@@ -1,5 +1,9 @@
+use crate::ui::{
+    app::AppConfig,
+    i18n::get_texts,
+    loading_state::{LoadingOverlay, LoadingStyle},
+};
 use dioxus::prelude::*;
-use crate::ui::{app::AppConfig, i18n::get_texts};
 
 #[derive(Clone, Debug, PartialEq)]
 struct SnapshotInfo {
@@ -20,7 +24,7 @@ enum SnapshotMode {
 pub fn SnapshotsScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
-    
+
     let mut snapshots = use_signal(Vec::<SnapshotInfo>::new);
     let mut is_loading = use_signal(|| false);
     let mut mode = use_signal(|| SnapshotMode::List);
@@ -45,13 +49,13 @@ pub fn SnapshotsScreen() -> Element {
             mode.set(SnapshotMode::Diff);
             error_msg.set(None);
         } else {
-            error_msg.set(Some("Selecione dois snapshots para comparar".to_string()));
+            error_msg.set(Some(texts.snapshots_select_two.to_string()));
         }
     };
 
     let on_delete = move |snapshot_id: String| {
         // TODO: Implement snapshot deletion via SDK
-        error_msg.set(Some(format!("Snapshot {} será deletado", snapshot_id)));
+        error_msg.set(Some(format!("Snapshot {} will be deleted", snapshot_id)));
     };
 
     use_effect(move || {
@@ -60,6 +64,13 @@ pub fn SnapshotsScreen() -> Element {
 
     rsx! {
         div { class: "space-y-6",
+            // Loading overlay
+            LoadingOverlay {
+                is_visible: is_loading(),
+                style: LoadingStyle::Spinner,
+                message: texts.snapshots_loading.to_string(),
+            }
+
             // Header
             div { class: "flex justify-between items-center",
                 h2 { class: "text-2xl font-bold text-slate-900 dark:text-white", "📸 {texts.nav_snapshots}" }
@@ -67,7 +78,7 @@ pub fn SnapshotsScreen() -> Element {
                     class: "btn-secondary py-2 px-4 flex items-center gap-2",
                     onclick: move |_| load_snapshots(()),
                     disabled: is_loading(),
-                    if is_loading() { "⏳ Carregando..." } else { "🔄 Atualizar" }
+                    if is_loading() { "{texts.snapshots_loading}" } else { "{texts.snapshots_refresh}" }
                 }
             }
 
@@ -83,12 +94,12 @@ pub fn SnapshotsScreen() -> Element {
                 button {
                     class: if *mode.read() == SnapshotMode::List { "btn-primary" } else { "btn-secondary" },
                     onclick: move |_| mode.set(SnapshotMode::List),
-                    "📋 Listar"
+                    "{texts.snapshots_list_label}"
                 }
                 button {
                     class: if *mode.read() == SnapshotMode::Diff { "btn-primary" } else { "btn-secondary" },
                     onclick: move |_| mode.set(SnapshotMode::Diff),
-                    "📊 Comparar"
+                    "{texts.snapshots_compare_label}"
                 }
             }
 
@@ -136,12 +147,15 @@ fn SnapshotsListView(
     on_delete: EventHandler<String>,
     on_show: EventHandler<String>,
 ) -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
+
     rsx! {
         div { class: "space-y-4",
             if snapshots.is_empty() {
                 div { class: "text-center py-12 bg-slate-50 dark:bg-slate-800/50 rounded-lg border-2 border-dashed border-slate-200 dark:border-slate-700",
                     span { class: "text-4xl mb-4 block", "📂" }
-                    p { class: "text-slate-500 dark:text-slate-400", "Nenhum snapshot encontrado" }
+                    p { class: "text-slate-500 dark:text-slate-400", "{texts.snapshots_no_found}" }
                 }
             } else {
                 div { class: "grid gap-4",
@@ -154,25 +168,25 @@ fn SnapshotsListView(
                                     div { class: "flex items-start justify-between mb-3",
                                         div { class: "flex-1",
                                             h3 { class: "font-semibold text-slate-900 dark:text-white text-sm", "📸 {snapshot.id}" }
-                                            p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1", "Criado: {snapshot.created_at}" }
+                                            p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1", "{texts.snapshots_created}: {snapshot.created_at}" }
                                         }
                                         div { class: "flex gap-2",
                                             button {
                                                 class: "btn-secondary text-xs py-1 px-2",
                                                 onclick: move |_| on_show.call(id_for_show.clone()),
-                                                "👁️ Ver"
+                                                "{texts.snapshots_view_button}"
                                             }
                                             button {
                                                 class: "btn-secondary text-xs py-1 px-2",
                                                 onclick: move |_| on_delete.call(id_for_delete.clone()),
-                                                "🗑️ Deletar"
+                                                "{texts.snapshots_delete_button}"
                                             }
                                         }
                                     }
                                     div { class: "flex gap-4 text-xs",
                                         div { class: "flex items-center gap-1 text-slate-600 dark:text-slate-400",
                                             span { "📄" }
-                                            span { "{snapshot.file_count} arquivos" }
+                                            span { "{snapshot.file_count} {texts.snapshots_files}" }
                                         }
                                         div { class: "flex items-center gap-1 text-slate-600 dark:text-slate-400",
                                             span { "💾" }
@@ -199,17 +213,20 @@ fn SnapshotsDiffView(
     on_compare: EventHandler<()>,
     diff_result: Option<String>,
 ) -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
+
     rsx! {
         div { class: "space-y-6",
             div { class: "grid grid-cols-2 gap-6",
                 div { class: "space-y-2",
-                    label { class: "block text-sm font-semibold text-slate-700 dark:text-slate-300", "Snapshot Inicial" }
+                    label { class: "block text-sm font-semibold text-slate-700 dark:text-slate-300", "{texts.snapshots_from}" }
                     select {
                         class: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white",
                         onchange: move |e| on_select_from.call(e.value()),
-                        option { value: "", "Selecione um snapshot..." }
+                        option { value: "", "Select a snapshot..." }
                         for snapshot in &snapshots {
-                            option { 
+                            option {
                                 value: snapshot.id.clone(),
                                 selected: selected_from.as_ref() == Some(&snapshot.id),
                                 "{snapshot.id}"
@@ -219,13 +236,13 @@ fn SnapshotsDiffView(
                 }
 
                 div { class: "space-y-2",
-                    label { class: "block text-sm font-semibold text-slate-700 dark:text-slate-300", "Snapshot Final" }
+                    label { class: "block text-sm font-semibold text-slate-700 dark:text-slate-300", "{texts.snapshots_to}" }
                     select {
                         class: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white",
                         onchange: move |e| on_select_to.call(e.value()),
-                        option { value: "", "Selecione um snapshot..." }
+                        option { value: "", "Select a snapshot..." }
                         for snapshot in &snapshots {
-                            option { 
+                            option {
                                 value: snapshot.id.clone(),
                                 selected: selected_to.as_ref() == Some(&snapshot.id),
                                 "{snapshot.id}"
@@ -238,7 +255,7 @@ fn SnapshotsDiffView(
             button {
                 class: "btn-primary w-full",
                 onclick: move |_| on_compare.call(()),
-                "📊 Comparar Snapshots"
+                "{texts.snapshots_compare_button}"
             }
 
             if let Some(result) = diff_result {
@@ -251,25 +268,23 @@ fn SnapshotsDiffView(
 }
 
 #[component]
-fn SnapshotsDetailsView(
-    snapshot_id: Option<String>,
-    on_back: EventHandler<()>,
-) -> Element {
-    let _app_config = use_context::<AppConfig>();
+fn SnapshotsDetailsView(snapshot_id: Option<String>, on_back: EventHandler<()>) -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
 
     rsx! {
         div { class: "space-y-4",
             button {
                 class: "btn-secondary py-2 px-4 flex items-center gap-2",
                 onclick: move |_| on_back.call(()),
-                "← Voltar"
+                "{texts.snapshots_back_button}"
             }
 
             if let Some(id) = snapshot_id {
                 div { class: "p-6 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg",
-                    h3 { class: "font-semibold text-slate-900 dark:text-white mb-4", "📸 Detalhes do Snapshot: {id}" }
+                    h3 { class: "font-semibold text-slate-900 dark:text-white mb-4", "📸 Snapshot Details: {id}" }
                     div { class: "space-y-3 text-sm text-slate-600 dark:text-slate-400",
-                        p { "Carregando detalhes..." }
+                        p { "Loading details..." }
                     }
                 }
             } else {

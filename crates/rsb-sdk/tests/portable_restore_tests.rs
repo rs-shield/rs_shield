@@ -610,7 +610,7 @@ fn validate_backup_integrity(
                 let content = fs::read_to_string(&path)?;
                 if let Ok(table) = content.parse::<toml::Table>() {
                     integrity.snapshots_valid += 1;
-                    
+
                     // Check if referenced files exist
                     if let Some(files) = table.get("files").and_then(|v| v.as_table()) {
                         for file_key in files.keys() {
