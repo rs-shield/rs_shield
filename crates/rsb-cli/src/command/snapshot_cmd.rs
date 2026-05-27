@@ -10,9 +10,12 @@ use std::path::{Path, PathBuf};
 pub enum SnapshotCommand {
     /// List snapshots
     List {
-        /// Path to config.toml
+        /// Path to config.toml (optional if .toml in current dir)
         #[arg(short, long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
+        /// Path to backup directory (portable mode)
+        #[arg(short, long)]
+        backup: Option<PathBuf>,
         /// Decryption key (if manifests are encrypted)
         #[arg(short, long)]
         key: Option<String>,
@@ -20,9 +23,12 @@ pub enum SnapshotCommand {
 
     /// Show snapshot details
     Show {
-        /// Path to config.toml
+        /// Path to config.toml (optional if .toml in current dir)
         #[arg(short, long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
+        /// Path to backup directory (portable mode)
+        #[arg(short, long)]
+        backup: Option<PathBuf>,
         /// Snapshot ID
         id: String,
         /// Decryption key (if manifest is encrypted)
@@ -32,25 +38,54 @@ pub enum SnapshotCommand {
 
     /// Delete snapshot
     Delete {
-        /// Path to config.toml
+        /// Path to config.toml (optional if .toml in current dir)
         #[arg(short, long)]
-        config: PathBuf,
+        config: Option<PathBuf>,
+        /// Path to backup directory (portable mode)
+        #[arg(short, long)]
+        backup: Option<PathBuf>,
         /// Snapshot ID
         id: String,
+    },
+
+    /// Compare two snapshots
+    Diff {
+        /// Path to config.toml (optional if .toml in current dir)
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Path to backup directory (portable mode)
+        #[arg(short, long)]
+        backup: Option<PathBuf>,
+        /// First snapshot ID
+        from: String,
+        /// Second snapshot ID
+        to: String,
+        /// Decryption key (if manifests are encrypted)
+        #[arg(short, long)]
+        key: Option<String>,
     },
 }
 
 impl SnapshotCommand {
     pub async fn execute(&self) -> Result<()> {
         match self {
-            SnapshotCommand::List { config, key } => {
-                let dest_path = self.extract_destination_from_config(config)?;
+            SnapshotCommand::List {
+                config,
+                backup,
+                key,
+            } => {
+                let dest_path = self.resolve_destination_path(config, backup)?;
                 let storage = LocalStorage::new(dest_path.to_string_lossy().as_ref());
                 self.list(&storage, key.as_deref()).await?
             }
 
-            SnapshotCommand::Show { config, id, key } => {
-                let dest_path = self.extract_destination_from_config(config)?;
+            SnapshotCommand::Show {
+                config,
+                backup,
+                id,
+                key,
+            } => {
+                let dest_path = self.resolve_destination_path(config, backup)?;
                 let storage = LocalStorage::new(dest_path.to_string_lossy().as_ref());
                 let path = format!("snapshots/{}.toml", id);
 
@@ -77,8 +112,8 @@ impl SnapshotCommand {
                 }
             }
 
-            SnapshotCommand::Delete { config, id } => {
-                let dest_path = self.extract_destination_from_config(config)?;
+            SnapshotCommand::Delete { config, backup, id } => {
+                let dest_path = self.resolve_destination_path(config, backup)?;
                 let snapshots_path = dest_path.join("snapshots");
                 let path = snapshots_path.join(format!("{}.toml", id));
 
@@ -93,8 +128,136 @@ impl SnapshotCommand {
                 fs::remove_file(path)?;
                 println!("✅ Snapshot deleted: {}", id);
             }
+
+            SnapshotCommand::Diff {
+                config,
+                backup,
+                from,
+                to,
+                key,
+            } => {
+                let dest_path = self.resolve_destination_path(config, backup)?;
+                let storage = LocalStorage::new(dest_path.to_string_lossy().as_ref());
+                self.diff(&storage, from, to, key.as_deref()).await?
+            }
         }
 
+        Ok(())
+    }
+
+    /// Resolve config or backup path with portable mode support
+    fn resolve_destination_path(
+        &self,
+        config: &Option<PathBuf>,
+        backup: &Option<PathBuf>,
+    ) -> Result<PathBuf> {
+        // Try --backup first (portable mode)
+        if let Some(backup_path) = backup {
+            return Ok(backup_path.clone());
+        }
+
+        // Try --config
+        if let Some(config_path) = config {
+            return self.extract_destination_from_config(config_path);
+        }
+
+        // Auto-discover .toml in current directory
+        let current_dir = std::env::current_dir()?;
+        for entry in fs::read_dir(&current_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("toml") {
+                return self.extract_destination_from_config(&path);
+            }
+        }
+
+        Err(anyhow!(
+            "No config found. Use --config <path> or --backup <path>, or place a .toml file in current directory"
+        ))
+    }
+
+    /// Compare two snapshots
+    async fn diff(
+        &self,
+        storage: &dyn Storage,
+        from_id: &str,
+        to_id: &str,
+        key: Option<&str>,
+    ) -> Result<()> {
+        let from_manifest = self
+            .load_manifest(storage, &format!("snapshots/{}.toml", from_id), key)
+            .await?
+            .with_context(|| format!("Snapshot '{}' not found", from_id))?;
+
+        let to_manifest = self
+            .load_manifest(storage, &format!("snapshots/{}.toml", to_id), key)
+            .await?
+            .with_context(|| format!("Snapshot '{}' not found", to_id))?;
+
+        // Find changes
+        let mut added = vec![];
+        let mut removed = vec![];
+        let mut modified = vec![];
+
+        // Check for added and modified files
+        for (path, to_meta) in &to_manifest {
+            if let Some(from_meta) = from_manifest.get(path) {
+                if from_meta.hash != to_meta.hash {
+                    let from_size = from_meta.stored_size.unwrap_or(0);
+                    let to_size = to_meta.stored_size.unwrap_or(0);
+                    modified.push((path.clone(), from_size, to_size));
+                }
+            } else {
+                added.push((path.clone(), to_meta.stored_size.unwrap_or(0)));
+            }
+        }
+
+        // Check for removed files
+        for (path, from_meta) in &from_manifest {
+            if !to_manifest.contains_key(path) {
+                removed.push((path.clone(), from_meta.stored_size.unwrap_or(0)));
+            }
+        }
+
+        // Display results
+        println!("📊 Snapshot Diff: {} → {}", from_id, to_id);
+        println!("{}", "=".repeat(80));
+
+        if !added.is_empty() {
+            println!("\n✅ Added ({} files):", added.len());
+            for (path, size) in &added {
+                println!("  + {} ({})", path.display(), human_bytes(*size));
+            }
+        }
+
+        if !removed.is_empty() {
+            println!("\n❌ Removed ({} files):", removed.len());
+            for (path, size) in &removed {
+                println!("  - {} ({})", path.display(), human_bytes(*size));
+            }
+        }
+
+        if !modified.is_empty() {
+            println!("\n🔄 Modified ({} files):", modified.len());
+            for (path, from_size, to_size) in &modified {
+                let size_change = (*to_size as i64) - (*from_size as i64);
+                let sign = if size_change >= 0 { "+" } else { "" };
+                println!(
+                    "  ~ {} ({} → {} {}{})",
+                    path.display(),
+                    human_bytes(*from_size),
+                    human_bytes(*to_size),
+                    sign,
+                    human_bytes(size_change.abs() as u64)
+                );
+            }
+        }
+
+        if added.is_empty() && removed.is_empty() && modified.is_empty() {
+            println!("ℹ️  No changes between snapshots");
+        }
+
+        println!();
         Ok(())
     }
 

@@ -8,7 +8,7 @@ fn test_fido2_manager_basic_operations() {
     assert_eq!(manager.list_credentials().len(), 0);
 
     // credential retrieval returns None for non-existent credential
-    assert!(manager.get_credential("alice").is_none());
+    assert!(manager.list_user_credentials("alice").is_empty());
 
     // has_credential
     assert!(!manager.has_credential("alice"));

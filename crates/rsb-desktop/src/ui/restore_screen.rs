@@ -5,12 +5,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rsb_sdk::operation::operations_helpers::record_restore_operation;
-use rsb_sdk::{CancellationToken, config, core};
+use rsb_sdk::{CancellationToken, config};
 
 use crate::ui::{
     app::AppConfig,
     error_handler::format_user_error,
     i18n::get_texts,
+    loading_state::{LoadingOverlay, LoadingStyle},
     profile_loader::{ProfileData, load_profile},
     shared::ProgressBar,
 };
@@ -21,6 +22,7 @@ pub fn RestoreScreen() -> Element {
     let texts = get_texts(app_config.language());
     let mut profile_path = use_signal(PathBuf::new);
     let mut source_path = use_signal(PathBuf::new);
+    let mut portable_backup_path = use_signal(PathBuf::new);
     let mut restore_to = use_signal(PathBuf::new);
     let mut key = use_signal(String::new);
     let mut snapshot_id = use_signal(String::new);
@@ -64,6 +66,43 @@ pub fn RestoreScreen() -> Element {
                         status_msg.set(format_user_error(e, "restore"));
                     }
                 }
+            }
+        });
+    };
+
+    let handle_load_backup_directly = move |_| {
+        spawn(async move {
+            if let Some(h) = rfd::AsyncFileDialog::new().pick_folder().await {
+                let backup_path = h.path().to_path_buf();
+
+                // Validate backup structure using portable restore function
+                let validation = rsb_sdk::validate_backup_structure(&backup_path);
+
+                if !validation.is_valid {
+                    let mut error_msg = format!("{}\n", texts.backup_validation_failed);
+                    for issue in &validation.issues {
+                        error_msg.push_str(&format!("  ❌ {}\n", issue));
+                    }
+                    for suggestion in &validation.suggestions {
+                        error_msg.push_str(&format!("  💡 {}\n", suggestion));
+                    }
+                    status_msg.set(error_msg);
+                    return;
+                }
+
+                // Load portable backup successfully
+                portable_backup_path.set(backup_path.clone());
+                source_path.set(backup_path);
+
+                let details = format!(
+                    "{}\n📊 {} {} | {} {}",
+                    texts.portable_backup_loaded,
+                    validation.snapshots_count,
+                    texts.snapshots_found,
+                    validation.data_files_count,
+                    texts.data_files_found
+                );
+                status_msg.set(details);
             }
         });
     };
@@ -117,84 +156,38 @@ pub fn RestoreScreen() -> Element {
                 let key_opt = if key_val.is_empty() {
                     None
                 } else {
-                    Some(key_val)
-                };
-                let excludes: Vec<String> = excludes_str
-                    .lines()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                let s3_bucket_opt = if s3_bucket.is_empty() {
-                    None
-                } else {
-                    Some(s3_bucket)
-                };
-                let s3_region_opt = if s3_region.is_empty() {
-                    None
-                } else {
-                    Some(s3_region)
-                };
-                let s3_endpoint_opt = if s3_endpoint.is_empty() {
-                    None
-                } else {
-                    Some(s3_endpoint)
-                };
-                let s3_access_key_opt = if s3_access_key.is_empty() {
-                    None
-                } else {
-                    Some(s3_access_key)
-                };
-                let s3_secret_key_opt = if s3_secret_key.is_empty() {
-                    None
-                } else {
-                    Some(s3_secret_key)
-                };
-
-                let s3_config = if s3_bucket_opt.is_some() {
-                    Some(config::S3Config {
-                        bucket: s3_bucket_opt.clone(),
-                        region: s3_region_opt.clone(),
-                        endpoint: s3_endpoint_opt.clone(),
-                        access_key: s3_access_key_opt,
-                        secret_key: s3_secret_key_opt,
-                    })
-                } else {
-                    None
+                    Some(key_val.as_str())
                 };
 
                 if rst.as_os_str().is_empty() {
                     return Err("❌ Please select a restore target.".to_string());
                 }
 
-                if bkp.as_os_str().is_empty() && s3_bucket_opt.is_none() {
+                if bkp.as_os_str().is_empty() {
                     return Err(texts.define_backup_or_s3.to_string());
                 }
 
-                let cfg = config::Config {
-                    source_path: "dummy".to_string(),
-                    destination_path: bkp.to_string_lossy().into_owned(),
-                    exclude_patterns: excludes,
-                    encryption_key: None,
-                    encrypt_patterns: None,
-                    pause_on_low_battery: None,
-                    backup_mode: mode.clone(),
-                    s3_bucket: s3_bucket_opt,
-                    s3_region: s3_region_opt,
-                    s3_endpoint: s3_endpoint_opt,
-                    s3: s3_config,
-                    s3_buckets: None,
-                    pause_on_high_cpu: None,
-                    compression_level: Some(3),
-                    max_threads: None,
-                    channel_buffer_size: 8192, // ⚡ Default buffer size for manifest updates
+                // Use portable restore function to support both config and direct backup paths
+                let profile_path_str = profile_path.read();
+                let config_path_opt = if profile_path_str.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(profile_path_str.as_path())
+                };
+
+                let backup_path_opt = if bkp.as_os_str().is_empty() {
+                    None
+                } else {
+                    Some(bkp.as_path())
                 };
 
                 let token = cancellation_token();
-                core::restore::perform_restore_with_cancellation(
-                    &cfg,
+                rsb_sdk::restore_from_config_or_backup_with_cancellation(
+                    config_path_opt,
+                    backup_path_opt,
                     snap_opt.as_deref(),
                     rst,
-                    key_opt.as_deref(),
+                    key_opt,
                     true,  // UI default is force
                     false, // versioned
                     Some(progress_cb),
@@ -255,6 +248,14 @@ pub fn RestoreScreen() -> Element {
     };
 
     rsx! {
+        // Loading overlay
+        LoadingOverlay {
+            is_visible: is_running(),
+            style: LoadingStyle::ProgressBar,
+            message: status_msg().to_string(),
+            progress: progress(),
+        }
+
         div { class: "card",
             h2 { class: "page-title", "{texts.restore_title}" }
 
@@ -376,11 +377,19 @@ pub fn RestoreScreen() -> Element {
                     }
                 }
             } else {
-                button {
-                    class: "w-full btn-success mb-4",
-                    onclick: handle_restore,
-                    disabled: is_running(),
-                    "{texts.start_restore}"
+                div { class: "flex gap-3 mb-4",
+                    button {
+                        class: "flex-1 btn-primary",
+                        onclick: handle_load_backup_directly,
+                        disabled: is_running(),
+                        "{texts.load_backup_directly}"
+                    }
+                    button {
+                        class: "flex-1 btn-success",
+                        onclick: handle_restore,
+                        disabled: is_running() || source_path.read().as_os_str().is_empty() || restore_to.read().as_os_str().is_empty(),
+                        "{texts.start_restore}"
+                    }
                 }
             }
 

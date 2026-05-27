@@ -2,6 +2,7 @@ use crate::ui::{
     app::AppConfig,
     error_handler::format_user_error,
     i18n::get_texts,
+    loading_state::{LoadingOverlay, LoadingStyle},
     profile_loader::{ProfileData, load_profile},
 };
 use rsb_sdk::operation::operations_helpers::record_prune_operation;
@@ -191,6 +192,14 @@ pub fn PruneScreen() -> Element {
     };
 
     rsx! {
+    // Loading overlay
+    LoadingOverlay {
+        is_visible: is_running(),
+        style: LoadingStyle::ProgressBar,
+        message: status_msg().to_string(),
+        progress: 0.0,
+    }
+
     div { class: "card",
         h2 { class: "page-title", "{texts.prune_title}" }
 
@@ -206,7 +215,7 @@ pub fn PruneScreen() -> Element {
                 }
                 button {
                     class: "btn-icon",
-                    onclick: handle_load_profile,
+                onclick: move |evt| handle_load_profile(evt),
                     disabled: is_running(),
                     "📂"
                 }

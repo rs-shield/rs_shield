@@ -3,8 +3,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use dioxus_desktop::{LogicalSize, use_window};
 use rsb_sdk::metrics::system::{
-    SystemMetrics, format_bytes_gb, format_percentage_bg, format_percentage_color,
-    get_system_metrics,
+    SystemMetrics, format_bytes_gb, format_percentage_color, get_system_metrics,
 };
 use rsb_sdk::operation::operations::OperationsManager;
 use tokio::sync::Mutex;
@@ -15,6 +14,7 @@ use crate::ui::{
     backup_screen::BackupScreen,
     config_screen::ConfigScreen,
     create_profile_screen::CreateProfileScreen,
+    diagnostics_screen::DiagnosticsScreen,
     fido2_manager_view::Fido2ManagerView,
     i18n::{Language, Theme, get_texts},
     integrations_screen::IntegrationScreen,
@@ -25,6 +25,7 @@ use crate::ui::{
     restore_screen::RestoreScreen,
     schedule_screen::ScheduleScreen,
     shared::TabButton,
+    snapshots_screen::SnapshotsScreen,
     verify_screen::VerifyScreen,
 };
 
@@ -39,6 +40,8 @@ pub enum ActiveTab {
     Prune,
     Schedule,
     RealtimeSync,
+    Snapshots,
+    Diagnostics,
     Fido2Manager,
     Integrations,
     Config,
@@ -260,11 +263,13 @@ pub fn App() -> Element {
                             TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
                             TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
                             TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
+                            TabButton { label: "Snapshots".to_string(), icon: "📸", active: *active_tab.read() == ActiveTab::Snapshots, onclick: move |_| active_tab.set(ActiveTab::Snapshots) }
 
                             h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Sistema" }
                             TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
                             TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
                             TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
+                            TabButton { label: "Diagnósticos".to_string(), icon: "🔧", active: *active_tab.read() == ActiveTab::Diagnostics, onclick: move |_| active_tab.set(ActiveTab::Diagnostics) }
                             TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
                         }
 
@@ -320,6 +325,8 @@ pub fn App() -> Element {
                                     ActiveTab::Verify => rsx! { VerifyScreen {} },
                                     ActiveTab::Prune => rsx! { PruneScreen {} },
                                     ActiveTab::RealtimeSync => rsx! { RealtimeSyncScreen {} },
+                                    ActiveTab::Snapshots => rsx! { SnapshotsScreen {} },
+                                    ActiveTab::Diagnostics => rsx! { DiagnosticsScreen {} },
                                     ActiveTab::Schedule => rsx! { ScheduleScreen {} },
                                     ActiveTab::Fido2Manager => rsx! { Fido2ManagerView {} },
                                     ActiveTab::Integrations => rsx! { IntegrationScreen {} },

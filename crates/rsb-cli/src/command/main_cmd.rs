@@ -69,8 +69,12 @@ pub enum Commands {
 
     /// Run backup with an existing profile
     Backup {
-        /// Path to config.toml
-        config: PathBuf,
+        /// Path to config.toml (optional, can auto-discover or use current dir)
+        config: Option<PathBuf>,
+
+        /// Backup destination (used if config not provided)
+        #[arg(short = 'b', long)]
+        backup: Option<PathBuf>,
 
         /// Override backup mode
         #[arg(short = 'm', long)]
@@ -191,9 +195,12 @@ pub enum Commands {
 
     /// Delete old snapshots
     Prune {
-        /// Path to config.toml
-        #[arg(short = 'c', long)]
-        config: PathBuf,
+        /// Path to config.toml (optional, use --backup for direct path)
+        config: Option<PathBuf>,
+
+        /// Direct backup path (alternative to config)
+        #[arg(short = 'b', long)]
+        backup: Option<PathBuf>,
 
         /// Retention policy
         #[arg(short = 'r', long)]
@@ -218,8 +225,12 @@ pub enum Commands {
 
     /// Generate scheduling commands
     Schedule {
-        /// Path to config.toml
-        config: PathBuf,
+        /// Path to config.toml (optional, use --backup for direct path)
+        config: Option<PathBuf>,
+
+        /// Direct backup path (alternative to config)
+        #[arg(short = 'b', long)]
+        backup: Option<PathBuf>,
 
         /// Output format
         #[arg(short = 'f', long, default_value = "cron")]
@@ -228,8 +239,12 @@ pub enum Commands {
 
     /// Watch filesystem changes
     Watch {
-        /// Path to config.toml
-        config: PathBuf,
+        /// Path to config.toml (optional, use --backup for direct path)
+        config: Option<PathBuf>,
+
+        /// Direct backup path (alternative to config)
+        #[arg(short = 'b', long)]
+        backup: Option<PathBuf>,
 
         /// Sync destination
         #[arg(short = 's', long)]
