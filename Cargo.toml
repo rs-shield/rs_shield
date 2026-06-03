@@ -95,17 +95,9 @@ lettre = "0.11"
 
 # Web server
 axum = "0.7"
-
-axum-extra = { version = "0.9", features = [
-    "cookie",
-] }
-
+axum-extra = { version = "0.9", features = ["cookie"] }
 tower = "0.4"
-
-tower-http = { version = "0.5", features = [
-    "cors",
-    "trace",
-] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Desktop / UI
 dioxus = { version = "0.7", features = ["desktop", "router"] }
@@ -118,13 +110,13 @@ open = "5.0"
 # HTML
 maud = "0.27"
 
-# OpenSSL
-openssl = { version = "0.10", features = ["vendored"] }
-
-# Utilities
-regex = "1"
+# Utils
 anyhow = "1.0"
 thiserror = "1.0"
+regex = "1.10"
+hex = { version = "0.4", features = ["serde"] }
+num_cpus = "1.17.0"
+dashmap = "6.1"
 
 [profile.release]
 debug = false

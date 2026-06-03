@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rsb_sdk::operation::operations_helpers::record_restore_operation;
-use rsb_sdk::{CancellationToken, config};
+use rsb_sdk::CancellationToken;
 
 use crate::ui::{
     app::AppConfig,

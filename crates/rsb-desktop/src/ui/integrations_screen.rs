@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use rsb_sdk::utils::ensure_directory_exists;
+use rsb_sdk::core::{ChatIntegration, EmailConfig};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -85,6 +86,51 @@ impl IntegrationConfig {
         fs::write(config_path, json)?;
         Ok(())
     }
+
+    /// Converter para EmailConfig do SDK
+    pub fn to_email_config(&self) -> Option<EmailConfig> {
+        self.email.as_ref().filter(|e| e.enabled).map(|e| EmailConfig {
+            smtp_server: e.smtp_server.clone(),
+            smtp_port: e.smtp_port,
+            sender_email: e.sender_email.clone(),
+            sender_password: e.sender_password.clone(),
+            recipient_email: e.recipient_email.clone(),
+            use_tls: e.use_tls,
+        })
+    }
+
+    /// Converter para ChatIntegrations do SDK
+    pub fn to_chat_integrations(&self) -> Vec<ChatIntegration> {
+        let mut integrations = Vec::new();
+
+        if let Some(slack) = &self.slack {
+            if slack.enabled {
+                integrations.push(ChatIntegration::Slack {
+                    webhook_url: slack.webhook_url.clone(),
+                    mention_user: slack.mention_user.clone(),
+                });
+            }
+        }
+
+        if let Some(telegram) = &self.telegram {
+            if telegram.enabled {
+                integrations.push(ChatIntegration::Telegram {
+                    bot_token: telegram.bot_token.clone(),
+                    chat_id: telegram.chat_id.clone(),
+                });
+            }
+        }
+
+        if let Some(discord) = &self.discord {
+            if discord.enabled {
+                integrations.push(ChatIntegration::Discord {
+                    webhook_url: discord.webhook_url.clone(),
+                });
+            }
+        }
+
+        integrations
+    }
 }
 
 /// Componente de tela de integrações
@@ -101,6 +147,8 @@ pub fn IntegrationScreen() -> Element {
     let mut active_tab = use_signal(|| "email");
     let mut status_msg = use_signal(String::new);
     let mut show_status = use_signal(|| false);
+    let mut testing = use_signal(|| false);
+    let mut test_results = use_signal(String::new);
 
     let handle_save_config = move |_| {
         if let Ok(()) = config().save(&profile_path) {
@@ -116,6 +164,53 @@ pub fn IntegrationScreen() -> Element {
             status_msg.set("❌ Erro ao salvar configurações".to_string());
             show_status.set(true);
         }
+    };
+
+    let handle_test_config = move |_| {
+        testing.set(true);
+        test_results.set("🧪 Testando integrações...".to_string());
+        
+        let current_config = config();
+        spawn(async move {
+            let mut manager = rsb_sdk::core::NotificationManager::new();
+
+            // Adicionar configurações habilitadas
+            if let Some(email_cfg) = current_config.to_email_config() {
+                manager.set_email_config(email_cfg);
+            }
+
+            for chat_integration in current_config.to_chat_integrations() {
+                manager.add_chat_integration(chat_integration);
+            }
+
+            // Testar
+            match manager.test().await {
+                Ok(results) => {
+                    let mut result_text = String::from("✅ Testes Concluídos:\n");
+                    
+                    if results.email_success {
+                        result_text.push_str("✅ Email enviado com sucesso\n");
+                    } else if let Some(err) = &results.email_error {
+                        result_text.push_str(&format!("❌ Email: {}\n", err));
+                    }
+
+                    for success in &results.chat_success {
+                        result_text.push_str(&format!("✅ {}: enviado com sucesso\n", success));
+                    }
+
+                    for (channel, err) in &results.chat_errors {
+                        result_text.push_str(&format!("❌ {}: {}\n", channel, err));
+                    }
+
+                    test_results.set(result_text);
+                }
+                Err(e) => {
+                    test_results.set(format!("❌ Erro nos testes: {}", e));
+                }
+            }
+
+            testing.set(false);
+        });
     };
 
     rsx! {
@@ -197,6 +292,23 @@ pub fn IntegrationScreen() -> Element {
                     class: "btn btn-primary flex-1",
                     onclick: handle_save_config,
                     "💾 Salvar Configurações"
+                }
+                button {
+                    class: "btn btn-secondary flex-1",
+                    onclick: handle_test_config,
+                    disabled: testing(),
+                    if testing() {
+                        "⏳ Testando..."
+                    } else {
+                        "🧪 Testar Integrações"
+                    }
+                }
+            }
+
+            // Test Results
+            if !test_results().is_empty() {
+                div { class: "p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800",
+                    p { class: "text-blue-800 dark:text-blue-300 whitespace-pre-wrap", "{test_results}" }
                 }
             }
         }
