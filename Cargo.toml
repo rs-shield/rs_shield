@@ -3,6 +3,7 @@ members = [
     "crates/rsb-cli",
     "crates/rsb-sdk",
     "crates/rsb-desktop",
+    "crates/rsb-server",  # Novo crate para servidor tipo Google Drive
 ]
 
 resolver = "2"
