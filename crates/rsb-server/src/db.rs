@@ -1,10 +1,15 @@
-use sqlx::{SqlitePool, migrate::Migrator};
-use std::path::Path;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
+use crate::config::ServerConfig;
 
-static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+pub async fn init_db(config: &ServerConfig) -> Result<Pool<Postgres>, sqlx::Error> {
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&config.database_url)
+        .await?;
 
-pub async fn init_db(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let pool = SqlitePool::connect(database_url).await?;
-    MIGRATOR.run(&pool).await?;
+    // Run migrations
+    sqlx::migrate!().run(&pool).await?;
+
+    println!("✅ Connected to PostgreSQL and migrations applied");
     Ok(pool)
 }

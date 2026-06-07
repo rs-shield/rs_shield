@@ -1,36 +1,24 @@
-use axum::{routing::get, Router, extract::State};
+use axum::{routing::get, Router};
 use std::net::SocketAddr;
 use tracing_subscriber;
-use rsb_server::{ServerConfig, db::init_db};
 
-#[derive(Clone)]
-struct AppState {
-    db: sqlx::SqlitePool,
-}
+mod config;
+mod db;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let config = ServerConfig::default();
-    let db = init_db(&config.database_url).await.expect("Failed to initialize database");
-
-    let state = AppState { db };
+    let config = config::ServerConfig::default();
+    let pool = db::init_db(&config).await.expect("Failed to connect to Postgres");
 
     let app = Router::new()
-        .route("/health", get(health_handler))
-        .with_state(state);
+        .route("/health", get(|| async { "OK - RS Shield Server with Postgres" }));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
-    println!("🚀 RS Shield Server running on http://{}/", addr);
-    println!("📁 SQLite DB: {}", config.database_url);
-
+    println!("Server running on http://{}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-async fn health_handler() -> &'static str {
-    "✅ RS Shield Server is healthy! SQLite initialized. 🛡️"
 }
