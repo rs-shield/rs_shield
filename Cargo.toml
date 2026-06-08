@@ -1,11 +1,12 @@
 [workspace]
 members = [
-    "crates/rsb-cli",
     "crates/rsb-sdk",
+    "crates/rsb-cli",
     "crates/rsb-desktop",
+    "crates/rsb-server",
 ]
-
 resolver = "2"
+
 [workspace.package]
 version = "0.1.0-alpha.7"
 edition = "2024"
