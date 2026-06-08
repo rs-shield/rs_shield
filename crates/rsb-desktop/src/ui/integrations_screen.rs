@@ -4,6 +4,7 @@ use rsb_sdk::core::{ChatIntegration, EmailConfig};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use super::telegram_validator::TelegramValidator;
 /// Configurações de integrações salvas localmente
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationConfig {
@@ -647,7 +648,7 @@ fn TelegramForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Obtenha com @BotFather no Telegram"
+                        "Obtenha com @BotFather no Telegram (formato: número:letras)"
                     }
                 }
 
@@ -665,7 +666,31 @@ fn TelegramForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Envie /start ao bot e acesse api.telegram.org/botTOKEN/getUpdates"
+                        "Envie /start ao bot e acesse api.telegram.org/botTOKEN/getUpdates (substitua TOKEN)"
+                    }
+                }
+
+                // Help section
+                div { class: "p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800",
+                    p { class: "text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2", "📖 Como Configurar:" }
+                    ul { class: "text-xs text-blue-800 dark:text-blue-400 space-y-1 list-disc list-inside",
+                        li { "Abra Telegram e procure por @BotFather" }
+                        li { "Envie /newbot e siga as instruções" }
+                        li { "Copie o token (formato: 123456789:ABC...)" }
+                        li { "Procure pelo seu bot e envie /start" }
+                        li { "Acesse: https://api.telegram.org/bot{SEU_TOKEN}/getUpdates" }
+                        li { "Procure por \"chat\": {{\"id\": -1001234567890}} (esse é o chat_id)" }
+                    }
+                }
+
+                // Troubleshooting section
+                div { class: "p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800",
+                    p { class: "text-sm font-semibold text-yellow-900 dark:text-yellow-300 mb-2", "🔧 Troubleshooting:" }
+                    ul { class: "text-xs text-yellow-800 dark:text-yellow-400 space-y-1 list-disc list-inside",
+                        li { "Erro 403 Forbidden: Token inválido ou bot não iniciado" }
+                        li { "Certifique-se de enviar /start ao bot primeiro" }
+                        li { "Chat ID começa com '-' para grupos, sem sinal para chats privados" }
+                        li { "Teste o token: https://api.telegram.org/bot{SEU_TOKEN}/getMe" }
                     }
                 }
             }
