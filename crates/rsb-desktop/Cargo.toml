@@ -10,46 +10,60 @@ rust-version.workspace = true
 [dependencies]
 
 # INTERNAL
-rsb-sdk = { path = "../rsb-sdk", features = ["server"] }
 
-# WEB (for FIDO2 auth and HTTP requests)
-axum = { workspace = true }
-reqwest = { workspace = true }
-regex = { workspace = true }
+rsb-sdk = { path = "../rsb-sdk" }
 
 # DIOXUS / UI
+
 dioxus = { workspace = true }
 dioxus-desktop = { workspace = true }
+
 rfd = { workspace = true }
 notify-rust = { workspace = true }
 
 # ASYNC
+
 tokio = { workspace = true }
 
 # LOGGING
+
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # SERIALIZATION
+
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
 # TIME
+
 chrono = { workspace = true }
 
 # FILESYSTEM
+
 walkdir = { workspace = true }
 dirs = { workspace = true }
 
+# NETWORKING
+
+reqwest = { workspace = true }
+axum = { workspace = true }
+
 # SYSTEM
+
 sysinfo = { workspace = true }
 battery = { workspace = true }
 
 # UTILITIES
+
+regex = { workspace = true }
 rand = { workspace = true }
+
 open = { workspace = true }
 anyhow = { workspace = true }
 
-# WEB
+# TLS
+
+openssl = { workspace = true }
 web-sys = "0.3.98"
