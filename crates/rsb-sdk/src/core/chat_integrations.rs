@@ -193,6 +193,16 @@ async fn send_telegram_notification(
     message: &str,
     notification_type: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Validate inputs
+    if bot_token.is_empty() {
+        error!("❌ [Telegram] Bot token is empty");
+        return Err("Bot token is empty".into());
+    }
+    if chat_id.is_empty() {
+        error!("❌ [Telegram] Chat ID is empty");
+        return Err("Chat ID is empty".into());
+    }
+
     let emoji = match notification_type {
         "success" => "✅",
         "error" => "❌",
@@ -213,17 +223,48 @@ async fn send_telegram_notification(
 
     match client.post(&url).json(&telegram_msg).send().await {
         Ok(response) => {
-            if response.status().is_success() {
+            let status = response.status();
+            
+            if status.is_success() {
                 info!("✅ [Telegram] Notification sent successfully");
                 Ok(())
             } else {
-                error!("❌ [Telegram] Error: {}", response.status());
-                Err("Telegram notification failed".into())
+                // Try to get detailed error message from response body
+                let error_details = match response.text().await {
+                    Ok(body) => body,
+                    Err(_) => status.to_string(),
+                };
+                
+                let error_msg = match status.as_u16() {
+                    400 => format!("Bad Request (400) - Check token format and chat_id format. Details: {}", error_details),
+                    401 => "Unauthorized (401) - Bot token is invalid or expired".to_string(),
+                    403 => {
+                        if error_details.contains("bot can't send messages") || error_details.contains("chat not found") {
+                            format!(
+                                "Forbidden (403) - Bot can't send messages.\n\n\
+                                SOLUTIONS:\n\
+                                1. Open Telegram and search for your bot\n\
+                                2. Send /start command to the bot\n\
+                                3. Go back to RS Shield and validate again\n\
+                                4. If using a group: Add bot to group and promote as administrator\n\n\
+                                Details: {}",
+                                error_details
+                            )
+                        } else {
+                            format!("Forbidden (403) - Token is invalid or chat ID is incorrect. Details: {}", error_details)
+                        }
+                    }
+                    404 => "Not Found (404) - Chat not found. Ensure you've sent /start to the bot".to_string(),
+                    _ => format!("{} - {}", status, error_details),
+                };
+                
+                error!("❌ [Telegram] Error: {}", error_msg);
+                Err(error_msg.into())
             }
         }
         Err(e) => {
             error!("❌ [Telegram] Connection error: {}", e);
-            Err(Box::new(e))
+            Err(format!("Connection error: {}", e).into())
         }
     }
 }

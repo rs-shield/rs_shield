@@ -10,11 +10,12 @@ rust-version.workspace = true
 [dependencies]
 
 # INTERNAL
+rsb-sdk = { path = "../rsb-sdk", features = ["cli", "server"] }
 
-rsb-sdk = { path = "../rsb-sdk", features = ["cli"] }
+# WEB (for FIDO2 auth)
+axum = { workspace = true }
 
 # CLI
-
 clap = { workspace = true }
 atty = { workspace = true }
 indicatif = { workspace = true }
@@ -23,49 +24,28 @@ rpassword = { workspace = true }
 pathdiff = "0.2.3"
 
 # ASYNC
-
 tokio = { workspace = true }
 async-trait = { workspace = true }
 
 # LOGGING
-
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # SERIALIZATION
-
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 
 # TIME / IDS
-
 chrono = { workspace = true }
 uuid = { workspace = true }
 
 # FILESYSTEM
-
 walkdir = { workspace = true }
 dirs = { workspace = true }
 
-# NETWORKING
-
-reqwest = { workspace = true }
-axum = { workspace = true }
-
-# AWS
-
-aws-config = { workspace = true }
-aws-sdk-s3 = { workspace = true }
-
 # UTILITIES
-
-open = { workspace = true }
 anyhow = { workspace = true }
-
-# TLS
-
-openssl = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
