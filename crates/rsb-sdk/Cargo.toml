@@ -8,79 +8,126 @@ authors.workspace = true
 rust-version.workspace = true
 [dependencies]
 
-# CORE (always required)
+# CLI SUPPORT
+
+clap = { workspace = true }
+
+# ASYNC
+
 tokio = { workspace = true }
 async-trait = { workspace = true }
-crossbeam-channel = "0.5"
+crossbeam-channel =  "0.5"
 jwalk = "0.8"
+
+# LOGGING
+
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+# SERIALIZATION
+
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+
+# TIME / IDS
+
 chrono = { workspace = true }
 uuid = { workspace = true }
+
+# FILESYSTEM
+
 walkdir = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
 memmap2 = { workspace = true }
 notify = { workspace = true }
 pathdiff = "0.2.3"
+# PERFORMANCE
+
 rayon = { workspace = true }
 dashmap = "6.1"
 zstd = { workspace = true }
 num_cpus = "1.17.0"
+# NETWORKING
+
 reqwest = { workspace = true }
-hex = { version = "0.4", features = ["serde"] }
+hex = {version = "0.4", features = ["serde"]}
+# AWS
+
 aws-credential-types = { workspace = true }
+
+# CRYPTO
+
 ring = { workspace = true }
 blake3 = { workspace = true }
 sha2 = { workspace = true }
 pbkdf2 = { workspace = true }
 aes-gcm = { workspace = true }
+
 zeroize = { workspace = true }
+
 base64 = { workspace = true }
 rand = { workspace = true }
+
+# SECURITY
+
 keyring = { workspace = true }
+
+# SYSTEM
+
 dirs = { workspace = true }
 sysinfo = { workspace = true }
 battery = { workspace = true }
+
+# CLI / TERMINAL
+
+indicatif = { workspace = true }
+console = { workspace = true }
+rpassword = { workspace = true }
+
+# UTILITIES
+
 regex = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 open = { workspace = true }
+
+# EMAIL
+
+lettre = { workspace = true }
+
+# WEBAUTHN / FIDO2
+
 webauthn-rs = { workspace = true }
+
+# WEB SERVER
+
+axum = { workspace = true }
+axum-extra = { workspace = true }
+
+tower = { workspace = true }
+tower-http = { workspace = true }
+jsonwebtoken = { workspace = true }
+
+
+# HTML
+
+maud = { workspace = true }
+
+# TLS
+
+openssl = { workspace = true }
+
+# AWS
+
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 
-# CLI FEATURE (optional)
-clap = { workspace = true, optional = true }
-indicatif = { workspace = true, optional = true }
-console = { workspace = true, optional = true }
-rpassword = { workspace = true, optional = true }
-
-# SERVER FEATURE (optional, includes web & auth UI)
-axum = { workspace = true, optional = true }
-axum-extra = { workspace = true, optional = true }
-tower = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true }
-jsonwebtoken = { workspace = true, optional = true }
-maud = { workspace = true, optional = true }
-
-# EMAIL FEATURE (optional)
-lettre = { workspace = true, optional = true }
-
 [features]
-default = ["server"]
 
-# Server feature enables FIDO2 web server, web auth UI, and email notifications
-server = ["axum", "axum-extra", "tower", "tower-http", "jsonwebtoken", "maud", "lettre", "indicatif"]
-
-# CLI feature enables interactive credential prompting and terminal UI
-cli = ["clap", "indicatif", "console", "rpassword"]
-
-# Email feature enables email notifications (included in server feature)
-email = ["lettre"]
+# CLI feature enables interactive credential prompting
+cli = []
 
 [dev-dependencies]
 tempfile = "3.8"

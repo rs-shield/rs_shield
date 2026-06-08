@@ -1,17 +1,16 @@
 [workspace]
 members = [
-    "crates/rsb-sdk",
     "crates/rsb-cli",
+    "crates/rsb-sdk",
     "crates/rsb-desktop",
-    "crates/rsb-server",
 ]
-resolver = "2"
 
+resolver = "2"
 [workspace.package]
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.3"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/rs-shield/rs-shield"
+repository = "https://github.com/rs-shield/rs_shield"
 authors = ["Marcio Zebedeu"]
 rust-version = "1.95.0"
 
@@ -96,9 +95,17 @@ lettre = "0.11"
 
 # Web server
 axum = "0.7"
-axum-extra = { version = "0.9", features = ["cookie"] }
+
+axum-extra = { version = "0.9", features = [
+    "cookie",
+] }
+
 tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+tower-http = { version = "0.5", features = [
+    "cors",
+    "trace",
+] }
 
 # Desktop / UI
 dioxus = { version = "0.7", features = ["desktop", "router"] }
@@ -111,13 +118,13 @@ open = "5.0"
 # HTML
 maud = "0.27"
 
-# Utils
+# OpenSSL
+openssl = { version = "0.10", features = ["vendored"] }
+
+# Utilities
+regex = "1"
 anyhow = "1.0"
 thiserror = "1.0"
-regex = "1.10"
-hex = { version = "0.4", features = ["serde"] }
-num_cpus = "1.17.0"
-dashmap = "6.1"
 
 [profile.release]
 debug = false
