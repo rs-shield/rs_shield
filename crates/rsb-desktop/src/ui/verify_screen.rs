@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use rsb_sdk::operation::operations_helpers::record_verify_operation;
 use rsb_sdk::{CancellationToken, config, perform_verify};
+use rsb_sdk::core::{NotificationManager, NotificationEvent, NotificationPayload};
+use crate::ui::integrations_screen::IntegrationConfig;
 
 use crate::ui::{
     app::AppConfig,
@@ -192,6 +194,44 @@ pub fn VerifyScreen() -> Element {
                         report.duration.as_secs(),
                         bkp.to_string_lossy().to_string(),
                     );
+                    
+                    // Send notifications
+                    if let Some(bkp_parent) = bkp.parent() {
+                        let integrations = IntegrationConfig::load(bkp_parent);
+                        let mut manager = NotificationManager::new();
+                        
+                        if let Some(email_cfg) = integrations.to_email_config() {
+                            manager.set_email_config(email_cfg);
+                        }
+                        
+                        for chat_integration in integrations.to_chat_integrations() {
+                            manager.add_chat_integration(chat_integration);
+                        }
+                        
+                        let notification = NotificationPayload {
+                            event: if report.files_with_errors > 0 {
+                                NotificationEvent::VerificationFailed
+                            } else {
+                                NotificationEvent::VerificationCompleted
+                            },
+                            title: if report.files_with_errors > 0 {
+                                "⚠️ Verificação Concluída com Erros".to_string()
+                            } else {
+                                "✅ Verificação Concluída".to_string()
+                            },
+                            message: format!(
+                                "Arquivos: {}\nErros: {}\nDuração: {}s",
+                                report.files_processed,
+                                report.files_with_errors,
+                                report.duration.as_secs()
+                            ),
+                            details: Some(format!("Backup: {}", bkp.to_string_lossy())),
+                            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                        };
+                        
+                        let _ = manager.send(&notification).await;
+                    }
+
                     if create_report {
                         report.profile_path = "Desktop UI".to_string();
                         let html = rsb_sdk::report::generate_html(&report);
@@ -218,7 +258,32 @@ pub fn VerifyScreen() -> Element {
                         0,
                         bkp.to_string_lossy().to_string(),
                     );
-                    status_msg.set(format!("{} {}", texts.error_prefix, e))
+                    
+                    // Send error notification
+                    if let Some(bkp_parent) = bkp.parent() {
+                        let integrations = IntegrationConfig::load(bkp_parent);
+                        let mut manager = NotificationManager::new();
+                        
+                        if let Some(email_cfg) = integrations.to_email_config() {
+                            manager.set_email_config(email_cfg);
+                        }
+                        
+                        for chat_integration in integrations.to_chat_integrations() {
+                            manager.add_chat_integration(chat_integration);
+                        }
+                        
+                        let notification = NotificationPayload {
+                            event: NotificationEvent::VerificationFailed,
+                            title: "❌ Verificação Falhou".to_string(),
+                            message: format!("Erro: {}", e),
+                            details: Some(format!("Backup: {}", bkp.to_string_lossy())),
+                            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                        };
+                        
+                        let _ = manager.send(&notification).await;
+                    }
+                    
+                    status_msg.set(format!("{} {}", texts.error_prefix, e));
                 }
             }
 

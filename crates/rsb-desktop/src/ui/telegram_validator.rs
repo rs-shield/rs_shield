@@ -5,10 +5,11 @@ use rsb_sdk::core::{validate_telegram_token, get_telegram_chat_id};
 pub fn TelegramValidator(
     bot_token: String,
 ) -> Element {
-    let mut validation_result = use_signal(String::new);
-    let mut chat_ids = use_signal(Vec::new());
+    let mut validation_result = use_signal(|| String::new());
+    let mut chat_ids = use_signal(|| Vec::new());
     let mut is_validating = use_signal(|| false);
     let mut show_validator = use_signal(|| false);
+    let bot_token_clone = bot_token.clone();
 
     let handle_validate = move |_| {
         if bot_token.is_empty() {
@@ -58,6 +59,8 @@ pub fn TelegramValidator(
         });
     };
 
+    let ids_list = chat_ids();
+
     rsx! {
         div { class: "space-y-4",
             button {
@@ -71,7 +74,7 @@ pub fn TelegramValidator(
                     button {
                         class: "btn btn-sm btn-primary w-full",
                         onclick: handle_validate,
-                        disabled: is_validating() || bot_token.is_empty(),
+                        disabled: is_validating() || bot_token_clone.is_empty(),
                         if is_validating() { "⏳ Validating..." } else { "✓ Validate Token" }
                     }
 
@@ -81,22 +84,24 @@ pub fn TelegramValidator(
                         }
                     }
 
-                    if !chat_ids().is_empty() {
+                    if !ids_list.is_empty() {
                         div { class: "p-3 rounded bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800",
                             p { class: "text-sm font-semibold text-green-900 dark:text-green-300 mb-2", "📋 Available Chat IDs:" }
                             div { class: "space-y-1",
-                                {chat_ids().iter().map(|(id, chat_type)| {
+                                { ids_list.iter().map(|(id, chat_type)| {
+                                    let id_val = *id;
+                                    let chat_type_val = chat_type.clone();
                                     rsx! {
                                         button {
                                             class: "btn btn-xs btn-ghost w-full justify-start",
                                             onclick: move |_| {
                                                 // Copy to clipboard simulation
-                                                validation_result.set(format!("Selected: {}", id));
+                                                validation_result.set(format!("Selected: {}", id_val));
                                             },
-                                            "{id} ({chat_type})"
+                                            "{id_val} ({chat_type_val})"
                                         }
                                     }
-                                }).collect::<Vec<_>>()}
+                                })}
                             }
                         }
                     }

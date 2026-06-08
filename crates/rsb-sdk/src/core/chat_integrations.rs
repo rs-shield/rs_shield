@@ -238,7 +238,22 @@ async fn send_telegram_notification(
                 let error_msg = match status.as_u16() {
                     400 => format!("Bad Request (400) - Check token format and chat_id format. Details: {}", error_details),
                     401 => "Unauthorized (401) - Bot token is invalid or expired".to_string(),
-                    403 => format!("Forbidden (403) - Token is invalid, bot hasn't been started, or chat ID is incorrect. Details: {}", error_details),
+                    403 => {
+                        if error_details.contains("bot can't send messages") || error_details.contains("chat not found") {
+                            format!(
+                                "Forbidden (403) - Bot can't send messages.\n\n\
+                                SOLUTIONS:\n\
+                                1. Open Telegram and search for your bot\n\
+                                2. Send /start command to the bot\n\
+                                3. Go back to RS Shield and validate again\n\
+                                4. If using a group: Add bot to group and promote as administrator\n\n\
+                                Details: {}",
+                                error_details
+                            )
+                        } else {
+                            format!("Forbidden (403) - Token is invalid or chat ID is incorrect. Details: {}", error_details)
+                        }
+                    }
                     404 => "Not Found (404) - Chat not found. Ensure you've sent /start to the bot".to_string(),
                     _ => format!("{} - {}", status, error_details),
                 };

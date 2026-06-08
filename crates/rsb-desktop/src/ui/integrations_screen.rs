@@ -678,7 +678,7 @@ fn TelegramForm(
                         li { "Envie /newbot e siga as instruções" }
                         li { "Copie o token (formato: 123456789:ABC...)" }
                         li { "Procure pelo seu bot e envie /start" }
-                        li { "Acesse: https://api.telegram.org/bot{SEU_TOKEN}/getUpdates" }
+                        li { "Acesse: https://api.telegram.org/bot[TOKEN]/getUpdates (substitua [TOKEN])" }
                         li { "Procure por \"chat\": {{\"id\": -1001234567890}} (esse é o chat_id)" }
                     }
                 }
@@ -687,10 +687,10 @@ fn TelegramForm(
                 div { class: "p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800",
                     p { class: "text-sm font-semibold text-yellow-900 dark:text-yellow-300 mb-2", "🔧 Troubleshooting:" }
                     ul { class: "text-xs text-yellow-800 dark:text-yellow-400 space-y-1 list-disc list-inside",
-                        li { "Erro 403 Forbidden: Token inválido ou bot não iniciado" }
-                        li { "Certifique-se de enviar /start ao bot primeiro" }
+                        li { "Erro 403 Forbidden: Envie /start ao bot primeiro" }
+                        li { "Certifique-se de enviar /start ao bot no Telegram" }
                         li { "Chat ID começa com '-' para grupos, sem sinal para chats privados" }
-                        li { "Teste o token: https://api.telegram.org/bot{SEU_TOKEN}/getMe" }
+                        li { "Teste o token: https://api.telegram.org/bot[TOKEN]/getMe (substitua [TOKEN])" }
                     }
                 }
             }
