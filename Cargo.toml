@@ -7,10 +7,10 @@ members = [
 
 resolver = "2"
 [workspace.package]
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.7"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/rs-shield/rs_shield"
+repository = "https://github.com/rs-shield/rs-shield"
 authors = ["Marcio Zebedeu"]
 rust-version = "1.95.0"
 
