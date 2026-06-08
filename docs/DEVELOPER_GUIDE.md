@@ -9,9 +9,10 @@ Technical documentation for developers working on RS Shield.
 3. [Development Setup](#development-setup)
 4. [Key Modules](#key-modules)
 5. [FIDO2/WebAuthn Integration](#fido2webauthn-integration)
-6. [Building & Testing](#building--testing)
-7. [Contributing](#contributing)
-8. [API Reference](#api-reference)
+6. [Chat Integrations](#chat-integrations-telegram-slack-discord)
+7. [Building & Testing](#building--testing)
+8. [Contributing](#contributing)
+9. [API Reference](#api-reference)
 
 ---
 
@@ -480,6 +481,419 @@ rsb fido2 register --user-id user@example.com
 rsb fido2 authenticate --user-id user@example.com
 rsb fido2 list
 rsb fido2 revoke --user-id user@example.com
+```
+
+---
+
+## Chat Integrations (Telegram, Slack, Discord)
+
+RS Shield supports sending notifications to multiple chat platforms to alert users about backup status, errors, and warnings.
+
+### Architecture Overview
+
+```
+┌──────────────────────────────────────┐
+│  Desktop UI (Dioxus)                 │
+│  - IntegrationScreen                 │
+│  - TelegramValidator component       │
+└────────────────┬─────────────────────┘
+               │
+┌──────────────────────────────────────┐
+│  Integration Config Management       │
+│  - IntegrationConfig (JSON storage)  │
+│  - TelegramIntegrationConfig         │
+└────────────────┬─────────────────────┘
+               │
+┌──────────────────────────────────────┐
+│  Core SDK (rsb-sdk)                  │
+│  - chat_integrations.rs              │
+│  - telegram_validator.rs             │
+└────────────────┬─────────────────────┘
+               │
+         ┌─────────┴──────────────────────┐
+         │ External APIs                  │
+         ├─────────────────────────────────┤
+         │ • Telegram Bot API              │
+         │ • Slack Webhooks                │
+         │ • Discord Webhooks              │
+         └────────────────────────────────┘
+```
+
+### Telegram Integration
+
+#### Components
+
+**1. TelegramValidator** - Desktop UI Component
+
+**Location:** `crates/rsb-desktop/src/ui/telegram_validator.rs`
+
+Provides real-time token and chat ID validation:
+
+```rust
+pub fn TelegramValidator(
+    bot_token: String,
+) -> Element {
+    // Validates bot token by calling Telegram API
+    // Retrieves available chat IDs from /getUpdates
+    // Displays validation results to user
+}
+```
+
+**Features:**
+- ✅ Validates bot token format
+- ✅ Checks bot accessibility
+- ✅ Retrieves available chat IDs
+- ✅ Distinguishes between private chats and groups
+- ✅ Provides user-friendly error messages
+
+**2. Telegram Validator** - Backend Module
+
+**Location:** `crates/rsb-sdk/src/core/telegram_validator.rs`
+
+Core validation functions:
+
+```rust
+/// Validate bot token by calling getMe API
+pub async fn validate_telegram_token(bot_token: &str) 
+    -> Result<TelegramBot, String>
+
+/// Get available chat IDs by polling getUpdates
+pub async fn get_telegram_chat_id(bot_token: &str) 
+    -> Result<Vec<(i64, String)>, String>
+```
+
+**Data Structures:**
+
+```rust
+#[derive(Debug, Deserialize)]
+pub struct TelegramBot {
+    pub id: u64,
+    pub is_bot: bool,
+    pub first_name: String,
+    pub username: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TelegramUpdatesResponse {
+    pub ok: bool,
+    pub result: Option<Vec<TelegramUpdate>>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TelegramMessage {
+    pub message_id: u64,
+    pub chat: TelegramChat,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TelegramChat {
+    pub id: i64,
+    pub r#type: String,  // "private", "group", "supergroup", "channel"
+}
+```
+
+**3. Chat Notification Sender**
+
+**Location:** `crates/rsb-sdk/src/core/chat_integrations.rs`
+
+Sends notifications to Telegram:
+
+```rust
+pub async fn send_chat_notification(
+    integration: &ChatIntegration,
+    title: &str,
+    message: &str,
+    notification_type: &str,  // "success", "error", "warning", "info"
+) -> Result<(), Box<dyn std::error::Error>>
+
+async fn send_telegram_notification(
+    bot_token: &str,
+    chat_id: &str,
+    title: &str,
+    message: &str,
+    notification_type: &str,
+) -> Result<(), Box<dyn std::error::Error>>
+```
+
+**Notification Format:**
+
+```
+✅ Backup Complete
+Backed up 1,250 files in 45 minutes
+Compressed: 2.3 GB → 1.1 GB
+```
+
+#### Configuration
+
+**1. Desktop Configuration** (`integrations_screen.rs`)
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelegramIntegrationConfig {
+    pub enabled: bool,
+    pub bot_token: String,      // From @BotFather
+    pub chat_id: String,        // From /getUpdates API
+}
+```
+
+**2. File Storage**
+
+Configurations saved to `integrations.json` in profile directory:
+
+```json
+{
+  "telegram": {
+    "enabled": true,
+    "bot_token": "123456789:ABCdefGHIjklmnoPQRstuvWXYZ",
+    "chat_id": "-1001234567890"
+  }
+}
+```
+
+#### Setup Workflow
+
+##### Step 1: Create Bot via @BotFather
+
+1. Open Telegram app
+2. Search for **@BotFather**
+3. Send `/newbot` command
+4. Follow instructions:
+   - Enter bot name (e.g., "RS Shield Bot")
+   - Enter username (e.g., "rs_shield_bot_username")
+5. Copy the token: `123456789:ABCdefGHIjklmnoPQRstuvWXYZ`
+
+##### Step 2: Validate Token in RS Shield
+
+1. Open RS Shield Desktop
+2. Go to **Integrations → Telegram**
+3. Paste bot token in "Token do Bot" field
+4. Click **"Validate Token"** button
+5. Validator calls:
+   - `https://api.telegram.org/bot{TOKEN}/getMe` → Confirms bot exists
+   - `https://api.telegram.org/bot{TOKEN}/getUpdates` → Lists available chats
+
+**Possible Results:**
+- ✅ **Success:** Bot valid, displays bot name and ID
+- ❌ **Invalid Token:** Token format incorrect or bot doesn't exist
+- ⚠️ **No Messages Found:** User hasn't sent `/start` to bot yet
+
+##### Step 3: Send /start to Bot
+
+1. Search for your bot in Telegram (e.g., @rs_shield_bot_username)
+2. Send `/start` command
+3. This creates an update so validator can find the chat ID
+
+##### Step 4: Get Chat ID
+
+1. In RS Shield, click **"Validate Token"** again
+2. Select the chat ID from the list
+3. Chat ID is automatically populated
+4. Save configuration
+
+#### Validation Logic
+
+**TelegramValidator Component Flow:**
+
+```
+┌─────────────────────────────────────┐
+│ User enters bot token               │
+│ Click "Validate Token"              │
+└─────────────┬───────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ 1. validate_telegram_token()        │
+│    - Calls /getMe API               │
+│    - Verifies token format          │
+│    - Confirms bot exists            │
+└─────────────┬───────────────────────┘
+              │
+         ✅ Success? ──❌─→ Show Error Message
+              │
+              ▼
+┌─────────────────────────────────────┐
+│ 2. get_telegram_chat_id()           │
+│    - Calls /getUpdates API          │
+│    - Retrieves available chats      │
+│    - Extracts chat IDs and types    │
+└─────────────┬───────────────────────┘
+              │
+         ✅ Chats found? ──❌─→ "No messages found.
+              │                  Send /start to bot"
+              ▼
+┌─────────────────────────────────────┐
+│ 3. Display Results                  │
+│    - Show bot info                  │
+│    - List available chats           │
+│    - Allow user to select chat      │
+└─────────────────────────────────────┘
+```
+
+#### Error Handling
+
+**HTTP Status Codes:**
+
+| Status | Meaning | Solution |
+|--------|---------|----------|
+| 200 | Success | Notification sent ✅ |
+| 400 | Bad Request | Check token/chat ID format |
+| 401 | Unauthorized | Token invalid or expired |
+| 403 | Forbidden | Bot can't send to this chat |
+| 404 | Not Found | Chat doesn't exist |
+
+**Common Errors:**
+
+**Error 403: "Bot can't send messages to the bot"**
+- **Cause:** Using bot's own ID as chat_id
+- **Solution:** Send `/start` to bot, then use your chat ID
+
+**Error 403: "Bot hasn't been started"**
+- **Cause:** User hasn't sent `/start` to bot
+- **Solution:** Open Telegram, find bot, send `/start`
+
+**Error: "No messages found"**
+- **Cause:** No chat activity with bot
+- **Solution:** Send `/start` to bot first, then validate again
+
+**Error: "Invalid token"**
+- **Cause:** Token copied incorrectly or bot deleted
+- **Solution:** Get new token from @BotFather
+
+#### Testing Notifications
+
+**Manual Test in Desktop UI:**
+
+1. Configure Telegram integration
+2. Go to **Integrations** tab
+3. Click **"Test Notification"** button
+4. Notification should appear in Telegram within 1-2 seconds
+
+**Test via CLI:**
+
+```bash
+# Test via configuration
+cargo run -p rsb-cli -- test-integrations --profile my-backup
+```
+
+**Test Programmatically:**
+
+```rust
+use rsb_sdk::core::chat_integrations::{ChatIntegration, send_chat_notification};
+
+let integration = ChatIntegration::Telegram {
+    bot_token: "123456789:ABCdefGHIjklmnoPQRstuvWXYZ".to_string(),
+    chat_id: "-1001234567890".to_string(),
+};
+
+send_chat_notification(
+    &integration,
+    "Test Title",
+    "This is a test message",
+    "info",
+).await?;
+```
+
+#### Use Cases
+
+**1. Backup Completion Notification**
+
+```
+✅ Backup Completed
+Profile: Daily Backup
+Files: 5,432 backed up
+Duration: 1h 23m
+Size: 45.2 GB → 18.7 GB
+Status: All files verified ✓
+```
+
+**2. Error Alert**
+
+```
+❌ Backup Failed
+Profile: Weekly Backup
+Error: S3 connection timeout
+Retry: Scheduled for 8 PM
+Action: Check your S3 credentials
+```
+
+**3. Warning Notification**
+
+```
+⚠️ High Resource Usage
+CPU: 87% (pause threshold: 90%)
+Battery: 12% (pause threshold: 20%)
+Backup paused to protect system
+Will resume when resources available
+```
+
+#### Configuration in Code
+
+**Desktop Integration Screen:**
+
+```rust
+pub struct TelegramIntegrationConfig {
+    pub enabled: bool,
+    pub bot_token: String,
+    pub chat_id: String,
+}
+
+// Load from file
+let config = IntegrationConfig::load(profile_path);
+
+// Convert to SDK ChatIntegration
+let chat_integration = ChatIntegration::Telegram {
+    bot_token: config.telegram.bot_token,
+    chat_id: config.telegram.chat_id,
+};
+```
+
+**In Backup Operations:**
+
+```rust
+// Send notification when backup completes
+let notification = Notification {
+    title: "Backup Complete".to_string(),
+    message: format!("Backed up {} files", stats.total_files),
+    notification_type: "success".to_string(),
+};
+
+for integration in config.chat_integrations {
+    send_chat_notification(
+        &integration,
+        &notification.title,
+        &notification.message,
+        &notification.notification_type,
+    ).await.ok();
+}
+```
+
+#### Testing
+
+**Unit Tests:**
+
+```rust
+#[test]
+fn test_telegram_response_parsing() {
+    // Test parsing bot response
+}
+
+#[test]
+fn test_invalid_token() {
+    // Test error handling
+}
+
+#[test]
+fn test_chat_id_extraction() {
+    // Test extracting chat IDs from updates
+}
+```
+
+**Integration Tests:**
+
+```bash
+cargo test telegram
+cargo test chat_integrations
 ```
 
 ---

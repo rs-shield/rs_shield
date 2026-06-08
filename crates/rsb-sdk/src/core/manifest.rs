@@ -5,7 +5,7 @@ use crate::storage::Storage;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info};
 use zstd::stream::copy_decode;
