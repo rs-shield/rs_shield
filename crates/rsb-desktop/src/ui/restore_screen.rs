@@ -4,10 +4,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rsb_sdk::operation::operations_helpers::record_restore_operation;
-use rsb_sdk::CancellationToken;
-use rsb_sdk::core::{NotificationManager, NotificationEvent, NotificationPayload};
 use crate::ui::integrations_screen::IntegrationConfig;
+use rsb_sdk::CancellationToken;
+use rsb_sdk::core::{NotificationEvent, NotificationManager, NotificationPayload};
+use rsb_sdk::operation::operations_helpers::record_restore_operation;
 
 use crate::ui::{
     app::AppConfig,
@@ -209,20 +209,20 @@ pub fn RestoreScreen() -> Element {
                         bkp.to_string_lossy().to_string(),
                         rst_for_record.to_string_lossy().to_string(),
                     );
-                    
+
                     // Send notifications
                     if let Some(bkp_parent) = bkp.parent() {
                         let integrations = IntegrationConfig::load(bkp_parent);
                         let mut manager = NotificationManager::new();
-                        
+
                         if let Some(email_cfg) = integrations.to_email_config() {
                             manager.set_email_config(email_cfg);
                         }
-                        
+
                         for chat_integration in integrations.to_chat_integrations() {
                             manager.add_chat_integration(chat_integration);
                         }
-                        
+
                         let notification = NotificationPayload {
                             event: NotificationEvent::RestoreCompleted,
                             title: "✅ Restauração Concluída".to_string(),
@@ -238,7 +238,7 @@ pub fn RestoreScreen() -> Element {
                             )),
                             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         };
-                        
+
                         let _ = manager.send(&notification).await;
                     }
 
@@ -268,20 +268,20 @@ pub fn RestoreScreen() -> Element {
                         bkp.to_string_lossy().to_string(),
                         rst_for_record.to_string_lossy().to_string(),
                     );
-                    
+
                     // Send error notification
                     if let Some(bkp_parent) = bkp.parent() {
                         let integrations = IntegrationConfig::load(bkp_parent);
                         let mut manager = NotificationManager::new();
-                        
+
                         if let Some(email_cfg) = integrations.to_email_config() {
                             manager.set_email_config(email_cfg);
                         }
-                        
+
                         for chat_integration in integrations.to_chat_integrations() {
                             manager.add_chat_integration(chat_integration);
                         }
-                        
+
                         let notification = NotificationPayload {
                             event: NotificationEvent::RestoreFailed,
                             title: "❌ Restauração Falhou".to_string(),
@@ -293,10 +293,10 @@ pub fn RestoreScreen() -> Element {
                             )),
                             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         };
-                        
+
                         let _ = manager.send(&notification).await;
                     }
-                    
+
                     status_msg.set(format!("{} {}", texts.error_prefix, e));
                 }
             }

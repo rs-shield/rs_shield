@@ -4,10 +4,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::ui::integrations_screen::IntegrationConfig;
+use rsb_sdk::core::{NotificationEvent, NotificationManager, NotificationPayload};
 use rsb_sdk::operation::operations_helpers::record_verify_operation;
 use rsb_sdk::{CancellationToken, config, perform_verify};
-use rsb_sdk::core::{NotificationManager, NotificationEvent, NotificationPayload};
-use crate::ui::integrations_screen::IntegrationConfig;
 
 use crate::ui::{
     app::AppConfig,
@@ -194,20 +194,20 @@ pub fn VerifyScreen() -> Element {
                         report.duration.as_secs(),
                         bkp.to_string_lossy().to_string(),
                     );
-                    
+
                     // Send notifications
                     if let Some(bkp_parent) = bkp.parent() {
                         let integrations = IntegrationConfig::load(bkp_parent);
                         let mut manager = NotificationManager::new();
-                        
+
                         if let Some(email_cfg) = integrations.to_email_config() {
                             manager.set_email_config(email_cfg);
                         }
-                        
+
                         for chat_integration in integrations.to_chat_integrations() {
                             manager.add_chat_integration(chat_integration);
                         }
-                        
+
                         let notification = NotificationPayload {
                             event: if report.files_with_errors > 0 {
                                 NotificationEvent::VerificationFailed
@@ -228,7 +228,7 @@ pub fn VerifyScreen() -> Element {
                             details: Some(format!("Backup: {}", bkp.to_string_lossy())),
                             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         };
-                        
+
                         let _ = manager.send(&notification).await;
                     }
 
@@ -258,20 +258,20 @@ pub fn VerifyScreen() -> Element {
                         0,
                         bkp.to_string_lossy().to_string(),
                     );
-                    
+
                     // Send error notification
                     if let Some(bkp_parent) = bkp.parent() {
                         let integrations = IntegrationConfig::load(bkp_parent);
                         let mut manager = NotificationManager::new();
-                        
+
                         if let Some(email_cfg) = integrations.to_email_config() {
                             manager.set_email_config(email_cfg);
                         }
-                        
+
                         for chat_integration in integrations.to_chat_integrations() {
                             manager.add_chat_integration(chat_integration);
                         }
-                        
+
                         let notification = NotificationPayload {
                             event: NotificationEvent::VerificationFailed,
                             title: "❌ Verificação Falhou".to_string(),
@@ -279,10 +279,10 @@ pub fn VerifyScreen() -> Element {
                             details: Some(format!("Backup: {}", bkp.to_string_lossy())),
                             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         };
-                        
+
                         let _ = manager.send(&notification).await;
                     }
-                    
+
                     status_msg.set(format!("{} {}", texts.error_prefix, e));
                 }
             }

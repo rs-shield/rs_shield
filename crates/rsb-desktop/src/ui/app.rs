@@ -332,7 +332,7 @@ pub fn App() -> Element {
 
 
             main { class: "flex flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950",
-                
+
                 // Conteúdo Principal (Painel Esquerdo)
                 div { class: "flex-1 overflow-y-auto px-6 sm:px-10 py-8 custom-scrollbar",
                     div { class: "max-w-4xl mx-auto",
@@ -497,6 +497,4 @@ pub fn App() -> Element {
             }
         }
     }
-            
-    
 }

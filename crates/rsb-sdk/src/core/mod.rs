@@ -21,4 +21,4 @@ pub use notification_logger::NotificationLogger;
 pub use notifications::{NotificationEvent, NotificationManager, NotificationPayload, TestResults};
 pub use prune::perform_prune;
 pub use restore::perform_restore;
-pub use telegram_validator::{validate_telegram_token, get_telegram_chat_id};
+pub use telegram_validator::{get_telegram_chat_id, validate_telegram_token};

@@ -1,10 +1,10 @@
+use super::telegram_validator::TelegramValidator;
 use dioxus::prelude::*;
-use rsb_sdk::utils::ensure_directory_exists;
 use rsb_sdk::core::{ChatIntegration, EmailConfig};
+use rsb_sdk::utils::ensure_directory_exists;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use super::telegram_validator::TelegramValidator;
 /// Configurações de integrações salvas localmente
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationConfig {
@@ -90,14 +90,17 @@ impl IntegrationConfig {
 
     /// Converter para EmailConfig do SDK
     pub fn to_email_config(&self) -> Option<EmailConfig> {
-        self.email.as_ref().filter(|e| e.enabled).map(|e| EmailConfig {
-            smtp_server: e.smtp_server.clone(),
-            smtp_port: e.smtp_port,
-            sender_email: e.sender_email.clone(),
-            sender_password: e.sender_password.clone(),
-            recipient_email: e.recipient_email.clone(),
-            use_tls: e.use_tls,
-        })
+        self.email
+            .as_ref()
+            .filter(|e| e.enabled)
+            .map(|e| EmailConfig {
+                smtp_server: e.smtp_server.clone(),
+                smtp_port: e.smtp_port,
+                sender_email: e.sender_email.clone(),
+                sender_password: e.sender_password.clone(),
+                recipient_email: e.recipient_email.clone(),
+                use_tls: e.use_tls,
+            })
     }
 
     /// Converter para ChatIntegrations do SDK
@@ -172,7 +175,7 @@ pub fn IntegrationScreen() -> Element {
     let handle_test_config = move |_| {
         testing.set(true);
         test_results.set("🧪 Testando integrações...".to_string());
-        
+
         let current_config = config();
         spawn(async move {
             let mut manager = rsb_sdk::core::NotificationManager::new();
@@ -190,7 +193,7 @@ pub fn IntegrationScreen() -> Element {
             match manager.test().await {
                 Ok(results) => {
                     let mut result_text = String::from("✅ Testes Concluídos:\n");
-                    
+
                     if results.email_success {
                         result_text.push_str("✅ Email enviado com sucesso\n");
                     } else if let Some(err) = &results.email_error {

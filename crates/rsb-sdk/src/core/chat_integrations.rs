@@ -224,7 +224,7 @@ async fn send_telegram_notification(
     match client.post(&url).json(&telegram_msg).send().await {
         Ok(response) => {
             let status = response.status();
-            
+
             if status.is_success() {
                 info!("✅ [Telegram] Notification sent successfully");
                 Ok(())
@@ -234,12 +234,17 @@ async fn send_telegram_notification(
                     Ok(body) => body,
                     Err(_) => status.to_string(),
                 };
-                
+
                 let error_msg = match status.as_u16() {
-                    400 => format!("Bad Request (400) - Check token format and chat_id format. Details: {}", error_details),
+                    400 => format!(
+                        "Bad Request (400) - Check token format and chat_id format. Details: {}",
+                        error_details
+                    ),
                     401 => "Unauthorized (401) - Bot token is invalid or expired".to_string(),
                     403 => {
-                        if error_details.contains("bot can't send messages") || error_details.contains("chat not found") {
+                        if error_details.contains("bot can't send messages")
+                            || error_details.contains("chat not found")
+                        {
                             format!(
                                 "Forbidden (403) - Bot can't send messages.\n\n\
                                 SOLUTIONS:\n\
@@ -251,13 +256,17 @@ async fn send_telegram_notification(
                                 error_details
                             )
                         } else {
-                            format!("Forbidden (403) - Token is invalid or chat ID is incorrect. Details: {}", error_details)
+                            format!(
+                                "Forbidden (403) - Token is invalid or chat ID is incorrect. Details: {}",
+                                error_details
+                            )
                         }
                     }
-                    404 => "Not Found (404) - Chat not found. Ensure you've sent /start to the bot".to_string(),
+                    404 => "Not Found (404) - Chat not found. Ensure you've sent /start to the bot"
+                        .to_string(),
                     _ => format!("{} - {}", status, error_details),
                 };
-                
+
                 error!("❌ [Telegram] Error: {}", error_msg);
                 Err(error_msg.into())
             }

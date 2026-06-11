@@ -20,5 +20,5 @@ pub mod s3_tester;
 mod schedule_screen;
 mod shared;
 mod snapshots_screen;
-mod verify_screen;
 pub mod telegram_validator;
+mod verify_screen;
