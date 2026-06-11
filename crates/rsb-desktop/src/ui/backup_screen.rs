@@ -5,10 +5,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::ui::integrations_screen::IntegrationConfig;
+use rsb_sdk::core::{NotificationEvent, NotificationManager, NotificationPayload};
 use rsb_sdk::operation::operations_helpers::record_backup_operation;
 use rsb_sdk::{CancellationToken, config};
-use rsb_sdk::core::{NotificationManager, NotificationEvent, NotificationPayload};
-use crate::ui::integrations_screen::IntegrationConfig;
 
 use crate::ui::{
     app::AppConfig,
@@ -251,17 +251,17 @@ pub fn BackupScreen() -> Element {
                     if let Some(profile_parent) = profile_path().parent() {
                         let integrations = IntegrationConfig::load(profile_parent);
                         let mut manager = NotificationManager::new();
-                        
+
                         // Add email config if enabled
                         if let Some(email_cfg) = integrations.to_email_config() {
                             manager.set_email_config(email_cfg);
                         }
-                        
+
                         // Add chat integrations if enabled
                         for chat_integration in integrations.to_chat_integrations() {
                             manager.add_chat_integration(chat_integration);
                         }
-                        
+
                         // Send backup completion notification
                         let notification = NotificationPayload {
                             event: NotificationEvent::BackupCompleted,
@@ -277,7 +277,7 @@ pub fn BackupScreen() -> Element {
                             )),
                             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         };
-                        
+
                         let _ = manager.send(&notification).await;
                     }
 
@@ -308,20 +308,20 @@ pub fn BackupScreen() -> Element {
                         src.to_string_lossy().to_string(),
                         dst.to_string_lossy().to_string(),
                     );
-                    
+
                     // Send error notification
                     if let Some(profile_parent) = profile_path().parent() {
                         let integrations = IntegrationConfig::load(profile_parent);
                         let mut manager = NotificationManager::new();
-                        
+
                         if let Some(email_cfg) = integrations.to_email_config() {
                             manager.set_email_config(email_cfg);
                         }
-                        
+
                         for chat_integration in integrations.to_chat_integrations() {
                             manager.add_chat_integration(chat_integration);
                         }
-                        
+
                         let notification = NotificationPayload {
                             event: NotificationEvent::BackupFailed,
                             title: "❌ Backup Falhou".to_string(),
@@ -333,7 +333,7 @@ pub fn BackupScreen() -> Element {
                             )),
                             timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
                         };
-                        
+
                         let _ = manager.send(&notification).await;
                     }
 

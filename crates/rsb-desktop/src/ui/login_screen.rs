@@ -109,7 +109,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
         div { class: "flex flex-col items-center justify-center min-h-[80vh] py-12 px-4 transition-opacity duration-300 ease-in-out",
             // Cartão principal com sombras e bordas mais suaves
             div { class: "w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700/50 p-8 sm:p-10 transform transition-all",
-                
+
                 // Cabeçalho refinado
                 div { class: "text-center mb-8 select-none",
                     span { class: "text-5xl mb-4 block animate-bounce duration-1000", "🔐" }
@@ -161,15 +161,15 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                             onclick: handle_recovery_login,
                             disabled: is_authenticating(),
                             if is_authenticating() { "⏳ Verifying..." } else { "Enter with Code" }
-                        
+
                         }
                     } else {
                         button {
                             class: "w-full btn-primary py-3 text-base font-semibold rounded-lg shadow-md hover:shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2",
                             onclick: handle_login,
                             disabled: is_authenticating(),
-                            if is_authenticating() { 
-                                span { class: "inline-block animate-spin", "⏳" } 
+                            if is_authenticating() {
+                                span { class: "inline-block animate-spin", "⏳" }
                             }
                             if is_authenticating() { "Waiting for key..." } else { "{texts.login_button}" }
                         }

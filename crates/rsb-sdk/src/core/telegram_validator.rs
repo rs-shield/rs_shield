@@ -63,35 +63,30 @@ pub async fn validate_telegram_token(bot_token: &str) -> Result<TelegramBot, Str
     let client = Client::new();
 
     match client.get(&url).send().await {
-        Ok(response) => {
-            match response.json::<TelegramGetMeResponse>().await {
-                Ok(data) => {
-                    if data.ok {
-                        if let Some(bot) = data.result {
-                            info!(
-                                "✅ Telegram bot validated: {} (@{})",
-                                bot.first_name,
-                                bot.username.as_deref().unwrap_or("unknown")
-                            );
-                            Ok(bot)
-                        } else {
-                            Err("Invalid response format from Telegram".to_string())
-                        }
+        Ok(response) => match response.json::<TelegramGetMeResponse>().await {
+            Ok(data) => {
+                if data.ok {
+                    if let Some(bot) = data.result {
+                        info!(
+                            "✅ Telegram bot validated: {} (@{})",
+                            bot.first_name,
+                            bot.username.as_deref().unwrap_or("unknown")
+                        );
+                        Ok(bot)
                     } else {
-                        let desc = data.description.unwrap_or_default();
-                        error!("❌ Telegram validation failed: {}", desc);
-                        Err(format!(
-                            "Telegram returned error: {}",
-                            desc
-                        ))
+                        Err("Invalid response format from Telegram".to_string())
                     }
-                }
-                Err(e) => {
-                    error!("❌ Failed to parse Telegram response: {}", e);
-                    Err(format!("Failed to parse Telegram response: {}", e))
+                } else {
+                    let desc = data.description.unwrap_or_default();
+                    error!("❌ Telegram validation failed: {}", desc);
+                    Err(format!("Telegram returned error: {}", desc))
                 }
             }
-        }
+            Err(e) => {
+                error!("❌ Failed to parse Telegram response: {}", e);
+                Err(format!("Failed to parse Telegram response: {}", e))
+            }
+        },
         Err(e) => {
             error!("❌ Failed to connect to Telegram: {}", e);
             Err(format!("Connection error: {}", e))
@@ -109,55 +104,57 @@ pub async fn get_telegram_chat_id(bot_token: &str) -> Result<Vec<(i64, String)>,
     let client = Client::new();
 
     match client.get(&url).send().await {
-        Ok(response) => {
-            match response.json::<TelegramUpdatesResponse>().await {
-                Ok(data) => {
-                    if data.ok {
-                        if let Some(updates) = data.result {
-                            let mut chat_ids = Vec::new();
-                            for update in updates {
-                                if let Some(message) = update.message {
-                                    let chat_type = message.chat.r#type.clone();
-                                    chat_ids.push((message.chat.id, chat_type));
-                                }
+        Ok(response) => match response.json::<TelegramUpdatesResponse>().await {
+            Ok(data) => {
+                if data.ok {
+                    if let Some(updates) = data.result {
+                        let mut chat_ids = Vec::new();
+                        for update in updates {
+                            if let Some(message) = update.message {
+                                let chat_type = message.chat.r#type.clone();
+                                chat_ids.push((message.chat.id, chat_type));
                             }
+                        }
 
-                            if chat_ids.is_empty() {
-                                Err(
-                                    "❌ No messages found. Solution:\n\
+                        if chat_ids.is_empty() {
+                            Err("❌ No messages found. Solution:\n\
                                     1. Open Telegram\n\
                                     2. Search for your bot\n\
                                     3. Send /start command\n\
                                     4. Wait a few seconds\n\
-                                    5. Try again".to_string()
-                                )
-                            } else {
-                                info!("✅ Found {} chat(s)", chat_ids.len());
-                                Ok(chat_ids)
-                            }
+                                    5. Try again"
+                                .to_string())
                         } else {
-                            Err(
-                                "❌ No updates available. Solution:\n\
+                            info!("✅ Found {} chat(s)", chat_ids.len());
+                            Ok(chat_ids)
+                        }
+                    } else {
+                        Err("❌ No updates available. Solution:\n\
                                 1. Open Telegram\n\
                                 2. Search for your bot\n\
                                 3. Send /start command\n\
                                 4. Wait a few seconds\n\
-                                5. Try again".to_string()
-                            )
-                        }
+                                5. Try again"
+                            .to_string())
+                    }
+                } else {
+                    let desc = data.description.unwrap_or_default();
+                    if desc.contains("Unauthorized") || desc.contains("invalid") {
+                        Err(format!(
+                            "❌ Invalid token: {}\n\nMake sure you copied the token correctly from @BotFather",
+                            desc
+                        ))
                     } else {
-                        let desc = data.description.unwrap_or_default();
-                        if desc.contains("Unauthorized") || desc.contains("invalid") {
-                            Err(format!("❌ Invalid token: {}\n\nMake sure you copied the token correctly from @BotFather", desc))
-                        } else {
-                            Err(format!("❌ Telegram error: {}", desc))
-                        }
+                        Err(format!("❌ Telegram error: {}", desc))
                     }
                 }
-                Err(e) => Err(format!("❌ Failed to parse response: {}", e)),
             }
-        }
-        Err(e) => Err(format!("❌ Connection error: {}. Check your internet connection.", e)),
+            Err(e) => Err(format!("❌ Failed to parse response: {}", e)),
+        },
+        Err(e) => Err(format!(
+            "❌ Connection error: {}. Check your internet connection.",
+            e
+        )),
     }
 }
 

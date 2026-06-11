@@ -1,10 +1,8 @@
 use dioxus::prelude::*;
-use rsb_sdk::core::{validate_telegram_token, get_telegram_chat_id};
+use rsb_sdk::core::{get_telegram_chat_id, validate_telegram_token};
 
 #[component]
-pub fn TelegramValidator(
-    bot_token: String,
-) -> Element {
+pub fn TelegramValidator(bot_token: String) -> Element {
     let mut validation_result = use_signal(|| String::new());
     let mut chat_ids = use_signal(|| Vec::new());
     let mut is_validating = use_signal(|| false);
@@ -37,7 +35,8 @@ pub fn TelegramValidator(
                             chat_ids.set(ids.clone());
                             let mut chat_text = format!("\n\n✅ Found {} chat(s):\n", ids.len());
                             for (id, chat_type) in ids {
-                                chat_text.push_str(&format!("  • Chat ID: {} ({})\n", id, chat_type));
+                                chat_text
+                                    .push_str(&format!("  • Chat ID: {} ({})\n", id, chat_type));
                             }
                             validation_result.set(validation_result().clone() + &chat_text);
                         }

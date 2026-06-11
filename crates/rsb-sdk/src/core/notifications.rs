@@ -50,7 +50,11 @@ pub struct NotificationPayload {
 }
 
 impl NotificationPayload {
-    pub fn new(event: NotificationEvent, title: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        event: NotificationEvent,
+        title: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             event,
             title: title.into(),
@@ -136,7 +140,10 @@ impl NotificationManager {
         // Check if any succeeded
         let successes = results.iter().filter(|r| r.is_ok()).count();
         if successes == 0 && !results.is_empty() {
-            let errors: Vec<String> = results.iter().filter_map(|r| r.as_ref().err().cloned()).collect();
+            let errors: Vec<String> = results
+                .iter()
+                .filter_map(|r| r.as_ref().err().cloned())
+                .collect();
             return Err(NotificationError::AllChannelsFailed(errors.join("; ")));
         }
 
@@ -151,18 +158,23 @@ impl NotificationManager {
     ) -> Result<(), String> {
         let notification = match payload.event {
             NotificationEvent::BackupCompleted => {
-                let details = payload.details.as_deref().unwrap_or("Backup completed successfully");
+                let details = payload
+                    .details
+                    .as_deref()
+                    .unwrap_or("Backup completed successfully");
                 EmailNotification::backup_created(&payload.title, &payload.timestamp)
             }
             NotificationEvent::SyncCompleted => {
-                let files_count = payload.details
+                let files_count = payload
+                    .details
                     .as_ref()
                     .and_then(|d| d.parse::<usize>().ok())
                     .unwrap_or(0);
                 EmailNotification::sync_success(files_count, &payload.timestamp)
             }
             NotificationEvent::LowBattery => {
-                let percent = payload.details
+                let percent = payload
+                    .details
                     .as_ref()
                     .and_then(|d| d.parse::<f64>().ok())
                     .unwrap_or(0.0);
@@ -349,17 +361,17 @@ mod tests {
 
     #[test]
     fn test_notification_event_display() {
-        assert_eq!(NotificationEvent::BackupCompleted.to_string(), "Backup Completed");
+        assert_eq!(
+            NotificationEvent::BackupCompleted.to_string(),
+            "Backup Completed"
+        );
         assert_eq!(NotificationEvent::SyncFailed.to_string(), "Sync Failed");
     }
 
     #[test]
     fn test_notification_type_classification() {
-        let success_event = NotificationPayload::new(
-            NotificationEvent::BackupCompleted,
-            "test",
-            "test",
-        );
+        let success_event =
+            NotificationPayload::new(NotificationEvent::BackupCompleted, "test", "test");
         assert_eq!(success_event.get_notification_type(), "success");
 
         let error_event = NotificationPayload::new(NotificationEvent::BackupFailed, "test", "test");
