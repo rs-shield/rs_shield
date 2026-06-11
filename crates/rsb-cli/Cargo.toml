@@ -68,4 +68,4 @@ anyhow = { workspace = true }
 openssl = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = { workspace = true }
