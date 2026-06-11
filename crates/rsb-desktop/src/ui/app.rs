@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use dioxus::prelude::*;
+use dioxus::{logger::tracing, prelude::*};
 use dioxus_desktop::{LogicalSize, use_window};
 use rsb_sdk::metrics::system::{
     SystemMetrics, format_bytes_gb, format_percentage_color, get_system_metrics,
@@ -187,6 +187,32 @@ pub fn App() -> Element {
         let _ = prefs.save();
     });
 
+    // Sincroniza o tema com o elemento raiz (html) do WebView
+    use_effect(move || {
+        let theme = app_config.theme();
+        spawn(async move {
+            let is_dark = match theme {
+                Theme::Dark => true,
+                Theme::Light => false,
+                Theme::System => {
+                    // Deteta preferência do sistema via JavaScript
+                    document::eval(r#"window.matchMedia("(prefers-color-scheme: dark)").matches"#)
+                        .await
+                        .ok()
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                }
+            };
+
+            let js = if is_dark {
+                "document.documentElement.classList.add('dark')"
+            } else {
+                "document.documentElement.classList.remove('dark')"
+            };
+            let _ = document::eval(js);
+        });
+    });
+
     let texts = get_texts(*app_config.language.read());
 
     let window = use_window();
@@ -306,16 +332,17 @@ pub fn App() -> Element {
 
 
             main { class: "flex flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950",
-                div { class: "flex-1 overflow-y-auto px-10 py-8 custom-scrollbar",
+                
+                // Conteúdo Principal (Painel Esquerdo)
+                div { class: "flex-1 overflow-y-auto px-6 sm:px-10 py-8 custom-scrollbar",
                     div { class: "max-w-4xl mx-auto",
                         if is_logged_in {
-
-                            div { class: "mb-6",
-                                h1 { class: "text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white", "{texts.control_panel_title}" }
-                                p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1", "{texts.control_panel_subtitle}" }
+                            div { class: "mb-8 select-none",
+                                h1 { class: "text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white", "{texts.control_panel_title}" }
+                                p { class: "text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1.5 font-medium", "{texts.control_panel_subtitle}" }
                             }
 
-                            div { class: "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/80 dark:border-slate-800 p-6 shadow-sm",
+                            div { class: "bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 p-6 sm:p-8 shadow-xl shadow-slate-100/40 dark:shadow-none min-h-[500px]",
                                 match *active_tab.read() {
                                     ActiveTab::CreateProfile => rsx! { CreateProfileScreen {} },
                                     ActiveTab::ProfileManager => rsx! { ProfileManagerScreen { active_tab } },
@@ -341,128 +368,128 @@ pub fn App() -> Element {
                     }
                 }
 
+                // Barra Lateral Direita com Cartões Coloridos e Vibrantes
+                aside { class: "w-80 bg-white dark:bg-slate-900 border-l border-slate-200/80 dark:border-slate-800/80 flex flex-col overflow-hidden flex-shrink-0 shadow-sm z-10",
 
-                aside { class: "w-80 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden flex-shrink-0 shadow-sm",
-
-
-                    div { class: "p-6 border-b border-slate-100 dark:border-slate-800",
-                        h3 { class: "text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1", "{texts.reports_title}" }
-                        p { class: "text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2",
-                            span { class: "w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse" }
+                    // Cabeçalho do Aside
+                    div { class: "p-6 border-b border-slate-100 dark:border-slate-800/60 bg-white dark:bg-slate-900 select-none",
+                        h3 { class: "text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-1.5", "{texts.reports_title}" }
+                        p { class: "text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2",
+                            span { class: "w-2 h-2 rounded-full bg-emerald-500 inline-block animate-pulse shadow-xs shadow-emerald-500/50" }
                             "{texts.real_time_label}"
                         }
                     }
 
+                    // Lista de Widgets
+                    div { class: "flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar bg-slate-50/50 dark:bg-slate-950/20",
 
-                    div { class: "flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar",
-
-
-                        div { class: "bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-800/60 rounded-xl p-4",
-                            h4 { class: "font-bold text-[11px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2",
-                                "{texts.system_title}"
+                        // 1. CARD COLORIDO: Métricas do Sistema (Fundo suave Slate com foco interno)
+                        div { class: "bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800/60 rounded-xl p-4 shadow-2xs",
+                            h4 { class: "font-extrabold text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2 select-none",
+                                "📊 {texts.system_title}"
                             }
 
-
+                            // Utilização CPU
                             div { class: "mb-4",
-                                div { class: "flex justify-between items-center mb-1.5",
-                                    span { class: "text-xs font-medium text-slate-600 dark:text-slate-400", "Utilização CPU" }
+                                div { class: "flex justify-between items-baseline mb-1.5",
+                                    span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "Utilização CPU" }
                                     span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().cpu_usage)}", "{system_metrics().cpu_usage:.0}%" }
                                 }
-                                div { class: "w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden",
+                                div { class: "w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden",
                                     div {
-                                        class: "h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-300",
+                                        class: "h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-500 ease-out",
                                         style: "width: {system_metrics().cpu_usage}%"
                                     }
                                 }
                             }
 
-
+                            // Memória RAM
                             div { class: "mb-4",
                                 title: "{texts.used_label}: {format_bytes_gb(system_metrics().memory_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().memory_total_gb)}",
-                                div { class: "flex flex-col mb-1.5 gap-0.5",
-                                    div { class: "flex justify-between items-center",
-                                        span { class: "text-xs font-medium text-slate-600 dark:text-slate-400", "Memória RAM" }
-                                        span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().memory_usage)}", "{system_metrics().memory_usage:.0}%" }
+                                div { class: "flex justify-between items-baseline mb-1.5",
+                                    div { class: "flex flex-col",
+                                        span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "Memória RAM" }
+                                        span { class: "text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5", "{system_metrics().memory_used_gb:.1} / {system_metrics().memory_total_gb:.1} GB" }
                                     }
-                                    span { class: "text-[10px] text-slate-400 font-mono text-right", "({system_metrics().memory_used_gb:.1}/{system_metrics().memory_total_gb:.1} GB)" }
+                                    span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().memory_usage)}", "{system_metrics().memory_usage:.0}%" }
                                 }
-                                div { class: "w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden",
+                                div { class: "w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden",
                                     div {
-                                        class: "h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-300",
+                                        class: "h-full rounded-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500 ease-out",
                                         style: "width: {system_metrics().memory_usage}%"
                                     }
                                 }
                             }
 
-
+                            // Disco Local
                             div {
                                 title: "{texts.used_label}: {format_bytes_gb(system_metrics().disk_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().disk_total_gb)}",
-                                div { class: "flex flex-col mb-1.5 gap-0.5",
-                                    div { class: "flex justify-between items-center",
-                                        span { class: "text-xs font-medium text-slate-600 dark:text-slate-400", "Disco Local" }
-                                        span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().disk_usage)}", "{system_metrics().disk_usage:.0}%" }
+                                div { class: "flex justify-between items-baseline mb-1.5",
+                                    div { class: "flex flex-col",
+                                        span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "Disco Local" }
+                                        span { class: "text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5", "{system_metrics().disk_used_gb:.1} / {system_metrics().disk_total_gb:.1} GB" }
                                     }
-                                    span { class: "text-[10px] text-slate-400 font-mono text-right", "({system_metrics().disk_used_gb:.1}/{system_metrics().disk_total_gb:.1} GB)" }
+                                    span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().disk_usage)}", "{system_metrics().disk_usage:.0}%" }
                                 }
-                                div { class: "w-full bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden",
+                                div { class: "w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden",
                                     div {
-                                        class: "h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-300",
+                                        class: "h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500 ease-out",
                                         style: "width: {system_metrics().disk_usage}%"
                                     }
                                 }
                             }
                         }
 
-
-                        div { class: "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 shadow-sm",
-                            h4 { class: "font-bold text-[11px] text-emerald-600 dark:text-emerald-500 uppercase tracking-wider mb-3 flex items-center gap-2",
+                        // 2. CARD COLORIDO: Atividade Recente (Fundo Verde Esmeralda Suave)
+                        div { class: "bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40 rounded-xl p-4 shadow-2xs",
+                            h4 { class: "font-extrabold text-[10px] text-emerald-700 dark:text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2 select-none",
                                 span { "📈" }
                                 "{texts.activity_title}"
                             }
                             div { class: "space-y-2.5",
-                                div { class: "flex justify-between items-center bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800/40",
-                                    span { class: "text-xs font-medium text-slate-500 dark:text-slate-400", "{texts.total_ops_label}" }
-                                    span { class: "text-xs font-bold text-slate-900 dark:text-slate-200 font-mono bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/40 dark:border-slate-700/40 shadow-2xs", "{total_operations}" }
+                                div { class: "flex justify-between items-center bg-white/80 dark:bg-slate-900/60 px-3 py-2 rounded-lg border border-emerald-100/50 dark:border-emerald-800/30",
+                                    span { class: "text-xs font-medium text-emerald-800/80 dark:text-emerald-400/80", "{texts.total_ops_label}" }
+                                    span { class: "text-xs font-bold text-slate-900 dark:text-slate-200 font-mono bg-white dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-700 shadow-3xs", "{total_operations}" }
                                 }
                                 div { class: "flex justify-between items-center px-1",
-                                    span { class: "text-xs font-medium text-slate-500 dark:text-slate-400", "{texts.last_op_label}" }
-                                    span { class: "text-xs font-semibold text-emerald-600 dark:text-emerald-400 font-mono", "{last_operation_time}" }
+                                    span { class: "text-xs font-medium text-emerald-800/70 dark:text-emerald-400/70", "{texts.last_op_label}" }
+                                    span { class: "text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono tracking-wide", "{last_operation_time}" }
                                 }
                             }
                         }
 
-
-                        div { class: "bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl p-4 shadow-sm",
-                            h4 { class: "font-bold text-[11px] text-indigo-600 dark:text-indigo-500 uppercase tracking-wider mb-3 flex items-center gap-2",
+                        // 3. CARD COLORIDO: Estatísticas Gerais (Fundo Índigo Suave com caixas internas contrastantes)
+                        div { class: "bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 rounded-xl p-4 shadow-2xs",
+                            h4 { class: "font-extrabold text-[10px] text-indigo-700 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2 select-none",
                                 span { "🗃️" }
                                 "{texts.stats_title}"
                             }
                             div { class: "grid grid-cols-2 gap-2.5",
-                                div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
-                                    p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.backups_count_label}" }
-                                    p { class: "text-base font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono", "{backup_count}" }
+                                div { class: "bg-white/80 dark:bg-slate-900/60 rounded-xl p-3 border border-indigo-100/40 dark:border-slate-800/60 evaluation-card",
+                                    p { class: "text-[9px] text-indigo-700/60 dark:text-slate-400 font-bold truncate uppercase tracking-wider", "{texts.backups_count_label}" }
+                                    p { class: "text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono", "{backup_count}" }
                                 }
-                                div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
-                                    p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.restores_count_label}" }
-                                    p { class: "text-base font-bold text-purple-600 dark:text-purple-400 mt-0.5 font-mono", "{restore_count}" }
+                                div { class: "bg-white/80 dark:bg-slate-900/60 rounded-xl p-3 border border-indigo-100/40 dark:border-slate-800/60 evaluation-card",
+                                    p { class: "text-[9px] text-purple-700/60 dark:text-slate-400 font-bold truncate uppercase tracking-wider", "{texts.restores_count_label}" }
+                                    p { class: "text-lg font-black text-purple-600 dark:text-purple-400 mt-0.5 font-mono", "{restore_count}" }
                                 }
-                                div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
-                                    p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.verifies_count_label}" }
-                                    p { class: "text-base font-bold text-blue-600 dark:text-blue-400 mt-0.5 font-mono", "{verify_count}" }
+                                div { class: "bg-white/80 dark:bg-slate-900/60 rounded-xl p-3 border border-indigo-100/40 dark:border-slate-800/60 evaluation-card",
+                                    p { class: "text-[9px] text-blue-700/60 dark:text-slate-400 font-bold truncate uppercase tracking-wider", "{texts.verifies_count_label}" }
+                                    p { class: "text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 font-mono", "{verify_count}" }
                                 }
-                                div { class: "bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-100 dark:border-slate-800/40",
-                                    p { class: "text-[10px] text-slate-400 dark:text-slate-500 font-bold truncate uppercase tracking-wider", "{texts.prunes_count_label}" }
-                                    p { class: "text-base font-bold text-orange-600 dark:text-orange-400 mt-0.5 font-mono", "{prune_count}" }
+                                div { class: "bg-white/80 dark:bg-slate-900/60 rounded-xl p-3 border border-indigo-100/40 dark:border-slate-800/60 evaluation-card",
+                                    p { class: "text-[9px] text-orange-700/60 dark:text-slate-400 font-bold truncate uppercase tracking-wider", "{texts.prunes_count_label}" }
+                                    p { class: "text-lg font-black text-orange-600 dark:text-orange-400 mt-0.5 font-mono", "{prune_count}" }
                                 }
                             }
                         }
 
-
-                        div { class: "bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/60 rounded-xl p-4 flex items-center gap-3",
-                            span { class: "text-sm w-6 h-6 rounded-full bg-white dark:bg-emerald-900 flex items-center justify-center shadow-2xs text-emerald-500 flex-shrink-0 font-bold", "✓" }
-                            div { class: "min-w-0",
-                                h5 { class: "font-bold text-xs text-emerald-950 dark:text-emerald-300 uppercase tracking-wide", "{texts.alerts_title}" }
-                                p { class: "text-xs text-slate-600 dark:text-emerald-400/80 truncate font-medium", "{texts.system_ok_msg}" }
+                        // 4. CARD COLORIDO: Estado do Sistema (Destaque total a Verde)
+                        div { class: "bg-emerald-500/10 dark:bg-emerald-500/5 border border-emerald-500/20 dark:border-emerald-500/10 rounded-xl p-4 flex items-center gap-3 shadow-2xs",
+                            span { class: "text-xs w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-sm flex-shrink-0 font-black select-none", "✓" }
+                            div { class: "min-w-0 flex-1",
+                                h5 { class: "font-extrabold text-[10px] text-emerald-800 dark:text-emerald-400 uppercase tracking-wider", "{texts.alerts_title}" }
+                                p { class: "text-xs text-emerald-700 dark:text-emerald-400/80 truncate font-semibold mt-0.5", "{texts.system_ok_msg}" }
                             }
                         }
                     }
@@ -470,4 +497,6 @@ pub fn App() -> Element {
             }
         }
     }
+            
+    
 }

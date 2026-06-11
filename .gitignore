@@ -14,7 +14,7 @@
 .DS_Store
 .AppleDouble
 .LSOverride
-
+.examples
 # Environment
 .env
 .env.local

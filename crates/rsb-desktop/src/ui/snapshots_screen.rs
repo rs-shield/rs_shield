@@ -25,13 +25,13 @@ pub fn SnapshotsScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
 
-    let mut snapshots = use_signal(Vec::<SnapshotInfo>::new);
+    let snapshots = use_signal(Vec::<SnapshotInfo>::new);
     let mut is_loading = use_signal(|| false);
     let mut mode = use_signal(|| SnapshotMode::List);
     let mut selected_snapshot = use_signal(|| Option::<String>::None);
     let mut selected_from = use_signal(|| Option::<String>::None);
     let mut selected_to = use_signal(|| Option::<String>::None);
-    let mut diff_result = use_signal(|| Option::<String>::None);
+    let diff_result = use_signal(|| Option::<String>::None);
     let mut error_msg = use_signal(|| Option::<String>::None);
 
     let mut load_snapshots = move |_| {
