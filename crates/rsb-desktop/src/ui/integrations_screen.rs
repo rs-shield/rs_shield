@@ -137,14 +137,16 @@ impl IntegrationConfig {
 /// Componente de tela de integrações
 #[component]
 pub fn IntegrationScreen() -> Element {
-    // Expandir ~ para o caminho real do home
-    let profile_path = if let Some(home) = dirs::home_dir() {
-        home.join(".rs-shield").join("default.toml")
-    } else {
-        std::path::PathBuf::from("~/.rs-shield/default.toml")
-    };
+    // Memorizar o caminho do perfil para evitar cálculos em cada render
+    let profile_path = use_memo(move || {
+        if let Some(home) = dirs::home_dir() {
+            home.join(".rs-shield").join("default.toml")
+        } else {
+            std::path::PathBuf::from("~/.rs-shield/default.toml")
+        }
+    });
 
-    let mut config = use_signal(|| IntegrationConfig::load(&profile_path));
+    let mut config = use_signal(|| IntegrationConfig::load(&profile_path.read()));
     let mut active_tab = use_signal(|| "email");
     let mut status_msg = use_signal(String::new);
     let mut show_status = use_signal(|| false);
@@ -152,7 +154,7 @@ pub fn IntegrationScreen() -> Element {
     let mut test_results = use_signal(String::new);
 
     let handle_save_config = move |_| {
-        if let Ok(()) = config().save(&profile_path) {
+        if let Ok(()) = config().save(&profile_path.read()) {
             status_msg.set("✅ Configurações salvas com sucesso!".to_string());
             show_status.set(true);
 

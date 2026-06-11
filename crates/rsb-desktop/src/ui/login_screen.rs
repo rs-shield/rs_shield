@@ -24,7 +24,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
     let handle_login = move |_| {
         let id = user_id();
         if id.is_empty() {
-            error_msg.set(format!("⚠️ {} é obrigatório.", texts.user_identifier));
+            error_msg.set(format!("⚠️ {} is required.", texts.user_identifier));
             return;
         }
 
@@ -36,21 +36,20 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
             let has_cred = {
                 let mut mgr = fido2_manager_arc_clone.lock().await;
 
-                // Carregar do disco para garantir que temos os dados mais recentes
                 if let Ok(path) = Fido2Manager::default_storage_path() {
                     let _ = mgr.load_from_file(&path);
                 }
 
                 mgr.has_credential(&id)
-            }; // O cadeado (lock) é liberado aqui ao sair do escopo
+            };
 
             if !has_cred {
-                error_msg.set(format!("❌ Identificador '{}' não encontrado.", id));
+                error_msg.set(format!("❌ Identifier '{}' not found.", id));
                 is_authenticating.set(false);
                 return;
             }
 
-            error_msg.set("🌐 Abrindo navegador para autenticação...".into());
+            error_msg.set("🌐 Browser is opening for authentication...".into());
             let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
 
             let result = rsb_sdk::fido2::fido2_web::run_server(
@@ -73,7 +72,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
         let code = recovery_code();
 
         if id.is_empty() || code.is_empty() {
-            error_msg.set("⚠️ Identificador e código são necessários.".into());
+            error_msg.set("⚠️ Identifier and code are required.".into());
             return;
         }
 
@@ -83,9 +82,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
         spawn(async move {
             let mut mgr = fido2_manager_arc_clone.lock().await;
 
-            // Tenta validar o código real usando o Fido2Manager
             if mgr.verify_backup_code(&id, &code) {
-                // Se o código for válido, salvamos a alteração (o código foi consumido)
                 if let Ok(path) = Fido2Manager::default_storage_path() {
                     let _ = mgr.save_to_file(&path);
                 }
@@ -98,7 +95,6 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
     };
 
     rsx! {
-        // Loading overlay
         LoadingOverlay {
             is_visible: is_authenticating(),
             style: LoadingStyle::Spinner,
@@ -109,19 +105,24 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
             },
         }
 
-        div { class: "flex flex-col items-center justify-center min-h-[400px] py-12",
-            div { class: "w-full max-w-md bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 p-8",
-                div { class: "text-center mb-8",
-                    span { class: "text-5xl mb-4 block", "🔐" }
-                    h2 { class: "text-2xl font-bold text-slate-900 dark:text-white", "{texts.login_title}" }
-                    p { class: "text-slate-500 dark:text-slate-400 mt-2", "{texts.auth_required_msg}" }
+        // Layout de centralização melhorado com transição de opacidade na entrada
+        div { class: "flex flex-col items-center justify-center min-h-[80vh] py-12 px-4 transition-opacity duration-300 ease-in-out",
+            // Cartão principal com sombras e bordas mais suaves
+            div { class: "w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-700/50 p-8 sm:p-10 transform transition-all",
+                
+                // Cabeçalho refinado
+                div { class: "text-center mb-8 select-none",
+                    span { class: "text-5xl mb-4 block animate-bounce duration-1000", "🔐" }
+                    h2 { class: "text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight", "{texts.login_title}" }
+                    p { class: "text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-xs mx-auto leading-relaxed", "{texts.auth_required_msg}" }
                 }
 
-                div { class: "space-y-4",
-                    div { class: "form-group",
-                        label { class: "label-text", "{texts.user_identifier}" }
+                div { class: "space-y-5",
+                    // Grupo do Input do Utilizador
+                    div { class: "form-group flex flex-col gap-1.5",
+                        label { class: "label-text text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400", "{texts.user_identifier}" }
                         input {
-                            class: "input-field",
+                            class: "input-field w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed",
                             r#type: "text",
                             placeholder: "ex: admin@rsb",
                             value: "{user_id}",
@@ -130,11 +131,12 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                         }
                     }
 
+                    // Grupo do Input de Recuperação com transição suave nativa do Tailwind
                     if show_recovery_input() {
-                        div { class: "form-group animate-fade-in",
-                            label { class: "label-text", "{texts.recovery_codes_label}" }
+                        div { class: "form-group flex flex-col gap-1.5 transition-all duration-300 ease-out transform translate-y-0 opacity-100",
+                            label { class: "label-text text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-400", "{texts.recovery_codes_label}" }
                             input {
-                                class: "input-field font-mono",
+                                class: "input-field w-full px-4 py-2.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-transparent text-slate-900 dark:text-white font-mono tracking-widest focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed",
                                 r#type: "text",
                                 placeholder: "XXXX-XXXX",
                                 value: "{recovery_code}",
@@ -144,33 +146,41 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                         }
                     }
 
+                    // Caixa de erro com melhor padding e contraste interno
                     if !error_msg().is_empty() {
-                        div { class: "p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-red-600 text-sm",
-                            "{error_msg}"
+                        div { class: "flex items-start gap-2.5 p-3.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-lg text-red-600 dark:text-red-400 text-sm font-medium leading-5 animate-pulse",
+                            span { class: "flex-shrink-0 select-none", "💡" }
+                            div { class: "break-words w-full", "{error_msg}" }
                         }
                     }
 
+                    // Botões de Ação com feedbacks táteis (hover/active/disabled)
                     if show_recovery_input() {
                          button {
-                            class: "w-full btn-warning py-3 text-lg",
+                            class: "w-full btn-warning py-3 text-base font-semibold rounded-lg shadow-md hover:shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2",
                             onclick: handle_recovery_login,
                             disabled: is_authenticating(),
-                            if is_authenticating() { "⏳ Verificando..." } else { "Entrar com Código" }
+                            if is_authenticating() { "⏳ Verifying..." } else { "Enter with Code" }
+                        
                         }
                     } else {
                         button {
-                            class: "w-full btn-primary py-3 text-lg flex items-center justify-center gap-2",
+                            class: "w-full btn-primary py-3 text-base font-semibold rounded-lg shadow-md hover:shadow-lg transform hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2",
                             onclick: handle_login,
                             disabled: is_authenticating(),
-                            if is_authenticating() { "⏳ Aguardando Chave..." } else { "{texts.login_button}" }
+                            if is_authenticating() { 
+                                span { class: "inline-block animate-spin", "⏳" } 
+                            }
+                            if is_authenticating() { "Waiting for key..." } else { "{texts.login_button}" }
                         }
                     }
 
-                    div { class: "text-center mt-4",
+                    // Zona inferior de alternância (Link de alternância)
+                    div { class: "text-center pt-2",
                         a {
-                            class: "text-sm text-indigo-600 hover:underline cursor-pointer",
+                            class: "text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors duration-150 underline decoration-indigo-500/30 hover:decoration-indigo-500 underline-offset-4 cursor-pointer select-none",
                             onclick: move |_| show_recovery_input.toggle(),
-                            if show_recovery_input() { "Voltar para FIDO2" } else { "{texts.use_recovery_code_link}" }
+                            if show_recovery_input() { "Go back to login" } else { "{texts.use_recovery_code_link}" }
                         }
                     }
                 }
