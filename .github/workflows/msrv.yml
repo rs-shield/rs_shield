@@ -18,7 +18,7 @@ jobs:
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       # Test with the MSRV (defined in Cargo.toml)
       - uses: dtolnay/rust-toolchain@stable
