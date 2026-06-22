@@ -15,7 +15,7 @@ jobs:
     env:
       PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - uses: dtolnay/rust-toolchain@stable
       
@@ -41,7 +41,7 @@ jobs:
     name: Markdown Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - uses: nosborn/github-action-markdown-cli@v3.5.0
         with:
@@ -53,7 +53,7 @@ jobs:
     name: Link Checker
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Link Checker
         uses: gaurav-nelson/github-action-markdown-link-check@v1
