@@ -1085,8 +1085,8 @@ cargo deny check
 
 5. **Update documentation:**
    - Add rustdoc comments to public API
-   - Update [docs/CLI.md](docs/CLI.md) if adding commands
-   - Update [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for user-facing changes
+   - Update [docs/CLI.md](CLI.md) if adding commands
+   - Update [docs/USER_GUIDE.md](USER_GUIDE.md) for user-facing changes
    - Update this DEVELOPER_GUIDE.md if architecture changes
 
 6. **Run full test suite:**
