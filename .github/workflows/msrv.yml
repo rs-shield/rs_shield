@@ -3,10 +3,10 @@ name: MSRV Check
 on:
   push:
     branches: [ main, develop ]
-    paths: ['Cargo.toml', 'Cargo.lock', 'rsb-*/**']
+    paths: ['Cargo.toml', 'Cargo.lock', 'crates/**', '.github/workflows/msrv.yml']
   pull_request:
     branches: [ main, develop ]
-    paths: ['Cargo.toml', 'Cargo.lock', 'rsb-*/**']
+    paths: ['Cargo.toml', 'Cargo.lock', 'crates/**', '.github/workflows/msrv.yml']
 
 env:
   CARGO_TERM_COLOR: always

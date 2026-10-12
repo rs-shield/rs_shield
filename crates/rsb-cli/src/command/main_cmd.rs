@@ -79,11 +79,14 @@ pub enum Commands {
 
     /// Run backup with an existing profile
     Backup {
-        /// Path to config.toml (optional, can auto-discover or use current dir)
+        /// Path to the profile .toml (optional: auto-discovered when the
+        /// current directory holds exactly one profile)
         config: Option<PathBuf>,
 
-        /// Backup destination (used if config not provided)
-        #[arg(short = 'b', long)]
+        /// Repository directory: uses the profile (in that directory or in
+        /// the current one) whose destination_path is DIR. Fails if there is
+        /// none or several; it is never read as a profile file
+        #[arg(short = 'b', long, value_name = "DIR", conflicts_with = "config")]
         backup: Option<PathBuf>,
 
         /// Override backup mode
@@ -218,11 +221,12 @@ pub enum Commands {
 
     /// Delete old snapshots
     Prune {
-        /// Path to config.toml (optional, use --backup for direct path)
+        /// Path to the profile .toml (optional: auto-discovered; or use --backup)
         config: Option<PathBuf>,
 
-        /// Direct backup path (alternative to config)
-        #[arg(short = 'b', long)]
+        /// Repository directory to prune directly, without a profile (key
+        /// from RSB_ENCRYPTION_KEY or the prompt)
+        #[arg(short = 'b', long, value_name = "DIR", conflicts_with = "config")]
         backup: Option<PathBuf>,
 
         /// Retention policy
@@ -252,11 +256,14 @@ pub enum Commands {
 
     /// Generate scheduling commands
     Schedule {
-        /// Path to config.toml (optional, use --backup for direct path)
+        /// Path to the profile .toml (optional: auto-discovered when the
+        /// current directory holds exactly one profile)
         config: Option<PathBuf>,
 
-        /// Direct backup path (alternative to config)
-        #[arg(short = 'b', long)]
+        /// Repository directory: uses the profile (in that directory or in
+        /// the current one) whose destination_path is DIR. Fails if there is
+        /// none or several; it is never read as a profile file
+        #[arg(short = 'b', long, value_name = "DIR", conflicts_with = "config")]
         backup: Option<PathBuf>,
 
         /// Output format
@@ -266,11 +273,14 @@ pub enum Commands {
 
     /// Watch filesystem changes
     Watch {
-        /// Path to config.toml (optional, use --backup for direct path)
+        /// Path to the profile .toml (optional: auto-discovered when the
+        /// current directory holds exactly one profile)
         config: Option<PathBuf>,
 
-        /// Direct backup path (alternative to config)
-        #[arg(short = 'b', long)]
+        /// Repository directory: uses the profile (in that directory or in
+        /// the current one) whose destination_path is DIR. Fails if there is
+        /// none or several; it is never read as a profile file
+        #[arg(short = 'b', long, value_name = "DIR", conflicts_with = "config")]
         backup: Option<PathBuf>,
 
         /// Sync destination

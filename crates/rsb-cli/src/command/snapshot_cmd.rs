@@ -168,8 +168,16 @@ impl SnapshotCommand {
 
         // --config explícito ou auto-descoberta segura (nunca Cargo.toml;
         // erro se houver mais de um perfil candidato).
-        let config_path = crate::helpers::resolve_profile_path(config.clone(), None)?;
-        self.extract_destination_from_config(&config_path)
+        let config_path = crate::helpers::resolve_profile_path(config.clone())?;
+        let dest = self.extract_destination_from_config(&config_path)?;
+        if crate::helpers::is_s3_url(&dest.to_string_lossy()) {
+            return Err(anyhow!(
+                "'{}' backs up to {}; the snapshots commands only read local repositories",
+                config_path.display(),
+                dest.display()
+            ));
+        }
+        Ok(dest)
     }
 
     /// Chave de manifestos: --key (com aviso) → env RSB_ENCRYPTION_KEY.

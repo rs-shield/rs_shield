@@ -125,8 +125,6 @@ pub fn CreateProfileScreen() -> Element {
 
         tracing::debug!("=== Form submitted ===");
         tracing::debug!("s3_use: {}", use_s3());
-        tracing::debug!("access_key length: {}", access_key.len());
-        tracing::debug!("secret_key length: {}", secret_key.len());
 
         spawn(async move {
             match create_profile_async(
@@ -408,8 +406,6 @@ async fn create_profile_async(
                 // Debug: check values
                 tracing::debug!("=== Debug: Salvando credenciais S3 ===");
                 tracing::debug!("s3_config.is_some(): {}", s3_config.is_some());
-                tracing::debug!("access_key.is_empty(): {}", access_key.is_empty());
-                tracing::debug!("secret_key.is_empty(): {}", secret_key.is_empty());
 
                 // Save S3 credentials securely if provided
                 if s3_config.is_some() && !access_key.is_empty() && !secret_key.is_empty() {

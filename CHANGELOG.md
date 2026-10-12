@@ -39,6 +39,17 @@ read it.
   `repair` are option fields); public functions return
   `rsb_sdk::error::RsbError` (`Send + Sync`, typed crypto errors such as
   `AuthenticationFailed`).
+- `--backup <DIR>` on `rsb backup`, `prune`, `schedule` and `watch` names
+  the repository directory, as on `restore`, `verify` and `snapshots`; it
+  was read as the profile `.toml` path (so `rsb schedule --backup <DIR>`
+  generated a cron line running `backup "<DIR>"`). `backup`, `schedule`
+  and `watch` use the profile, in DIR or the current directory, whose
+  destination is DIR, and fail with instructions when there is none or
+  several; `prune --backup <DIR>` prunes the repository directly. A file
+  passed to `--backup` is refused with a hint to pass it as the CONFIG
+  argument, and CONFIG and `--backup` can no longer be combined on these
+  commands.
+- CLI log messages go to stderr instead of stdout.
 
 ### Added
 - `rsb key init | migrate | change-password | export | import | rotate`:
@@ -126,6 +137,12 @@ read it.
 - Windows: manifest keys are written with `/` on every platform; restore
   accepts `\` separators in manifests written by older versions.
 - `rsb-cli --version` reports the crate version.
+- `rsb schedule` checks that the profile exists and loads, uses
+  `--storage s3` for S3 profiles, and for profiles with relative paths
+  (`--portable`) runs the job from the current directory.
+- `rsb prune` resolves the key like `backup` (`RSB_ENCRYPTION_KEY`,
+  keyring, prompt) and refuses an encrypted repository without one before
+  deleting anything; `--dry-run` lists the snapshots it would delete.
 
 ### Security
 - The JWT signing secret was a hard-coded constant; it is now a random
@@ -174,6 +191,20 @@ read it.
   app.
 - The FIDO2 DEK test used the real keychain entry; it now uses an isolated
   one (`RSB_FIDO2_KEYRING_SERVICE`).
+- `rsb` (CLI) ignored `RUST_LOG` and always logged at WARN. `RUST_LOG` is
+  now honoured (default: warnings only; an invalid value is reported and
+  ignored).
+- `rsb create-profile --dest s3://bucket` created a local `s3:` directory
+  and stored the URL as a local path. It now creates an S3 profile (same
+  fields as `--s3-bucket`) without touching the local disk. Bucket names
+  that no S3-compatible provider accepts (empty, over 255 bytes, `/`, `\`,
+  `?`, `#`, whitespace or control characters) and key prefixes
+  (`s3://bucket/prefix`), which are not supported, are rejected; names
+  outside AWS's DNS rules only print a path-style addressing warning.
+  `backup --storage local` refuses such a profile and the `snapshots`
+  commands report that they only read local repositories.
+- The desktop app no longer logs the length of the S3 access/secret keys at
+  debug level.
 
 ## [0.1.0] - 2025-12-01
 

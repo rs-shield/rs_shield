@@ -265,7 +265,7 @@ async fn open_storage(target: &RepoTarget) -> Result<Arc<dyn Storage>> {
         }
         return Ok(Arc::new(LocalStorage::new(&repo.to_string_lossy())));
     }
-    let path = resolve_profile_path(target.config.clone(), None)?;
+    let path = resolve_profile_path(target.config.clone())?;
     let cfg = rsb_sdk::config::load_config(&path).map_err(|e| anyhow!("{}", e))?;
     rsb_sdk::core::storage_backend::get_storage(&cfg)
         .await

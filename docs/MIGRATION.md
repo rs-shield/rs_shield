@@ -168,6 +168,19 @@ no key is available, instead of backing up unencrypted.
 - **`rsb restore --files` / `--date`** now work (in alpha.8 they were
   accepted and ignored). A `--files` selection that matches nothing fails
   without writing anything.
+- **`--backup <DIR>` always means the repository directory.** On
+  `backup`, `prune`, `schedule` and `watch` it used to be read as the path
+  of the profile `.toml`. Scripts that pass a profile with `--backup` now
+  fail with a hint: pass the profile as the first argument instead
+  (`rsb backup mybackup.toml`). With a directory, `backup`, `schedule` and
+  `watch` use the profile (in that directory or the current one) whose
+  destination is that directory, and `prune --backup <DIR>` prunes the
+  repository without a profile. A profile argument and `--backup` can no
+  longer be given together on these commands. Regenerate cron/systemd jobs
+  created with `rsb schedule --backup`.
+- **CLI logs go to stderr**, not stdout, and follow `RUST_LOG` (default:
+  warnings only). Scripts that parsed warnings from stdout must read
+  stderr.
 
 ### 6. New objects in the repository
 

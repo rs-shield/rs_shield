@@ -4,7 +4,9 @@ use clap::Parser;
 use rsb_cli::command::list_profiles_cmd::{ListProfilesCmd, OutputFormat};
 use rsb_cli::command::main_cmd::{Commands, ListProfilesFormat, StorageChoice};
 use rsb_cli::helpers::{
-    obtain_encryption_key, profile_name, resolve_profile_path, warn_secret_arg,
+    check_repository_dir, is_s3_url, obtain_encryption_key, plan_profile_destination, profile_name,
+    profile_uses_relative_paths, render_schedule, resolve_command_profile, resolve_profile_path,
+    warn_secret_arg,
 };
 use rsb_sdk::backup::diagnostic::{print_diagnostics, run_backup_diagnostics, sync_changed_files};
 use rsb_sdk::backup::perform_backup;
@@ -20,7 +22,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{Level, info, warn};
+use tracing::{info, warn};
 
 #[derive(Parser)]
 #[command(name = "rsb-cli", version, about = "Rust Shield Backup")]
@@ -31,7 +33,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
+    rsb_cli::logging::init_logging();
 
     let cli = Cli::parse();
 
@@ -53,7 +55,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !source.exists() {
                 return Err(format!("Source path does not exist: {}", source.display()).into());
             }
-            if !std::path::Path::new(&dest).exists() {
+            // `--dest s3://bucket` (or --s3-bucket) is an S3 profile: nothing
+            // is created locally (this used to create a local "s3:" folder).
+            let target = plan_profile_destination(&dest, s3_bucket.as_deref())?;
+            for w in &target.warnings {
+                eprintln!("⚠️  {}", w);
+            }
+            let s3_bucket = target.s3_bucket.clone();
+            let dest = target.destination.clone();
+            if !target.is_s3() && !dest.exists() {
                 warn!(
                     "Destination path does not exist, creating: {}",
                     dest.display()
@@ -102,11 +112,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok()
                     .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
                     .unwrap_or(source.clone());
-                let dest_rel = dest
-                    .canonicalize()
-                    .ok()
-                    .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
-                    .unwrap_or(dest.clone());
+                let dest_rel = if is_s3_url(&dest.to_string_lossy()) {
+                    dest.clone()
+                } else {
+                    dest.canonicalize()
+                        .ok()
+                        .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
+                        .unwrap_or(dest.clone())
+                };
                 (source_rel, dest_rel)
             } else {
                 (source.clone(), dest.clone())
@@ -131,6 +144,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("📱 Portable mode enabled: using relative paths");
                 println!("   This profile can be moved between computers!");
             }
+            if let Some(bucket) = &s3_bucket {
+                println!("☁️  Backups go to S3 bucket '{}'", bucket);
+                println!(
+                    "   Credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or `rsb config s3-credentials`"
+                );
+            }
             println!("📋 Next step, execute backup:");
             println!("   rsb backup {}", config_file);
         }
@@ -150,8 +169,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let _auth_token = check_fido2_auth().await?;
 
-            // Resolve config or backup path (nunca Cargo.toml; erro se ambíguo)
-            let config_path = resolve_profile_path(config, backup)?;
+            // CONFIG, or the profile of the repository given with --backup
+            // (never read as a profile file; Cargo.toml is never a profile).
+            let config_path = resolve_command_profile("backup", config, backup)?;
 
             if !config_path.exists() {
                 eprintln!(
@@ -223,6 +243,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("✅ Using S3 storage. Starting backup...\n");
                 }
                 StorageChoice::Local => {
+                    if is_s3_url(&cfg.destination_path) {
+                        return Err(format!(
+                            "--storage local: this profile has no local destination ({}); \
+                             set destination_path to a directory to back up locally",
+                            cfg.destination_path
+                        )
+                        .into());
+                    }
                     cfg.s3 = None;
                     cfg.s3_bucket = None;
                     cfg.s3_region = None;
@@ -620,10 +648,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _auth_token = check_fido2_auth().await?;
             send_healthcheck(&healthcheck_url, "/start").await;
 
-            // Resolve config or backup path (nunca Cargo.toml; erro se ambíguo)
-            let config_path = resolve_profile_path(config, backup)?;
-
-            let cfg = config::load_config(&config_path)?;
+            // Prune only needs the repository (+ key): --backup <DIR> works
+            // on the repository directly, like restore/verify; otherwise the
+            // profile (CONFIG or auto-discovered) gives storage and key.
+            let (mut cfg, profile) = match backup {
+                Some(repo) => {
+                    let repo = check_repository_dir("prune", &repo)?;
+                    let cfg = rsb_sdk::config_from_backup_path(&repo, None)
+                        .map_err(|e| anyhow::anyhow!("Not a backup repository: {}", e))?;
+                    (cfg, None)
+                }
+                None => {
+                    let config_path = resolve_profile_path(config)?;
+                    let cfg = config::load_config(&config_path)?;
+                    (cfg, profile_name(&config_path))
+                }
+            };
 
             // Determine the number of backups to keep
             let keep_count = if let Some(count) = keep_last {
@@ -649,9 +689,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("🧹 Keeping last {} backups...", keep_count);
             }
 
-            if !dry_run && let Err(e) = core::perform_prune(&cfg, keep_count).await {
+            let result = run_prune(&mut cfg, profile.as_deref(), keep_count, dry_run).await;
+            if let Err(e) = result {
                 send_healthcheck(&healthcheck_url, "/fail").await;
-                return Err(e.into());
+                return Err(e);
             }
             send_healthcheck(&healthcheck_url, "").await;
             info!("Prune completed.");
@@ -661,46 +702,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             backup,
             format,
         } => {
-            // Resolve config or backup path (nunca Cargo.toml; erro se ambíguo)
-            let config_path = resolve_profile_path(config, backup)?;
-
-            let abs_config = std::fs::canonicalize(&config_path).unwrap_or(config_path.clone());
+            // The generated job runs `backup <profile>`: it must name a
+            // profile that exists and loads, never the repository directory.
+            let config_path = resolve_command_profile("schedule", config, backup)?;
+            let cfg = config::load_config(&config_path).map_err(|e| {
+                anyhow::anyhow!("Cannot use profile {}: {}", config_path.display(), e)
+            })?;
+            let abs_config = std::fs::canonicalize(&config_path)?;
+            // Relative (portable) paths are resolved against the working
+            // directory: the job must run from the current one.
+            let workdir = if profile_uses_relative_paths(&cfg) {
+                Some(std::env::current_dir()?)
+            } else {
+                None
+            };
             let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rsb"));
-
-            let exe_str = format!("\"{}\"", exe.display());
-            let config_str = format!("\"{}\"", abs_config.display());
-
-            // Nunca gerar `--key` na linha de comando (visível em `ps`, crontab,
-            // journal). A chave vem de RSB_ENCRYPTION_KEY num ficheiro 0600.
             let env_file = dirs::home_dir()
                 .map(|h| h.join(".rs-shield").join("rsb-backup.env"))
                 .unwrap_or_else(|| PathBuf::from("rsb-backup.env"));
-            let env_file_str = env_file.display().to_string();
-            let key_env = config::ENCRYPTION_KEY_ENV;
-
-            if format == "cron" {
-                println!("# 1) Store the encryption key in a file readable only by you:");
-                println!(
-                    "#    (umask 077 && printf '{}=%s\\n' 'YOUR_KEY' > \"{}\")",
-                    key_env, env_file_str
-                );
-                println!("# 2) Add this line to your crontab (crontab -e):");
-                println!(
-                    "0 3 * * * set -a && . \"{}\" && set +a && {} backup {} --storage local",
-                    env_file_str, exe_str, config_str
-                );
-                println!("# (use --storage s3 if the profile backs up to S3)");
-            } else if format == "systemd" {
-                println!("# 1) Create {} with mode 0600 containing:", env_file_str);
-                println!("#    {}=YOUR_KEY", key_env);
-                println!("# 2) Example rsb-backup.service:");
-                println!(
-                    "[Service]\nType=oneshot\nEnvironmentFile={}\nExecStart={} backup {} --storage local",
-                    env_file_str, exe_str, config_str
-                );
-            } else {
-                return Err("Unknown format. Use 'cron' or 'systemd'.".into());
-            }
+            print!(
+                "{}",
+                render_schedule(
+                    &format,
+                    &exe,
+                    &abs_config,
+                    &cfg,
+                    &env_file,
+                    workdir.as_deref()
+                )?
+            );
         }
         Commands::Watch {
             config,
@@ -712,8 +742,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let _auth_token = check_fido2_auth().await?;
 
-            // Resolve config or backup path (nunca Cargo.toml; erro se ambíguo)
-            let config_path = resolve_profile_path(config, backup)?;
+            let config_path = resolve_command_profile("watch", config, backup)?;
 
             let mut cfg = config::load_config(&config_path)?;
             // Watch sempre cifra: sem chave disponível → erro (nunca em claro).
@@ -972,6 +1001,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    Ok(())
+}
+
+/// Prunes the repository of `cfg` down to the newest `keep` snapshots
+/// (with `dry_run`, only lists what would be deleted). The key comes from
+/// RSB_ENCRYPTION_KEY, the profile's keyring entry or a prompt; an
+/// encrypted repository (keys/repo.key) without a key is refused before
+/// anything is deleted, since its manifests could not be read for the
+/// garbage collection.
+async fn run_prune(
+    cfg: &mut config::Config,
+    profile: Option<&str>,
+    keep: usize,
+    dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let storage = core::storage_backend::get_storage(cfg).await?;
+    if dry_run {
+        let doomed = core::plan_prune_by_count_with_storage(&*storage, keep).await?;
+        if doomed.is_empty() {
+            println!("Nothing to prune.");
+        }
+        for snap in doomed {
+            println!("  would delete {}", snap);
+        }
+        return Ok(());
+    }
+    let encrypted =
+        rsb_sdk::crypto::keyfile::repo_key_exists(&*storage).await? || cfg.encryption_required();
+    let mut key = config::resolve_encryption_key(None, profile, Some(cfg));
+    if key.is_none() && encrypted {
+        if !std::io::stdin().is_terminal() {
+            return Err(anyhow::anyhow!(
+                "The repository is encrypted and no key is available: set {} (or run interactively)",
+                config::ENCRYPTION_KEY_ENV
+            )
+            .into());
+        }
+        let k = rpassword::prompt_password("Enter encryption key: ")?;
+        if k.is_empty() {
+            return Err("Encryption key cannot be empty".into());
+        }
+        key = Some(k);
+    }
+    cfg.encryption_key = key;
+    core::perform_prune_with_storage(storage, cfg.encryption_key.as_deref(), keep).await?;
     Ok(())
 }
 

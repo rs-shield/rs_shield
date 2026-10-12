@@ -3,10 +3,10 @@ name: Security Audit
 on:
   push:
     branches: [ main, develop ]
-    paths: ['Cargo.lock', 'Cargo.toml']
+    paths: ['Cargo.lock', '**/Cargo.toml', '.github/workflows/security.yml']
   pull_request:
     branches: [ main, develop ]
-    paths: ['Cargo.lock', 'Cargo.toml']
+    paths: ['Cargo.lock', '**/Cargo.toml', '.github/workflows/security.yml']
   schedule:
     # Daily at 00:00 UTC
     - cron: '0 0 * * *'

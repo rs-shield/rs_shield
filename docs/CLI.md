@@ -105,7 +105,8 @@ rsb create-profile [OPTIONS] --name <NAME> --source <SOURCE> --dest <DEST>
 OPTIONS:
   -n, --name <NAME>             Profile name (writes <NAME>.toml)
   -s, --source <SOURCE>         Source directory to backup
-  -d, --dest <DEST>             Destination directory
+  -d, --dest <DEST>             Destination directory, or s3://<BUCKET> to back
+                                up to S3 (no local directory is created)
   -m, --mode <MODE>             Backup mode: incremental | full [default: incremental]
   -z, --compression <LEVEL>     Compression level 0-22 (zstd) [default: 3]
   -e, --encrypt                 Enable encryption (prompts for the password)
@@ -117,6 +118,19 @@ OPTIONS:
   -E, --s3-endpoint <ENDPOINT>  S3 endpoint
   --portable                    Store relative paths (move the profile between computers)
 ```
+
+`--dest s3://my-backups` is the same as `--s3-bucket my-backups` (giving
+both with different buckets is an error). Backups are stored at the root of
+the bucket, so key prefixes (`s3://bucket/prefix`) are rejected. Bucket names
+are checked only for what no S3-compatible provider accepts: empty, longer
+than 255 bytes, or containing `/`, `\`, `?`, `#`, whitespace or control
+characters. Names outside AWS's current DNS rules (3-63 lowercase letters,
+digits, `.` and `-`), such as legacy AWS us-east-1 buckets with uppercase
+letters or `_`, are accepted with a warning that path-style addressing
+(`host/bucket/key`) will be used. A profile created with
+`--dest s3://...` has no local destination, so `--storage local` refuses to
+run with it; with `--s3-bucket` and a local `--dest`, that directory is only
+used by `--storage local` and is not created up front.
 
 #### List Profiles
 
@@ -155,7 +169,8 @@ ARGUMENTS:
                                 when the current directory holds exactly one profile)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Repository directory: use the profile whose
+                                destination_path is DIR (see below)
   -m, --mode <MODE>             Override backup mode: full | incremental
   -k, --key <KEY>               Encryption password (deprecated: prefer
                                 RSB_ENCRYPTION_KEY, the keyring or the prompt)
@@ -533,7 +548,8 @@ ARGUMENTS:
   [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Prune this repository directory directly,
+                                without a profile
   -l, --keep-last <COUNT>       Keep last N backups (the short flag was -k
                                 before 0.1.0-alpha.9)
   -r, --retention <POLICY>      Retention policy: "30d", "6m", "1y", or number
@@ -555,7 +571,15 @@ rsb prune mybackup.toml --retention 6m --confirm
 # Keep last 10 backups
 rsb prune mybackup.toml --keep-last 10 --confirm
 rsb prune mybackup.toml -l 10 --confirm
+
+# Prune a repository without its profile (e.g. on an external drive)
+RSB_ENCRYPTION_KEY='your-password' rsb prune --backup /media/external/mybackup -l 10 --confirm
 ```
+
+Pruning only needs the repository and, for an encrypted repository, its
+key: from `RSB_ENCRYPTION_KEY`, the profile's keyring entry or a prompt
+(terminal only). Without a key an encrypted repository is refused before
+anything is deleted. `--dry-run` lists the snapshots that would be deleted.
 
 #### Schedule
 
@@ -568,7 +592,8 @@ ARGUMENTS:
   [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Repository directory: use the profile whose
+                                destination_path is DIR (see below)
   -f, --format <FORMAT>         Output format: cron | systemd [default: cron]
 ```
 
@@ -587,6 +612,13 @@ rsb schedule mybackup.toml --format cron
 rsb schedule mybackup.toml --format systemd
 ```
 
+The job always runs `backup` with the absolute path of the profile (which
+must exist and load) and `--storage s3` or `--storage local` to match it.
+For a profile with relative paths (`create-profile --portable`) it first
+changes to the current directory (`cd ... &&` in cron, `WorkingDirectory=`
+in systemd), so run `rsb schedule` from the directory those paths are
+relative to.
+
 #### Watch
 
 Enable real-time file synchronization and automated backups.
@@ -598,7 +630,8 @@ ARGUMENTS:
   [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Repository directory: use the profile whose
+                                destination_path is DIR (see below)
   -s, --sync-to <PATH>          Directory to sync changes to (required)
   -k, --key <KEY>               Encryption password (deprecated: prefer
                                 RSB_ENCRYPTION_KEY, the keyring or the prompt)
@@ -621,9 +654,27 @@ rsb watch mybackup.toml --sync-to /tmp/sync \
   --healthcheck-url https://healthchecks.io/ping/your-uuid
 ```
 
-> For `backup`, `prune`, `schedule` and `watch`, `--backup` is read as the
-> path of the profile `.toml` (the same as CONFIG), not as a repository
-> directory. Use the positional CONFIG argument.
+#### `--backup <DIR>` with backup, schedule and watch
+
+As everywhere else, `--backup` names the repository directory, never the
+profile file. `backup`, `schedule` and `watch` still need a profile (it holds
+the source folder, exclusions and encryption settings), so `--backup <DIR>`
+selects the profile, in DIR or in the current directory, whose
+`destination_path` is DIR (relative paths are resolved against the current
+directory, as the backup does; profiles with an S3 bucket are not
+considered). Nothing is stored in the repository by `create-profile`, not
+even with `--portable`: the profile is the `<NAME>.toml` it writes to the
+current directory.
+
+If no profile or more than one matches, the command fails and says what to
+pass instead; it never treats DIR as a `.toml`. Passing a file to `--backup`
+is refused with a hint to pass it as CONFIG, and CONFIG and `--backup`
+cannot be combined.
+
+```bash
+rsb backup --backup /media/external/mybackup     # uses e.g. ./mybackup.toml
+rsb schedule --backup /media/external/mybackup   # cron line runs: backup "/abs/path/mybackup.toml"
+```
 
 ### Authentication
 
@@ -793,14 +844,16 @@ rsb help <COMMAND>         Print command help (alternative)
 ### What is Portable Mode?
 
 Portable mode allows you to:
-- Restore, verify and inspect a backup without its profile: `restore`,
-  `verify` and the `snapshots` commands accept `--backup <DIR>` (the backup
-  directory itself)
+- Restore, verify, inspect and prune a backup without its profile:
+  `restore`, `verify`, `prune` and the `snapshots` commands accept
+  `--backup <DIR>` (the backup directory itself)
 - Create profiles that store relative paths (`create-profile --portable`)
 - Restore backups on different computers
 - Move backups to external drives
 
-Making a backup always needs a profile (`rsb backup <CONFIG>`).
+Making a backup always needs a profile: `rsb backup <CONFIG>`, or
+`rsb backup --backup <DIR>` to use the profile that backs up to DIR (see
+[`--backup <DIR>` with backup, schedule and watch](#--backup-dir-with-backup-schedule-and-watch)).
 
 ### Portable Backup Workflow
 
@@ -826,7 +879,7 @@ rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /media
 | Feature | Config Mode | Portable Mode |
 |---------|------------|---------------|
 | Command | `rsb restore config.toml --target <DIR>` | `rsb restore --backup /path --target <DIR>` |
-| Requires config file | ✅ Yes | ❌ No (restore, verify, snapshots) |
+| Requires config file | ✅ Yes | ❌ No (restore, verify, prune, snapshots) |
 | Cross-computer | ❌ Limited | ✅ Yes |
 | Profile saved | ✅ Yes | ❌ No |
 | Use case | Regular backups | External drives, cross-platform |
@@ -895,11 +948,10 @@ crontab -e
 ### Encrypted Cloud Backup
 
 ```bash
-# Create profile with S3 (--dest is only used with --storage local)
+# Create profile with S3 (s3://<bucket>; nothing is created locally)
 rsb create-profile --name cloud-backup \
   --source ~/Documents \
-  --dest ~/backups/cloud \
-  --s3-bucket my-backups \
+  --dest s3://my-backups \
   --s3-region us-east-1 \
   --s3-endpoint https://s3.amazonaws.com \
   --encrypt
@@ -966,6 +1018,21 @@ For a detailed report on a backup directory:
 ```bash
 rsb diagnose --backup /backup/docs --verbose
 ```
+
+Log messages go to stderr. By default only warnings and errors are shown;
+set `RUST_LOG` (standard `tracing` filter syntax) for more:
+
+```bash
+RUST_LOG=info rsb backup mybackup.toml                      # progress of every step
+RUST_LOG=rsb_sdk=debug rsb verify --backup /backup/docs     # one crate in detail
+```
+
+An invalid `RUST_LOG` value is reported and ignored (warnings only).
+Passwords, keys and credentials are never logged, at any level; the AWS
+request-signing traces (`aws_sigv4`, which include session tokens) stay at
+warning level unless `RUST_LOG` names `aws_sigv4` explicitly. There is no
+`-v/--verbose` logging flag (`diagnose --verbose` only adds detail to the
+diagnostic report).
 
 ### Parallel Processing
 
