@@ -75,8 +75,9 @@ RS Shield uses the **FIDO2/WebAuthn** standard. You can use:
 Before your first login, you must register your security device with a unique User ID.
 
 ```bash
-# Register the security key
-rsb auth register --user-id "your_name" --name "Main YubiKey"
+# Register the security key: opens a page on http://localhost:3000 in your
+# browser, where you enter your User ID
+rsb auth register
 
 # Follow the prompt to touch/interact with your device
 ```
@@ -93,8 +94,8 @@ rsb auth list
 #### Step 4: Authenticate
 
 ```bash
-# Use your key for authentication
-rsb auth authenticate --user-id user@example.com
+# Use your key for authentication (browser page, as for registration)
+rsb auth authenticate
 
 # Touch your security key when prompted
 # Authentication succeeds without entering a password
@@ -105,14 +106,14 @@ rsb auth authenticate --user-id user@example.com
 You can register multiple security keys for redundancy:
 
 ```bash
-# Register primary key
-rsb auth register --user-id user@example.com --name "YubiKey Primary"
+# Register primary key (enter user@example.com in the browser page)
+rsb auth register
 
-# Register backup key
-rsb auth register --user-id user@example.com --name "YubiKey Backup"
+# Register backup key (same User ID)
+rsb auth register
 
 # Both keys will work for authentication
-rsb auth authenticate --user-id user@example.com
+rsb login user@example.com
 ```
 
 ### Removing a Key
@@ -123,11 +124,12 @@ If your key is lost or compromised:
 # List all keys
 rsb auth list
 
-# Remove the compromised key
-rsb auth revoke --user-id user@example.com
+# Remove the compromised key (needs a session as that user, e.g. via a
+# recovery code: rsb login user@example.com --recovery)
+rsb auth delete user@example.com
 
 # Re-register if needed
-rsb auth register --user-id user@example.com --name "Replacement Key"
+rsb auth register
 ```
 
 ### Authentication Methods
@@ -139,7 +141,7 @@ RS Shield supports two main authentication methods:
 Provides the strongest security with hardware-based authentication:
 
 ```bash
-rsb login --user-id user@example.com
+rsb login user@example.com
 ```
 
 Touch your security key when prompted. No password needed.
@@ -155,7 +157,7 @@ Touch your security key when prompted. No password needed.
 Emergency backup authentication method:
 
 ```bash
-rsb login --user-id user@example.com --recovery
+rsb login user@example.com --recovery
 # Enter recovery code when prompted
 ```
 
@@ -167,8 +169,12 @@ rsb login --user-id user@example.com --recovery
 #### Generating Recovery Codes
 
 ```bash
-rsb auth generate-codes
+# Needs a session as that user (rsb login user@example.com)
+rsb auth generate-codes user@example.com
 # Save these codes somewhere secure!
+
+# Or write them to a file without showing them
+rsb auth generate-codes user@example.com --output ~/safe/codes.txt --no-display
 ```
 
 Output:
@@ -206,12 +212,15 @@ Output:
 # Ubuntu/Debian
 sudo apt install rs-shield
 
-# Or via package manager
-cargo install --locked rs-shield-cli
-
-# Desktop variant (if available)
-cargo install --locked rs-shield-desktop
+# Or build from source (installs the `rsb-cli` binary)
+git clone https://github.com/zebedeu/rs-shield.git
+cd rs-shield
+cargo install --locked --path crates/rsb-cli
 ```
+
+The command-line examples in this guide call the CLI `rsb`; the installed
+binary is `rsb-cli`, so add `alias rsb=rsb-cli` to your shell profile (or
+type `rsb-cli`).
 
 ### Windows
 
@@ -296,7 +305,7 @@ source_path = "/home/user/documents"
 destination_path = "/mnt/backup"
 backup_mode = "incremental"
 compression_level = 3
-encryption_key = "your-password"
+encrypt_patterns = ["*"]   # encryption on; the password is not stored here
 
 [s3]
 bucket = "my-backups"
@@ -415,7 +424,7 @@ rsb snapshots list --config mybackup.toml
 rsb snapshots list --backup /backup/docs
 
 # Show snapshot details
-rsb snapshots show 2026-05-25T10:30:00 --config mybackup.toml
+rsb snapshots show 2026-05-25T103000.000Z --config mybackup.toml
 ```
 
 #### Comparing Snapshots (NEW!)
@@ -431,10 +440,10 @@ Compare two snapshots to see what changed:
 **Command Line:**
 ```bash
 # Compare two snapshots
-rsb snapshots diff 2026-05-20T10:00:00 2026-05-25T10:00:00 --config mybackup.toml
+rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --config mybackup.toml
 
 # Or using portable backup path
-rsb snapshots diff snap1 snap2 --backup /backup/docs
+rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /backup/docs
 
 # Shows:
 # ✅ Added files
@@ -456,10 +465,10 @@ Restore from a specific snapshot:
 **Command Line:**
 ```bash
 # Restore from specific snapshot
-rsb restore --config mybackup.toml --snapshot 2026-05-25T10:30:00 --output ~/restored
+rsb restore mybackup.toml --snapshot 2026-05-25T103000.000Z --target ~/restored
 
 # Or using portable mode
-rsb restore --backup /backup/docs --snapshot snap-id --output ~/restored
+rsb restore --backup /backup/docs --snapshot 2026-05-25T103000.000Z --target ~/restored
 ```
 
 ### Snapshot Management
@@ -470,10 +479,10 @@ Remove specific snapshots to free space:
 
 ```bash
 # Delete a snapshot
-rsb snapshots delete 2026-05-20T10:00:00 --config mybackup.toml
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml
 
 # Or using backup path
-rsb snapshots delete snap-id --backup /backup/docs
+rsb snapshots delete 2026-05-20T100000.000Z --backup /backup/docs
 ```
 
 ### Scheduled Backups
@@ -485,26 +494,28 @@ Automate your backups to run at specific times.
 Generate cron schedule:
 
 ```bash
-rsb schedule --config docs.toml --format cron
+rsb schedule docs.toml --format cron
 ```
 
-Add to crontab:
+It prints how to store the encryption key in `~/.rs-shield/rsb-backup.env`
+(mode 0600, `RSB_ENCRYPTION_KEY=...`) and the crontab line, which loads that
+file before running the backup. Add it to crontab:
 
 ```bash
 crontab -e
 # Paste the output from schedule command
 ```
 
-Common patterns:
+Common patterns (change the schedule fields of the generated line):
 ```bash
 # Daily at 2 AM
-0 2 * * * /usr/local/bin/rsb backup docs.toml
+0 2 * * * set -a && . "$HOME/.rs-shield/rsb-backup.env" && set +a && /usr/local/bin/rsb-cli backup /home/user/docs.toml --storage local
 
 # Every 6 hours
-0 */6 * * * /usr/local/bin/rsb backup docs.toml
+0 */6 * * * set -a && . "$HOME/.rs-shield/rsb-backup.env" && set +a && /usr/local/bin/rsb-cli backup /home/user/docs.toml --storage local
 
 # Every Monday at 1 AM
-0 1 * * 1 /usr/local/bin/rsb backup docs.toml
+0 1 * * 1 set -a && . "$HOME/.rs-shield/rsb-backup.env" && set +a && /usr/local/bin/rsb-cli backup /home/user/docs.toml --storage local
 ```
 
 #### Using Systemd (Linux)
@@ -512,7 +523,7 @@ Common patterns:
 Generate systemd service:
 
 ```bash
-rsb schedule --config docs.toml --format systemd
+rsb schedule docs.toml --format systemd
 ```
 
 Create service file `/etc/systemd/system/rsb-backup.service`:
@@ -524,7 +535,8 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/rsb backup /path/to/docs.toml
+EnvironmentFile=/home/user/.rs-shield/rsb-backup.env
+ExecStart=/usr/local/bin/rsb-cli backup /path/to/docs.toml --storage local
 
 [Install]
 WantedBy=multi-user.target
@@ -559,7 +571,8 @@ Monitor a folder and automatically backup changes as they happen.
 #### CLI Usage
 
 ```bash
-rsb watch --config docs.toml --sync-to /tmp/sync --key mypassword
+# Prompts for the encryption password (or reads RSB_ENCRYPTION_KEY)
+rsb watch docs.toml --sync-to /tmp/sync
 ```
 
 Monitor output:
@@ -573,9 +586,8 @@ Monitor output:
 Monitor backup health with external service:
 
 ```bash
-rsb watch --config docs.toml \
+rsb watch docs.toml \
   --sync-to /tmp/sync \
-  --key mypassword \
   --healthcheck-url https://healthchecks.io/ping/your-uuid
 ```
 
@@ -620,7 +632,7 @@ Verify without decryption (fast check):
 
 ```bash
 # Via profile
-rsb verify --config docs.toml
+rsb verify docs.toml
 
 # Quick verify via backup path (hashes only)
 rsb verify --backup /backup/docs --quick
@@ -630,37 +642,43 @@ rsb verify --backup /backup/docs
 
 # Generate HTML report
 rsb verify --backup /backup/docs --report
+
+# Delete objects proven corrupt; the next backup uploads them again
+rsb verify docs.toml --repair
 ```
 
 ---
 
 ## Portable Mode (NEW!)
 
-Portable mode allows you to create and restore backups **without needing a config file**. This is perfect for:
+Portable mode allows you to verify, inspect and restore backups **without needing a config file**. This is perfect for:
 - External drives and USB backups
-- Backing up to cloud storage
 - Restoring on different computers
 - Cross-platform backup workflows
 
 ### How It Works
 
-Instead of creating a config file, use the `--backup` flag to specify your backup destination directly:
+Backing up always uses a profile; `create-profile --portable` stores relative
+paths so the profile can move with the drive. Everything else can point the
+`--backup` flag at the backup directory directly:
 
 ```bash
-# Create portable backup
-rsb backup --backup /media/external/my-backup
+# Create a portable profile and back up
+rsb create-profile --name my-backup --source ~/Documents \
+  --dest /media/external/my-backup --portable
+rsb backup my-backup.toml
 
 # Verify the backup
 rsb verify --backup /media/external/my-backup
 
 # Restore on any computer
-rsb restore --backup /media/external/my-backup --output ~/restored
+rsb restore --backup /media/external/my-backup --target ~/restored
 
 # List snapshots anywhere
 rsb snapshots list --backup /media/external/my-backup
 
 # Compare snapshots across computers
-rsb snapshots diff snap1 snap2 --backup /media/external/my-backup
+rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /media/external/my-backup
 ```
 
 ### Portable Backup Workflow Example
@@ -668,8 +686,8 @@ rsb snapshots diff snap1 snap2 --backup /media/external/my-backup
 **Computer A (Backup):**
 ```bash
 # 1. Insert external drive
-# 2. Create portable backup (no config needed!)
-rsb backup --backup /mnt/external-drive/backup
+# 2. Back up with a profile whose destination is on the drive
+rsb backup my-backup.toml
 
 # 3. Verify backup
 rsb verify --backup /mnt/external-drive/backup
@@ -681,15 +699,15 @@ rsb verify --backup /mnt/external-drive/backup
 # 2. List available snapshots
 rsb snapshots list --backup /mnt/external-drive/backup
 
-# 3. Restore files
-rsb restore --backup /mnt/external-drive/backup --output ~/restored
+# 3. Restore files (no config needed!)
+rsb restore --backup /mnt/external-drive/backup --target ~/restored
 ```
 
 ### Config vs Portable Mode Comparison
 
 | Feature | Config Mode | Portable Mode |
 |---------|------------|---------------|
-| **Setup** | Create config file | Use --backup flag |
+| **Setup** | Create config file | Use --backup flag (restore, verify, snapshots) |
 | **Works across computers** | Limited | ✅ Yes |
 | **External drives** | Limited | ✅ Perfect |
 | **Use case** | Regular scheduled backups | One-time, portable backups |
@@ -697,12 +715,11 @@ rsb restore --backup /mnt/external-drive/backup --output ~/restored
 
 ### Auto-Discovery
 
-All commands automatically look for `.toml` files in the current directory. You can omit the config file if it's nearby:
+`backup`, `prune`, `schedule`, `watch` and the `snapshots` commands look for a profile `.toml` in the current directory. You can omit the config file if it is the only profile there (with several, the command lists them and asks you to pick one). `restore` and `verify` always need a profile or `--backup`:
 
 ```bash
-# If mybackup.toml is in current directory:
+# If mybackup.toml is the only profile in current directory:
 rsb backup          # Auto-discovers mybackup.toml
-rsb verify          # Auto-discovers mybackup.toml
 rsb snapshots list  # Auto-discovers mybackup.toml
 ```
 
@@ -927,7 +944,7 @@ sudo apt install libgtk-3-0 libwebkit2gtk-4.0-37
 **A:** Use recovery codes to authenticate and create new security key registrations. Keep recovery codes in a safe location.
 
 ### Q: Can I repair a corrupted backup?
-**A:** Use `rsb diagnose --repair` to automatically attempt repairs. Always test restoration afterward.
+**A:** Use `rsb verify --repair` (deletes objects proven corrupt so the next backup uploads them again) or `rsb diagnose --backup <DIR> --repair` to attempt repairs. Always test restoration afterward.
 
 ### Q: How do snapshots work?
 **A:** Every backup creates a snapshot. You can browse snapshots, compare changes, and restore from any snapshot point in time.
