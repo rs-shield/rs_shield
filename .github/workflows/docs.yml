@@ -3,10 +3,10 @@ name: Documentation
 on:
   push:
     branches: [ main, develop ]
-    paths: ['docs/**', 'README.md', '**/*.rs']
+    paths: ['docs/**', 'README.md', '**/*.rs', '.github/workflows/docs.yml']
   pull_request:
     branches: [ main, develop ]
-    paths: ['docs/**', 'README.md']
+    paths: ['docs/**', 'README.md', '**/*.rs', '.github/workflows/docs.yml']
 
 jobs:
   docs:
