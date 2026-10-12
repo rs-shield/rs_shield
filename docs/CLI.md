@@ -105,7 +105,8 @@ rsb create-profile [OPTIONS] --name <NAME> --source <SOURCE> --dest <DEST>
 OPTIONS:
   -n, --name <NAME>             Profile name (writes <NAME>.toml)
   -s, --source <SOURCE>         Source directory to backup
-  -d, --dest <DEST>             Destination directory
+  -d, --dest <DEST>             Destination directory, or s3://<BUCKET> to back
+                                up to S3 (no local directory is created)
   -m, --mode <MODE>             Backup mode: incremental | full [default: incremental]
   -z, --compression <LEVEL>     Compression level 0-22 (zstd) [default: 3]
   -e, --encrypt                 Enable encryption (prompts for the password)
@@ -117,6 +118,15 @@ OPTIONS:
   -E, --s3-endpoint <ENDPOINT>  S3 endpoint
   --portable                    Store relative paths (move the profile between computers)
 ```
+
+`--dest s3://my-backups` is the same as `--s3-bucket my-backups` (giving
+both with different buckets is an error). Backups are stored at the root of
+the bucket, so key prefixes (`s3://bucket/prefix`) are rejected. Bucket names
+must follow the S3 rules: 3-63 characters, lowercase letters, digits, `.`
+and `-`, starting and ending with a letter or digit. A profile created with
+`--dest s3://...` has no local destination, so `--storage local` refuses to
+run with it; with `--s3-bucket` and a local `--dest`, that directory is only
+used by `--storage local` and is not created up front.
 
 #### List Profiles
 
@@ -895,11 +905,10 @@ crontab -e
 ### Encrypted Cloud Backup
 
 ```bash
-# Create profile with S3 (--dest is only used with --storage local)
+# Create profile with S3 (s3://<bucket>; nothing is created locally)
 rsb create-profile --name cloud-backup \
   --source ~/Documents \
-  --dest ~/backups/cloud \
-  --s3-bucket my-backups \
+  --dest s3://my-backups \
   --s3-region us-east-1 \
   --s3-endpoint https://s3.amazonaws.com \
   --encrypt

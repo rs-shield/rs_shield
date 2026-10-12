@@ -4,7 +4,8 @@ use clap::Parser;
 use rsb_cli::command::list_profiles_cmd::{ListProfilesCmd, OutputFormat};
 use rsb_cli::command::main_cmd::{Commands, ListProfilesFormat, StorageChoice};
 use rsb_cli::helpers::{
-    obtain_encryption_key, profile_name, resolve_profile_path, warn_secret_arg,
+    is_s3_url, obtain_encryption_key, plan_profile_destination, profile_name, resolve_profile_path,
+    warn_secret_arg,
 };
 use rsb_sdk::backup::diagnostic::{print_diagnostics, run_backup_diagnostics, sync_changed_files};
 use rsb_sdk::backup::perform_backup;
@@ -53,7 +54,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !source.exists() {
                 return Err(format!("Source path does not exist: {}", source.display()).into());
             }
-            if !std::path::Path::new(&dest).exists() {
+            // `--dest s3://bucket` (or --s3-bucket) is an S3 profile: nothing
+            // is created locally (this used to create a local "s3:" folder).
+            let target = plan_profile_destination(&dest, s3_bucket.as_deref())?;
+            let s3_bucket = target.s3_bucket.clone();
+            let dest = target.destination.clone();
+            if !target.is_s3() && !dest.exists() {
                 warn!(
                     "Destination path does not exist, creating: {}",
                     dest.display()
@@ -102,11 +108,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .ok()
                     .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
                     .unwrap_or(source.clone());
-                let dest_rel = dest
-                    .canonicalize()
-                    .ok()
-                    .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
-                    .unwrap_or(dest.clone());
+                let dest_rel = if is_s3_url(&dest.to_string_lossy()) {
+                    dest.clone()
+                } else {
+                    dest.canonicalize()
+                        .ok()
+                        .and_then(|p| pathdiff::diff_paths(&p, std::env::current_dir().ok()?))
+                        .unwrap_or(dest.clone())
+                };
                 (source_rel, dest_rel)
             } else {
                 (source.clone(), dest.clone())
@@ -130,6 +139,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if portable {
                 println!("📱 Portable mode enabled: using relative paths");
                 println!("   This profile can be moved between computers!");
+            }
+            if let Some(bucket) = &s3_bucket {
+                println!("☁️  Backups go to S3 bucket '{}'", bucket);
+                println!(
+                    "   Credentials: AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY or `rsb config s3-credentials`"
+                );
             }
             println!("📋 Next step, execute backup:");
             println!("   rsb backup {}", config_file);
@@ -223,6 +238,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("✅ Using S3 storage. Starting backup...\n");
                 }
                 StorageChoice::Local => {
+                    if is_s3_url(&cfg.destination_path) {
+                        return Err(format!(
+                            "--storage local: this profile has no local destination ({}); \
+                             set destination_path to a directory to back up locally",
+                            cfg.destination_path
+                        )
+                        .into());
+                    }
                     cfg.s3 = None;
                     cfg.s3_bucket = None;
                     cfg.s3_region = None;
