@@ -165,7 +165,8 @@ ARGUMENTS:
                                 when the current directory holds exactly one profile)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Repository directory: use the profile whose
+                                destination_path is DIR (see below)
   -m, --mode <MODE>             Override backup mode: full | incremental
   -k, --key <KEY>               Encryption password (deprecated: prefer
                                 RSB_ENCRYPTION_KEY, the keyring or the prompt)
@@ -543,7 +544,8 @@ ARGUMENTS:
   [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Prune this repository directory directly,
+                                without a profile
   -l, --keep-last <COUNT>       Keep last N backups (the short flag was -k
                                 before 0.1.0-alpha.9)
   -r, --retention <POLICY>      Retention policy: "30d", "6m", "1y", or number
@@ -565,7 +567,15 @@ rsb prune mybackup.toml --retention 6m --confirm
 # Keep last 10 backups
 rsb prune mybackup.toml --keep-last 10 --confirm
 rsb prune mybackup.toml -l 10 --confirm
+
+# Prune a repository without its profile (e.g. on an external drive)
+RSB_ENCRYPTION_KEY='your-password' rsb prune --backup /media/external/mybackup -l 10 --confirm
 ```
+
+Pruning only needs the repository and, for an encrypted repository, its
+key: from `RSB_ENCRYPTION_KEY`, the profile's keyring entry or a prompt
+(terminal only). Without a key an encrypted repository is refused before
+anything is deleted. `--dry-run` lists the snapshots that would be deleted.
 
 #### Schedule
 
@@ -578,7 +588,8 @@ ARGUMENTS:
   [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Repository directory: use the profile whose
+                                destination_path is DIR (see below)
   -f, --format <FORMAT>         Output format: cron | systemd [default: cron]
 ```
 
@@ -597,6 +608,13 @@ rsb schedule mybackup.toml --format cron
 rsb schedule mybackup.toml --format systemd
 ```
 
+The job always runs `backup` with the absolute path of the profile (which
+must exist and load) and `--storage s3` or `--storage local` to match it.
+For a profile with relative paths (`create-profile --portable`) it first
+changes to the current directory (`cd ... &&` in cron, `WorkingDirectory=`
+in systemd), so run `rsb schedule` from the directory those paths are
+relative to.
+
 #### Watch
 
 Enable real-time file synchronization and automated backups.
@@ -608,7 +626,8 @@ ARGUMENTS:
   [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -b, --backup <DIR>            Repository directory: use the profile whose
+                                destination_path is DIR (see below)
   -s, --sync-to <PATH>          Directory to sync changes to (required)
   -k, --key <KEY>               Encryption password (deprecated: prefer
                                 RSB_ENCRYPTION_KEY, the keyring or the prompt)
@@ -631,9 +650,27 @@ rsb watch mybackup.toml --sync-to /tmp/sync \
   --healthcheck-url https://healthchecks.io/ping/your-uuid
 ```
 
-> For `backup`, `prune`, `schedule` and `watch`, `--backup` is read as the
-> path of the profile `.toml` (the same as CONFIG), not as a repository
-> directory. Use the positional CONFIG argument.
+#### `--backup <DIR>` with backup, schedule and watch
+
+As everywhere else, `--backup` names the repository directory, never the
+profile file. `backup`, `schedule` and `watch` still need a profile (it holds
+the source folder, exclusions and encryption settings), so `--backup <DIR>`
+selects the profile, in DIR or in the current directory, whose
+`destination_path` is DIR (relative paths are resolved against the current
+directory, as the backup does; profiles with an S3 bucket are not
+considered). Nothing is stored in the repository by `create-profile`, not
+even with `--portable`: the profile is the `<NAME>.toml` it writes to the
+current directory.
+
+If no profile or more than one matches, the command fails and says what to
+pass instead; it never treats DIR as a `.toml`. Passing a file to `--backup`
+is refused with a hint to pass it as CONFIG, and CONFIG and `--backup`
+cannot be combined.
+
+```bash
+rsb backup --backup /media/external/mybackup     # uses e.g. ./mybackup.toml
+rsb schedule --backup /media/external/mybackup   # cron line runs: backup "/abs/path/mybackup.toml"
+```
 
 ### Authentication
 
@@ -803,14 +840,16 @@ rsb help <COMMAND>         Print command help (alternative)
 ### What is Portable Mode?
 
 Portable mode allows you to:
-- Restore, verify and inspect a backup without its profile: `restore`,
-  `verify` and the `snapshots` commands accept `--backup <DIR>` (the backup
-  directory itself)
+- Restore, verify, inspect and prune a backup without its profile:
+  `restore`, `verify`, `prune` and the `snapshots` commands accept
+  `--backup <DIR>` (the backup directory itself)
 - Create profiles that store relative paths (`create-profile --portable`)
 - Restore backups on different computers
 - Move backups to external drives
 
-Making a backup always needs a profile (`rsb backup <CONFIG>`).
+Making a backup always needs a profile: `rsb backup <CONFIG>`, or
+`rsb backup --backup <DIR>` to use the profile that backs up to DIR (see
+[`--backup <DIR>` with backup, schedule and watch](#--backup-dir-with-backup-schedule-and-watch)).
 
 ### Portable Backup Workflow
 
@@ -836,7 +875,7 @@ rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /media
 | Feature | Config Mode | Portable Mode |
 |---------|------------|---------------|
 | Command | `rsb restore config.toml --target <DIR>` | `rsb restore --backup /path --target <DIR>` |
-| Requires config file | ✅ Yes | ❌ No (restore, verify, snapshots) |
+| Requires config file | ✅ Yes | ❌ No (restore, verify, prune, snapshots) |
 | Cross-computer | ❌ Limited | ✅ Yes |
 | Profile saved | ✅ Yes | ❌ No |
 | Use case | Regular backups | External drives, cross-platform |

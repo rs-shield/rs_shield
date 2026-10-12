@@ -651,7 +651,7 @@ rsb verify docs.toml --repair
 
 ## Portable Mode (NEW!)
 
-Portable mode allows you to verify, inspect and restore backups **without needing a config file**. This is perfect for:
+Portable mode allows you to verify, inspect, prune and restore backups **without needing a config file**. This is perfect for:
 - External drives and USB backups
 - Restoring on different computers
 - Cross-platform backup workflows
@@ -659,14 +659,20 @@ Portable mode allows you to verify, inspect and restore backups **without needin
 ### How It Works
 
 Backing up always uses a profile; `create-profile --portable` stores relative
-paths so the profile can move with the drive. Everything else can point the
-`--backup` flag at the backup directory directly:
+paths so the profile can move with the drive (the profile is the `.toml` in
+the current directory; no copy is kept in the backup directory). `restore`,
+`verify`, `prune` and `snapshots` can point the `--backup` flag at the backup
+directory directly. For `backup`, `schedule` and `watch`, `--backup <DIR>`
+picks the profile (in DIR or the current directory) whose destination is
+DIR, and fails with instructions if there is none or several:
 
 ```bash
 # Create a portable profile and back up
 rsb create-profile --name my-backup --source ~/Documents \
   --dest /media/external/my-backup --portable
 rsb backup my-backup.toml
+# ...or let rsb find the profile that backs up to the drive
+rsb backup --backup /media/external/my-backup
 
 # Verify the backup
 rsb verify --backup /media/external/my-backup
@@ -679,6 +685,9 @@ rsb snapshots list --backup /media/external/my-backup
 
 # Compare snapshots across computers
 rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /media/external/my-backup
+
+# Keep only the 10 newest snapshots (key from RSB_ENCRYPTION_KEY or the prompt)
+rsb prune --backup /media/external/my-backup --keep-last 10 --confirm
 ```
 
 ### Portable Backup Workflow Example
@@ -707,7 +716,7 @@ rsb restore --backup /mnt/external-drive/backup --target ~/restored
 
 | Feature | Config Mode | Portable Mode |
 |---------|------------|---------------|
-| **Setup** | Create config file | Use --backup flag (restore, verify, snapshots) |
+| **Setup** | Create config file | Use --backup flag (restore, verify, prune, snapshots) |
 | **Works across computers** | Limited | ✅ Yes |
 | **External drives** | Limited | ✅ Perfect |
 | **Use case** | Regular scheduled backups | One-time, portable backups |

@@ -48,18 +48,19 @@ pub fn find_profile_candidates(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// Resolve o ficheiro de perfil: argumento explícito (config ou backup) ou,
-/// em último caso, auto-descoberta no diretório atual — só se existir
-/// exatamente UM perfil válido (nunca Cargo.toml nem outros .toml de tooling).
-pub fn resolve_profile_path(config: Option<PathBuf>, backup: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(c) = config.or(backup) {
+/// Resolve o ficheiro de perfil: argumento explícito ou, em último caso,
+/// auto-descoberta no diretório atual — só se existir exatamente UM perfil
+/// válido (nunca Cargo.toml nem outros .toml de tooling).
+pub fn resolve_profile_path(config: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(c) = config {
         return Ok(c);
     }
     let current = std::env::current_dir()?;
     let mut candidates = find_profile_candidates(&current)?;
     match candidates.len() {
         0 => Err(anyhow!(
-            "No config found. Use --config <path> or --backup <path> (no backup profile .toml in {})",
+            "No backup profile found in {}. Pass the profile .toml as the first argument \
+             (create one with `rsb create-profile`)",
             current.display()
         )),
         1 => {
@@ -76,6 +77,187 @@ pub fn resolve_profile_path(config: Option<PathBuf>, backup: Option<PathBuf>) ->
                 .collect::<Vec<_>>()
                 .join("\n")
         )),
+    }
+}
+
+/// Profile for the profile-based commands (`backup`, `schedule`, `watch`):
+/// the positional CONFIG, else the profile of the repository given with
+/// `--backup <DIR>` (see [`find_profile_for_repository`]), else
+/// auto-discovery in the current directory. `--backup` is never read as a
+/// profile file.
+pub fn resolve_command_profile(
+    command: &str,
+    config: Option<PathBuf>,
+    repository: Option<PathBuf>,
+) -> Result<PathBuf> {
+    match (config, repository) {
+        (Some(c), _) => Ok(c),
+        (None, Some(repo)) => {
+            let cwd = std::env::current_dir()?;
+            let path = find_profile_for_repository(command, &repo, &cwd)?;
+            eprintln!(
+                "ℹ️  Using profile {} (its destination is {})",
+                path.display(),
+                repo.display()
+            );
+            Ok(path)
+        }
+        (None, None) => resolve_profile_path(None),
+    }
+}
+
+/// Checks that `--backup <DIR>` names an existing repository directory and
+/// returns it canonicalized. A file (e.g. a profile `.toml`, which `--backup`
+/// used to accept) is refused with a hint to pass it as CONFIG instead.
+pub fn check_repository_dir(command: &str, repo: &Path) -> Result<PathBuf> {
+    if repo.is_file() {
+        return Err(anyhow!(
+            "--backup expects the repository directory, but {} is a file. \
+             To use a profile, pass it as the first argument: rsb {} {}",
+            repo.display(),
+            command,
+            repo.display()
+        ));
+    }
+    if !repo.is_dir() {
+        return Err(anyhow!(
+            "Repository directory not found: {}",
+            repo.display()
+        ));
+    }
+    Ok(repo.canonicalize()?)
+}
+
+/// Finds the profile whose backups go to the local repository `repo`.
+///
+/// Profiles never live inside the repository (`create-profile`, also with
+/// `--portable`, writes `<name>.toml` to the current directory and keeps no
+/// copy in the repository), so the candidates are the profile `.toml` files
+/// in `repo` itself and in `cwd`. A candidate matches when it has no S3
+/// bucket and its `destination_path`, resolved the way a backup resolves it
+/// (`~`/`$VAR` expanded, relative paths against `cwd`), is `repo`. Exactly
+/// one match is required: none or several is an error explaining what to
+/// pass instead, so `--backup` can never pick a profile that backs up
+/// somewhere else.
+pub fn find_profile_for_repository(command: &str, repo: &Path, cwd: &Path) -> Result<PathBuf> {
+    let repo_canon = check_repository_dir(command, repo)?;
+    let mut dirs = vec![repo_canon.clone()];
+    if let Ok(cwd_canon) = cwd.canonicalize()
+        && cwd_canon != repo_canon
+    {
+        dirs.push(cwd_canon);
+    }
+    let mut matches = Vec::new();
+    for dir in &dirs {
+        for profile in find_profile_candidates(dir).unwrap_or_default() {
+            if profile_targets_repository(&profile, &repo_canon, cwd) {
+                matches.push(profile);
+            }
+        }
+    }
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err(anyhow!(
+            "No profile found for repository {repo}.\n\
+             `rsb {cmd}` needs a profile (source folder, exclusions, encryption), and no profile \
+             in {repo} or in the current directory ({cwd}) backs up to {repo}.\n  \
+             • pass the profile as the first argument: rsb {cmd} <PROFILE.toml>\n  \
+             • or create one: rsb create-profile --name <NAME> --source <SOURCE> --dest {repo}",
+            repo = repo.display(),
+            cmd = command,
+            cwd = cwd.display()
+        )),
+        _ => Err(anyhow!(
+            "Several profiles back up to {}; pass one as the first argument (rsb {} <PROFILE.toml>):\n{}",
+            repo.display(),
+            command,
+            matches
+                .iter()
+                .map(|p| format!("  • {}", p.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )),
+    }
+}
+
+/// Does the profile at `profile` back up to the local repository
+/// `repo_canon` (already canonicalized)?
+fn profile_targets_repository(profile: &Path, repo_canon: &Path, cwd: &Path) -> bool {
+    let Ok(cfg) = fs::read_to_string(profile)
+        .map_err(anyhow::Error::from)
+        .and_then(|c| toml::from_str::<Config>(&c).map_err(anyhow::Error::from))
+    else {
+        return false;
+    };
+    let has_s3 =
+        cfg.s3.as_ref().and_then(|s| s.bucket.as_ref()).is_some() || cfg.s3_bucket.is_some();
+    if has_s3 || cfg.destination_path.trim().is_empty() || is_s3_url(&cfg.destination_path) {
+        return false;
+    }
+    let dest = rsb_sdk::utils::expand_path(&cfg.destination_path);
+    let dest = if dest.is_relative() {
+        cwd.join(dest)
+    } else {
+        dest
+    };
+    dest.canonicalize().is_ok_and(|d| d == repo_canon)
+}
+
+/// Does the profile use relative source/destination paths (as written by
+/// `create-profile --portable`)? They are resolved against the working
+/// directory when the backup runs.
+pub fn profile_uses_relative_paths(cfg: &Config) -> bool {
+    let relative = |p: &str| !p.trim().is_empty() && !is_s3_url(p) && Path::new(p).is_relative();
+    relative(&cfg.source_path) || relative(&cfg.destination_path)
+}
+
+/// Text printed by `rsb schedule`: a cron line or a systemd service that
+/// runs `<exe> backup "<profile>" --storage <s3|local>` (matching what the
+/// profile configures), with the encryption key read from `env_file` (mode
+/// 0600) — never `--key` on the command line, where `ps`, the crontab and
+/// the journal would show it. `profile` should be absolute. With `workdir`
+/// (see [`profile_uses_relative_paths`]) the job first changes to that
+/// directory, since cron/systemd do not start in the directory the
+/// profile's relative paths were written for.
+pub fn render_schedule(
+    format: &str,
+    exe: &Path,
+    profile: &Path,
+    cfg: &Config,
+    env_file: &Path,
+    workdir: Option<&Path>,
+) -> Result<String> {
+    let has_s3 =
+        cfg.s3.as_ref().and_then(|s| s.bucket.as_ref()).is_some() || cfg.s3_bucket.is_some();
+    let storage = if has_s3 { "s3" } else { "local" };
+    let command = format!(
+        "\"{}\" backup \"{}\" --storage {}",
+        exe.display(),
+        profile.display(),
+        storage
+    );
+    let env_file = env_file.display();
+    let key_env = config::ENCRYPTION_KEY_ENV;
+    match format {
+        "cron" => Ok(format!(
+            "# 1) Store the encryption key in a file readable only by you:\n\
+             #    (umask 077 && printf '{key_env}=%s\\n' 'YOUR_KEY' > \"{env_file}\")\n\
+             # 2) Add this line to your crontab (crontab -e):\n\
+             0 3 * * * {cd}set -a && . \"{env_file}\" && set +a && {command}\n",
+            cd = workdir
+                .map(|d| format!("cd \"{}\" && ", d.display()))
+                .unwrap_or_default()
+        )),
+        "systemd" => Ok(format!(
+            "# 1) Create {env_file} with mode 0600 containing:\n\
+             #    {key_env}=YOUR_KEY\n\
+             # 2) Example rsb-backup.service:\n\
+             [Service]\nType=oneshot\n{wd}EnvironmentFile={env_file}\nExecStart={command}\n",
+            wd = workdir
+                .map(|d| format!("WorkingDirectory={}\n", d.display()))
+                .unwrap_or_default()
+        )),
+        _ => Err(anyhow!("Unknown format. Use 'cron' or 'systemd'.")),
     }
 }
 
@@ -109,7 +291,7 @@ pub fn resolve_config_or_backup(
         }
     }
 
-    resolve_profile_path(None, None).map(|p| (p, false))
+    resolve_profile_path(None).map(|p| (p, false))
 }
 
 /// Extract destination path from config.toml
@@ -425,6 +607,6 @@ mod tests {
     #[test]
     fn explicit_path_wins() {
         let p = PathBuf::from("/tmp/explicit.toml");
-        assert_eq!(resolve_profile_path(Some(p.clone()), None).unwrap(), p);
+        assert_eq!(resolve_profile_path(Some(p.clone())).unwrap(), p);
     }
 }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `--backup <DIR>` on `backup`, `prune`, `schedule` and `watch` now names
+  the repository directory, as it already did for `restore`, `verify` and
+  `snapshots`. It used to be read as the profile `.toml` path, so
+  `rsb schedule --backup <DIR>` generated a cron line running
+  `backup "<DIR>"`. `backup`, `schedule` and `watch` use the profile (in
+  DIR or the current directory) whose destination is DIR and fail with
+  instructions when there is none or several; `prune --backup <DIR>` prunes
+  the repository directly, without a profile. A file passed to `--backup`
+  is refused with a hint to pass it as the CONFIG argument, and CONFIG and
+  `--backup` can no longer be combined on these commands.
+- `rsb schedule` checks that the profile exists and loads, uses
+  `--storage s3` for S3 profiles, and for profiles with relative paths
+  (`--portable`) runs the job from the current directory.
+- `rsb prune` resolves the key like `backup` (RSB_ENCRYPTION_KEY, keyring,
+  prompt) and refuses an encrypted repository without one before deleting
+  anything; `--dry-run` lists the snapshots it would delete.
+
 ### Fixed
 - `rsb` (CLI) ignored `RUST_LOG` and always logged at WARN. `RUST_LOG` is
   now honoured (default: warnings only; an invalid value is reported and
