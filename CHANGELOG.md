@@ -32,8 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rsb create-profile --dest s3://bucket` created a local `s3:` directory
   and stored the URL as a local path. It now creates an S3 profile (same
   fields as `--s3-bucket`) without touching the local disk. Bucket names
-  are validated and key prefixes (`s3://bucket/prefix`), which are not
-  supported, are rejected. `backup --storage local` refuses such a profile
+  that no S3-compatible provider accepts (empty, over 255 bytes, `/`, `\`,
+  `?`, `#`, whitespace or control characters) and key prefixes
+  (`s3://bucket/prefix`), which are not supported, are rejected; names
+  outside AWS's DNS rules only print a path-style addressing warning. `backup --storage local` refuses such a profile
   and the `snapshots` commands report that they only read local
   repositories.
 - The desktop app no longer logs the length of the S3 access/secret keys at

@@ -122,8 +122,12 @@ OPTIONS:
 `--dest s3://my-backups` is the same as `--s3-bucket my-backups` (giving
 both with different buckets is an error). Backups are stored at the root of
 the bucket, so key prefixes (`s3://bucket/prefix`) are rejected. Bucket names
-must follow the S3 rules: 3-63 characters, lowercase letters, digits, `.`
-and `-`, starting and ending with a letter or digit. A profile created with
+are checked only for what no S3-compatible provider accepts: empty, longer
+than 255 bytes, or containing `/`, `\`, `?`, `#`, whitespace or control
+characters. Names outside AWS's current DNS rules (3-63 lowercase letters,
+digits, `.` and `-`), such as legacy AWS us-east-1 buckets with uppercase
+letters or `_`, are accepted with a warning that path-style addressing
+(`host/bucket/key`) will be used. A profile created with
 `--dest s3://...` has no local destination, so `--storage local` refuses to
 run with it; with `--s3-bucket` and a local `--dest`, that directory is only
 used by `--storage local` and is not created up front.

@@ -357,6 +357,8 @@ pub struct ProfileDestination {
     pub destination: PathBuf,
     /// S3 bucket for the profile's `s3` / `s3_bucket` fields.
     pub s3_bucket: Option<String>,
+    /// Non-fatal notes for the user (see [`s3_bucket_dns_warning`]).
+    pub warnings: Vec<String>,
 }
 
 impl ProfileDestination {
@@ -389,50 +391,81 @@ pub fn plan_profile_destination(
     if let Some(b) = s3_bucket {
         validate_s3_bucket_name(b)?;
     }
-    Ok(match from_url {
+    let mut plan = match from_url {
         Some(bucket) => ProfileDestination {
             destination: PathBuf::from(format!("s3://{}", bucket)),
             s3_bucket: Some(bucket),
+            warnings: Vec::new(),
         },
         None => ProfileDestination {
             destination: dest.to_path_buf(),
             s3_bucket: s3_bucket.map(str::to_string),
+            warnings: Vec::new(),
         },
-    })
+    };
+    if let Some(w) = plan.s3_bucket.as_deref().and_then(s3_bucket_dns_warning) {
+        plan.warnings.push(w);
+    }
+    Ok(plan)
 }
 
-/// Checks an S3 bucket name against the S3 naming rules: 3-63 characters,
-/// only lowercase letters, digits, `.` and `-`, starting and ending with a
-/// letter or digit, no `..`, and not formatted like an IPv4 address.
+/// Longest bucket name accepted (bytes). AWS allows 63, but some
+/// S3-compatible providers accept longer names.
+pub const MAX_S3_BUCKET_NAME_LEN: usize = 255;
+
+/// Rejects only bucket names that no S3-compatible provider can accept or
+/// that would break URL handling: empty, longer than
+/// [`MAX_S3_BUCKET_NAME_LEN`] bytes, or containing `/`, `\`, `?`, `#`,
+/// whitespace or control characters. Names outside AWS's current DNS rules
+/// (uppercase, `_`, `..`, IP-like, 1-2 characters...) are accepted: legacy
+/// AWS us-east-1 buckets, Ceph RGW, MinIO and other gateways use them; see
+/// [`s3_bucket_dns_warning`].
 pub fn validate_s3_bucket_name(name: &str) -> Result<()> {
-    let invalid = |why: &str| {
-        Err(anyhow!(
-            "Invalid S3 bucket name '{}': {} (allowed: 3-63 characters, lowercase letters, \
-             digits, '.' and '-', starting and ending with a letter or digit)",
-            name,
-            why
-        ))
-    };
-    if !(3..=63).contains(&name.len()) {
-        return invalid("must be 3-63 characters long");
+    let invalid = |why: String| Err(anyhow!("Invalid S3 bucket name '{}': {}", name, why));
+    if name.is_empty() {
+        return invalid("it is empty".to_string());
+    }
+    if name.len() > MAX_S3_BUCKET_NAME_LEN {
+        return invalid(format!("longer than {} bytes", MAX_S3_BUCKET_NAME_LEN));
     }
     if let Some(c) = name
         .chars()
-        .find(|c| !(c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '.' || *c == '-'))
+        .find(|c| matches!(c, '/' | '\\' | '?' | '#') || c.is_whitespace() || c.is_control())
     {
-        return invalid(&format!("character {:?} is not allowed", c));
-    }
-    let alnum = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric());
-    if !alnum(name.chars().next()) || !alnum(name.chars().last()) {
-        return invalid("must start and end with a letter or digit");
-    }
-    if name.contains("..") {
-        return invalid("must not contain two adjacent periods");
-    }
-    if name.parse::<std::net::Ipv4Addr>().is_ok() {
-        return invalid("must not be formatted as an IP address");
+        let hint = if c == '/' {
+            " (key prefixes are not supported)"
+        } else {
+            ""
+        };
+        return invalid(format!("character {:?} is not allowed{}", c, hint));
     }
     Ok(())
+}
+
+/// Warning for a bucket name that some providers accept but that is outside
+/// AWS's current DNS naming rules (3-63 characters of lowercase letters,
+/// digits, `.` and `-`, starting and ending with a letter or digit, no `..`,
+/// not an IPv4 address). Such a bucket cannot be addressed virtual-hosted
+/// style, so requests use path-style addressing (`host/bucket/key`).
+pub fn s3_bucket_dns_warning(name: &str) -> Option<String> {
+    let alnum = |c: Option<char>| c.is_some_and(|c| c.is_ascii_alphanumeric());
+    let dns_ok = (3..=63).contains(&name.len())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+        && alnum(name.chars().next())
+        && alnum(name.chars().last())
+        && !name.contains("..")
+        && name.parse::<std::net::Ipv4Addr>().is_err();
+    (!dns_ok).then(|| {
+        format!(
+            "S3 bucket name '{}' does not follow AWS's current DNS naming rules \
+             (3-63 lowercase letters, digits, '.' and '-'); path-style addressing \
+             (host/bucket/key) will be used. AWS accepts such names only for legacy \
+             buckets; other S3-compatible providers may allow them.",
+            name
+        )
+    })
 }
 
 /// Avisa que um segredo passado como argumento fica visível em `ps`/histórico.
@@ -557,7 +590,14 @@ mod tests {
         );
         assert!(parse_s3_destination("s3://").is_err());
         assert!(parse_s3_destination("s3:///x").is_err());
-        assert!(parse_s3_destination("s3://My_Bucket").is_err());
+        assert!(parse_s3_destination("s3://bucket\\daily").is_err());
+        assert!(parse_s3_destination("s3://bucket?x=1").is_err());
+        assert!(parse_s3_destination("s3://bucket#frag").is_err());
+        // Names outside AWS's DNS rules are accepted (other providers).
+        assert_eq!(
+            parse_s3_destination("s3://My_Bucket").unwrap().as_deref(),
+            Some("My_Bucket")
+        );
     }
 
     #[test]
@@ -576,7 +616,20 @@ mod tests {
         let d = plan_profile_destination(Path::new("/backup/x"), Some("my-backups")).unwrap();
         assert!(d.is_s3());
         assert_eq!(d.destination, PathBuf::from("/backup/x"));
-        assert!(plan_profile_destination(Path::new("/backup/x"), Some("Bad_Bucket")).is_err());
+        assert!(d.warnings.is_empty());
+        assert!(plan_profile_destination(Path::new("/backup/x"), Some("bad bucket")).is_err());
+
+        // Legacy/provider-specific names: accepted with a path-style warning,
+        // from either flag.
+        for (dest, flag) in [
+            ("s3://Legacy_Bucket", None),
+            ("/backup/x", Some("Legacy_Bucket")),
+        ] {
+            let d = plan_profile_destination(Path::new(dest), flag).unwrap();
+            assert_eq!(d.s3_bucket.as_deref(), Some("Legacy_Bucket"));
+            assert_eq!(d.warnings.len(), 1, "{:?}", d.warnings);
+            assert!(d.warnings[0].contains("path-style"), "{}", d.warnings[0]);
+        }
 
         let d = plan_profile_destination(Path::new("/backup/x"), None).unwrap();
         assert!(!d.is_s3());
@@ -584,23 +637,58 @@ mod tests {
     }
 
     #[test]
-    fn bucket_names_follow_s3_rules() {
-        for ok in ["abc", "my-backups", "a.b-c.1", &"a".repeat(63)] {
+    fn bucket_names_accept_every_provider_and_reject_url_breakers() {
+        let long_ok = "a".repeat(MAX_S3_BUCKET_NAME_LEN);
+        for ok in [
+            "abc",
+            "my-backups",
+            "a.b-c.1",
+            "a",
+            "ab",
+            "MyBucket",
+            "my_bucket",
+            "-bucket",
+            "my..bucket",
+            "192.168.1.1",
+            &"a".repeat(64),
+            &long_ok,
+        ] {
             assert!(validate_s3_bucket_name(ok).is_ok(), "{}", ok);
         }
+        let too_long = "a".repeat(MAX_S3_BUCKET_NAME_LEN + 1);
         for bad in [
+            "",
+            &too_long,
+            "bucket/prefix",
+            "bucket\\x",
+            "bucket?x",
+            "bucket#x",
+            "bucket name",
+            "bucket\tname",
+            "bucket\u{7f}",
+            "bucket\n",
+        ] {
+            assert!(validate_s3_bucket_name(bad).is_err(), "{:?}", bad);
+        }
+    }
+
+    #[test]
+    fn dns_warning_only_for_names_outside_aws_rules() {
+        for dns in ["abc", "my-backups", "a.b-c.1", &"a".repeat(63)] {
+            assert!(s3_bucket_dns_warning(dns).is_none(), "{}", dns);
+        }
+        for legacy in [
             "ab",
             &"a".repeat(64),
             "MyBucket",
             "my_bucket",
             "-bucket",
             "bucket-",
-            ".bucket",
             "my..bucket",
             "192.168.1.1",
-            "bucket name",
         ] {
-            assert!(validate_s3_bucket_name(bad).is_err(), "{}", bad);
+            let w = s3_bucket_dns_warning(legacy).expect(legacy);
+            assert!(w.contains("path-style"), "{}", w);
         }
     }
 

@@ -58,6 +58,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // `--dest s3://bucket` (or --s3-bucket) is an S3 profile: nothing
             // is created locally (this used to create a local "s3:" folder).
             let target = plan_profile_destination(&dest, s3_bucket.as_deref())?;
+            for w in &target.warnings {
+                eprintln!("⚠️  {}", w);
+            }
             let s3_bucket = target.s3_bucket.clone();
             let dest = target.destination.clone();
             if !target.is_s3() && !dest.exists() {
