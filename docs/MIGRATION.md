@@ -40,7 +40,7 @@ from your password with Argon2id. Either the first encrypted backup made
 with alpha.9 creates it automatically, or you create it explicitly:
 
 ```bash
-rsb login                                  # every `rsb key` command needs a session
+rsb login user@example.com                 # every `rsb key` command needs a session
 rsb key init mybackup.toml                 # profile (local or S3 destination)
 rsb key init --repo /path/to/backup        # or a local repository directory
 ```
