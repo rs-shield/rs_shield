@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `rsb` (CLI) ignored `RUST_LOG` and always logged at WARN. `RUST_LOG` is
+  now honoured (default: warnings only; an invalid value is reported and
+  ignored), and log lines go to stderr instead of stdout.
+- The desktop app no longer logs the length of the S3 access/secret keys at
+  debug level.
+
 ## [0.1.0-alpha.9] - 2026-10-12
 
 Read the [migration guide](docs/MIGRATION.md) before upgrading: once this

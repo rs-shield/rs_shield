@@ -967,6 +967,21 @@ For a detailed report on a backup directory:
 rsb diagnose --backup /backup/docs --verbose
 ```
 
+Log messages go to stderr. By default only warnings and errors are shown;
+set `RUST_LOG` (standard `tracing` filter syntax) for more:
+
+```bash
+RUST_LOG=info rsb backup mybackup.toml                      # progress of every step
+RUST_LOG=rsb_sdk=debug rsb verify --backup /backup/docs     # one crate in detail
+```
+
+An invalid `RUST_LOG` value is reported and ignored (warnings only).
+Passwords, keys and credentials are never logged, at any level; the AWS
+request-signing traces (`aws_sigv4`, which include session tokens) stay at
+warning level unless `RUST_LOG` names `aws_sigv4` explicitly. There is no
+`-v/--verbose` logging flag (`diagnose --verbose` only adds detail to the
+diagnostic report).
+
 ### Parallel Processing
 
 Increase threads for faster backup:

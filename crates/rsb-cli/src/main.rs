@@ -20,7 +20,7 @@ use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{Level, info, warn};
+use tracing::{info, warn};
 
 #[derive(Parser)]
 #[command(name = "rsb-cli", version, about = "Rust Shield Backup")]
@@ -31,7 +31,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt().with_max_level(Level::WARN).init();
+    rsb_cli::logging::init_logging();
 
     let cli = Cli::parse();
 
