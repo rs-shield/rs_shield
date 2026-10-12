@@ -230,8 +230,9 @@ rsb login <user_id>
 ### Verify Backup Integrity
 
 ```bash
-# Command-line verification
-rsb-cli verify --backup /path/to/backup --password "your-password"
+# Command-line verification (prompts for the password, or reads
+# RSB_ENCRYPTION_KEY; avoid --key, it shows up in `ps` and shell history)
+rsb-cli verify --backup /path/to/backup
 
 # Output shows:
 # - File count

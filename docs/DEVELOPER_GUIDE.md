@@ -471,15 +471,17 @@ cargo test --release -- --nocapture
 
 ### CLI Integration
 
-**Location:** `rsb-cli/src/fido2_cmd.rs`
+**Location:** `crates/rsb-cli/src/command/fido2_cmd.rs` (the `rsb auth` subcommand)
 
 Provides user-friendly commands:
 
 ```bash
-rsb fido2 register --user-id user@example.com
-rsb fido2 authenticate --user-id user@example.com
-rsb fido2 list
-rsb fido2 revoke --user-id user@example.com
+rsb auth register                      # browser flow on http://localhost:3000
+rsb auth authenticate
+rsb auth list
+rsb auth delete user@example.com
+rsb auth generate-codes user@example.com
+rsb login user@example.com             # start a CLI session
 ```
 
 ---
@@ -768,12 +770,8 @@ Configurations saved to `integrations.json` in profile directory:
 3. Click **"Test Notification"** button
 4. Notification should appear in Telegram within 1-2 seconds
 
-**Test via CLI:**
-
-```bash
-# Test via configuration
-cargo run -p rsb-cli -- test-integrations --profile my-backup
-```
+The CLI has no command to send a test notification; use the desktop UI or
+the API below.
 
 **Test Programmatically:**
 
@@ -938,14 +936,14 @@ cargo build -p rsb-desktop --release # Desktop GUI
 # Show available commands
 cargo run -p rsb-cli -- --help
 
-# Create profile
-cargo run -p rsb-cli -- create-profile --name my-backup --source /home/user/docs
+# Create profile (writes my-backup.toml)
+cargo run -p rsb-cli -- create-profile --name my-backup --source /home/user/docs --dest /path/to/backup
 
 # List profiles
 cargo run -p rsb-cli -- list-profiles
 
-# Perform backup
-cargo run -p rsb-cli -- backup --profile my-backup
+# Perform backup (needs a session: cargo run -p rsb-cli -- login <USER_ID>)
+cargo run -p rsb-cli -- backup my-backup.toml
 
 # Verify backup integrity
 cargo run -p rsb-cli -- verify --backup /path/to/backup
@@ -954,7 +952,7 @@ cargo run -p rsb-cli -- verify --backup /path/to/backup
 cargo run -p rsb-cli -- diagnose --backup /path/to/backup
 
 # Restore from backup
-cargo run -p rsb-cli -- restore --backup /path/to/backup --destination /tmp/restored
+cargo run -p rsb-cli -- restore --backup /path/to/backup --target /tmp/restored
 ```
 
 ### Testing
@@ -1087,8 +1085,8 @@ cargo deny check
 
 5. **Update documentation:**
    - Add rustdoc comments to public API
-   - Update [docs/CLI.md](docs/CLI.md) if adding commands
-   - Update [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for user-facing changes
+   - Update [docs/CLI.md](CLI.md) if adding commands
+   - Update [docs/USER_GUIDE.md](USER_GUIDE.md) for user-facing changes
    - Update this DEVELOPER_GUIDE.md if architecture changes
 
 6. **Run full test suite:**
