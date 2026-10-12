@@ -253,9 +253,15 @@ fn schedule_of_a_portable_profile_runs_from_its_working_dir() {
     let profile = write_profile(&f.cwd, "portable", Path::new("../repo"), "");
     let cfg: Config = toml::from_str(&fs::read_to_string(&profile).unwrap()).unwrap();
     assert!(profile_uses_relative_paths(&cfg));
-    assert!(!profile_uses_relative_paths(&Config::new("/src", "/repo")));
+    // Absolute on every platform ("/src" has no drive letter on Windows).
+    let abs_src = f.cwd.join("src");
+    let abs_src = abs_src.to_str().unwrap();
+    let abs_repo = f.repo.to_str().unwrap();
     assert!(!profile_uses_relative_paths(&Config::new(
-        "/src",
+        abs_src, abs_repo
+    )));
+    assert!(!profile_uses_relative_paths(&Config::new(
+        abs_src,
         "s3://bucket"
     )));
 
