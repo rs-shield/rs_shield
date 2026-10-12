@@ -9,12 +9,18 @@ Complete command-line interface documentation for RS Shield.
 3. [Commands](#commands)
    - [Profile Management](#profile-management)
    - [Backup & Restore](#backup--restore)
+   - [Repository Key](#repository-key-format-v3)
    - [Snapshot Management](#snapshot-management)
    - [Maintenance](#maintenance)
    - [Authentication](#authentication)
+   - [Diagnostics](#diagnostics)
+   - [Credentials & Settings](#credentials--settings-rsb-config)
 4. [Portability Guide](#portability-guide)
 5. [Deduplication](#deduplication)
-6. [Exit Codes](#exit-codes)
+6. [Examples](#examples)
+7. [Exit Codes](#exit-codes)
+8. [Tips & Tricks](#tips--tricks)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -23,9 +29,16 @@ Complete command-line interface documentation for RS Shield.
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/rs-shield.git
+git clone https://github.com/zebedeu/rs-shield.git
 cd rs-shield
 cargo install --path ./crates/rsb-cli
+```
+
+The binary is installed as `rsb-cli`. The examples in this document call it
+`rsb`; create an alias (or a symlink) to type them as shown:
+
+```bash
+alias rsb=rsb-cli
 ```
 
 ### Verify Installation
@@ -44,31 +57,31 @@ rsb --help
 Profiles are TOML configuration files defining backup parameters:
 
 ```toml
-[backup]
 source_path = "/home/user/documents"
 destination_path = "/backup/storage"
-mode = "incremental"                    # or "full"
-compression_level = 3                   # 0-11 (0=none, 11=max)
-exclude_patterns = ["*.tmp", "node_modules/"]
+backup_mode = "incremental"             # or "full"
+compression_level = 3                   # 0-22 (zstd; 0 = zstd default)
+exclude_patterns = ["*.tmp", "node_modules"]
+encrypt_patterns = ["*"]                # set by --encrypt
 
-[encryption]
-enabled = true
-password = "your_password"
-
-[s3]
-enabled = false
+# Optional: back up to S3 instead of destination_path
+# [s3]
 # bucket = "my-bucket"
 # region = "us-east-1"
 # endpoint = "https://s3.amazonaws.com"
 ```
 
+Secrets are not stored in the profile: the encryption password comes from
+the `RSB_ENCRYPTION_KEY` environment variable, the OS keyring (saved by
+`create-profile --encrypt`) or an interactive prompt, and S3 credentials
+from `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` or
+`rsb config s3-credentials` (see [MIGRATION.md](MIGRATION.md)).
+
 ### Creating a Profile
 
 ```bash
-# Interactive profile creation
-rsb create-profile
-
-# Or use command-line options
+# --name, --source and --dest are required; writes mybackup.toml in the
+# current directory and prompts for the encryption password
 rsb create-profile \
   --name mybackup \
   --source ~/Documents \
@@ -87,18 +100,22 @@ rsb create-profile \
 #### Create Profile
 
 ```bash
-rsb create-profile [OPTIONS]
+rsb create-profile [OPTIONS] --name <NAME> --source <SOURCE> --dest <DEST>
 
 OPTIONS:
-  --name <NAME>                 Profile name
-  --source <SOURCE>             Source directory to backup
-  --dest <DEST>                 Destination directory
+  -n, --name <NAME>             Profile name (writes <NAME>.toml)
+  -s, --source <SOURCE>         Source directory to backup
+  -d, --dest <DEST>             Destination directory
   -m, --mode <MODE>             Backup mode: incremental | full [default: incremental]
-  -c, --compression <LEVEL>     Compression level 0-11 [default: 3]
-  -e, --encrypt                 Enable encryption
-  --s3-bucket <BUCKET>          S3 bucket name
-  --s3-region <REGION>          S3 region
-  --s3-endpoint <ENDPOINT>      S3 endpoint
+  -z, --compression <LEVEL>     Compression level 0-22 (zstd) [default: 3]
+  -e, --encrypt                 Enable encryption (prompts for the password)
+  -k, --password <PASSWORD>     Encryption password (deprecated: visible in
+                                `ps`/shell history; omit it to be prompted)
+  -x, --exclude <PATTERNS>      Exclude patterns (comma-separated)
+  -b, --s3-bucket <BUCKET>      S3 bucket name
+  -r, --s3-region <REGION>      S3 region
+  -E, --s3-endpoint <ENDPOINT>  S3 endpoint
+  --portable                    Store relative paths (move the profile between computers)
 ```
 
 #### List Profiles
@@ -107,8 +124,21 @@ OPTIONS:
 rsb list-profiles [OPTIONS]
 
 OPTIONS:
-  -f, --format <FORMAT>         Output format: table | json [default: table]
-  -q, --quiet                   Minimal output
+  -d, --dir <DIRECTORY>         Profile directory [default: ~/.config/rs-shield]
+  -f, --format <FORMAT>         Output format: table | json | csv [default: table]
+```
+
+**Examples:**
+
+```bash
+# List profiles
+rsb list-profiles
+
+# JSON output
+rsb list-profiles --format json
+
+# Custom directory
+rsb list-profiles --dir ~/.backup/profiles
 ```
 
 ### Backup & Restore
@@ -121,13 +151,15 @@ Perform a backup operation.
 rsb backup [OPTIONS] [CONFIG]
 
 ARGUMENTS:
-  [CONFIG]                      Path to config.toml (optional)
+  [CONFIG]                      Path to the profile .toml (optional: auto-discovered
+                                when the current directory holds exactly one profile)
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml file
-  -b, --backup <BACKUP>         Backup destination (portable mode, no config needed)
+  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
   -m, --mode <MODE>             Override backup mode: full | incremental
-  -k, --key <KEY>               Encryption password
+  -k, --key <KEY>               Encryption password (deprecated: prefer
+                                RSB_ENCRYPTION_KEY, the keyring or the prompt)
+  --storage <STORAGE>           s3 | local (default: what the profile configures)
   -d, --dry-run                 Preview changes without modifying files
   --no-resume                   Don't resume interrupted backups
   -v, --verify                  Verify backup integrity after completion
@@ -143,8 +175,11 @@ OPTIONS:
 # Standard backup (using config file)
 rsb backup mybackup.toml
 
-# Portable backup (no config needed, direct path)
-rsb backup --backup /media/external/backup
+# Encrypted backup without a prompt (cron, CI): key from the environment
+RSB_ENCRYPTION_KEY='your-password' rsb backup mybackup.toml
+
+# Force local storage even if the profile has an S3 bucket
+rsb backup mybackup.toml --storage local
 
 # With verification
 rsb backup mybackup.toml --verify
@@ -161,6 +196,12 @@ rsb backup mybackup.toml --threads 8
 # Generate HTML report
 rsb backup mybackup.toml --report
 ```
+
+When `--storage` is omitted, a profile with an S3 bucket backs up to S3 and
+any other profile backs up locally (in an interactive terminal you are asked
+which storage to use). `backup`, `restore`, `verify`, `prune`, `watch`,
+`snapshots delete`, `diagnose --repair` and the `key` commands need a
+session from `rsb login <USER_ID>`.
 
 #### Restore
 
@@ -259,24 +300,30 @@ Snapshot times come from the snapshot names (UTC), as listed by
 Verify backup integrity.
 
 ```bash
-rsb verify [OPTIONS]
+rsb verify [OPTIONS] [CONFIG]
+
+ARGUMENTS:
+  [CONFIG]                      Path to config.toml (or use --backup)
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml
   -b, --backup <BACKUP>         Path to backup directory
   -s, --snapshot <ID>           Verify specific snapshot
-  -k, --key <KEY>               Decryption password
+  -k, --key <KEY>               Decryption password (prefer RSB_ENCRYPTION_KEY)
   --quick                       Quick verification (hash only, skip decryption)
-  --fast                        Fast verification (hash-only, no decryption)
+  -f, --fast                    Fast verification (hash-only, no decryption)
+  --repair                      Delete objects proven corrupt (forces a full
+                                check) so the next backup re-uploads them
   -q, --quiet                   Suppress output
   -r, --report                  Generate HTML verification report
 ```
+
+`verify` exits with a non-zero code when it finds problems.
 
 **Examples:**
 
 ```bash
 # Verify using config
-rsb verify --config mybackup.toml
+rsb verify mybackup.toml
 
 # Verify using backup path
 rsb verify --backup /backup/docs
@@ -285,10 +332,14 @@ rsb verify --backup /backup/docs
 rsb verify --backup /backup/docs --quick
 
 # Verify specific snapshot
-rsb verify --config mybackup.toml --snapshot 2026-05-25T10:30:00
+rsb verify mybackup.toml --snapshot 2026-05-25T103000.000Z
 
 # Generate report
-rsb verify --config mybackup.toml --report
+rsb verify mybackup.toml --report
+
+# Remove corrupt objects; the next backup uploads them again
+rsb verify mybackup.toml --repair
+rsb backup mybackup.toml
 ```
 
 ### Repository Key (format v3)
@@ -386,8 +437,8 @@ rsb snapshots list --config mybackup.toml
 # List snapshots from backup path
 rsb snapshots list --backup /backup/docs
 
-# List encrypted snapshots
-rsb snapshots list --backup /backup/docs --key mypassword
+# List encrypted snapshots (key from the environment instead of --key)
+RSB_ENCRYPTION_KEY='your-password' rsb snapshots list --backup /backup/docs
 ```
 
 #### Show Snapshot Details
@@ -408,10 +459,10 @@ OPTIONS:
 
 ```bash
 # Show snapshot details
-rsb snapshots show 2026-05-25T10:30:00 --config mybackup.toml
+rsb snapshots show 2026-05-25T103000.000Z --config mybackup.toml
 
 # Show details from backup path
-rsb snapshots show 2026-05-25T10:30:00 --backup /backup/docs
+rsb snapshots show 2026-05-25T103000.000Z --backup /backup/docs
 ```
 
 #### Compare Snapshots (NEW)
@@ -435,10 +486,10 @@ OPTIONS:
 
 ```bash
 # Compare two snapshots
-rsb snapshots diff 2026-05-20T10:00:00 2026-05-25T10:00:00 --config mybackup.toml
+rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --config mybackup.toml
 
 # Compare using portable backup path
-rsb snapshots diff snap1 snap2 --backup /backup/docs
+rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /backup/docs
 
 # Output shows:
 # ✅ Added (N files)
@@ -459,6 +510,16 @@ OPTIONS:
   -b, --backup <BACKUP>         Path to backup directory
 ```
 
+**Examples:**
+
+```bash
+# Delete a snapshot (needs a session from `rsb login`)
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml
+```
+
+Snapshot ids are the names printed by `rsb snapshots list` (UTC, for example
+`2026-05-25T103000.000Z`).
+
 ### Maintenance
 
 #### Prune
@@ -466,11 +527,13 @@ OPTIONS:
 Remove old backups and optimize storage.
 
 ```bash
-rsb prune [OPTIONS]
+rsb prune [OPTIONS] [CONFIG]
+
+ARGUMENTS:
+  [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml (optional)
-  -b, --backup <BACKUP>         Path to backup directory (portable mode)
+  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
   -l, --keep-last <COUNT>       Keep last N backups (the short flag was -k
                                 before 0.1.0-alpha.9)
   -r, --retention <POLICY>      Retention policy: "30d", "6m", "1y", or number
@@ -484,16 +547,14 @@ OPTIONS:
 
 ```bash
 # Preview what would be deleted
-rsb prune --config mybackup.toml --retention 30d --dry-run
+rsb prune mybackup.toml --retention 30d --dry-run
 
 # Keep last 6 months
-rsb prune --config mybackup.toml --retention 6m --confirm
+rsb prune mybackup.toml --retention 6m --confirm
 
 # Keep last 10 backups
-rsb prune --config mybackup.toml --keep-last 10 --confirm
-
-# Using backup path (portable)
-rsb prune --backup /backup/docs --retention 90d --confirm
+rsb prune mybackup.toml --keep-last 10 --confirm
+rsb prune mybackup.toml -l 10 --confirm
 ```
 
 #### Schedule
@@ -501,11 +562,13 @@ rsb prune --backup /backup/docs --retention 90d --confirm
 Display scheduling instructions for automated backups.
 
 ```bash
-rsb schedule [OPTIONS]
+rsb schedule [OPTIONS] [CONFIG]
+
+ARGUMENTS:
+  [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml (optional)
-  -b, --backup <BACKUP>         Backup directory (portable mode)
+  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
   -f, --format <FORMAT>         Output format: cron | systemd [default: cron]
 ```
 
@@ -513,11 +576,15 @@ OPTIONS:
 
 ```bash
 # Get cron format
-rsb schedule --config mybackup.toml --format cron
-# Output: 0 3 * * * "/usr/local/bin/rsb-cli" backup "mybackup.toml" --key "PASSWORD"
+rsb schedule mybackup.toml --format cron
+# Output (the key is read from a 0600 env file, never passed as --key):
+# # 1) Store the encryption key in a file readable only by you:
+# #    (umask 077 && printf 'RSB_ENCRYPTION_KEY=%s\n' 'YOUR_KEY' > "/home/user/.rs-shield/rsb-backup.env")
+# # 2) Add this line to your crontab (crontab -e):
+# 0 3 * * * set -a && . "/home/user/.rs-shield/rsb-backup.env" && set +a && "/usr/local/bin/rsb-cli" backup "/home/user/mybackup.toml" --storage local
 
 # Get systemd format
-rsb schedule --config mybackup.toml --format systemd
+rsb schedule mybackup.toml --format systemd
 ```
 
 #### Watch
@@ -525,27 +592,38 @@ rsb schedule --config mybackup.toml --format systemd
 Enable real-time file synchronization and automated backups.
 
 ```bash
-rsb watch [OPTIONS]
+rsb watch [OPTIONS] --sync-to <SYNC_TO> [CONFIG]
+
+ARGUMENTS:
+  [CONFIG]                      Path to config.toml (optional: auto-discovered)
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml (optional)
-  -b, --backup <BACKUP>         Backup directory (portable mode)
-  --sync-to <PATH>              Directory to sync changes to
-  -k, --key <KEY>               Encryption password
-  -i, --interval <SECONDS>      Check interval [default: 2]
+  -b, --backup <BACKUP>         Used as the profile path when CONFIG is omitted
+  -s, --sync-to <PATH>          Directory to sync changes to (required)
+  -k, --key <KEY>               Encryption password (deprecated: prefer
+                                RSB_ENCRYPTION_KEY, the keyring or the prompt)
+  -i, --interval <SECONDS>      Quiet period: a backup starts once no change has
+                                arrived for this long [default: 2]
   -H, --healthcheck-url <URL>   Healthchecks.io URL for monitoring
 ```
+
+`watch` always encrypts: without a key from `RSB_ENCRYPTION_KEY`, the
+keyring or the prompt it refuses to start.
 
 **Examples:**
 
 ```bash
-# Watch and auto-backup
-rsb watch --config mybackup.toml --sync-to /tmp/sync --key mypassword
+# Watch and auto-backup (prompts for the password, or reads RSB_ENCRYPTION_KEY)
+rsb watch mybackup.toml --sync-to /tmp/sync
 
 # With healthcheck monitoring
-rsb watch --config mybackup.toml --sync-to /tmp/sync \
+rsb watch mybackup.toml --sync-to /tmp/sync \
   --healthcheck-url https://healthchecks.io/ping/your-uuid
 ```
+
+> For `backup`, `prune`, `schedule` and `watch`, `--backup` is read as the
+> path of the profile `.toml` (the same as CONFIG), not as a repository
+> directory. Use the positional CONFIG argument.
 
 ### Authentication
 
@@ -554,11 +632,24 @@ rsb watch --config mybackup.toml --sync-to /tmp/sync \
 Authenticate with FIDO2 security key.
 
 ```bash
-rsb login [OPTIONS]
+rsb login [OPTIONS] <USER_ID>
+
+ARGUMENTS:
+  <USER_ID>                     User email or username
 
 OPTIONS:
-  --user-id <ID>                User email or username
-  --recovery                    Use recovery code instead of FIDO2
+  -r, --recovery                Use recovery code instead of FIDO2
+```
+
+**Examples:**
+
+```bash
+# Login with FIDO2 key
+rsb login user@example.com
+
+# Login with recovery code
+rsb login user@example.com --recovery
+# Then enter recovery code when prompted
 ```
 
 #### Server
@@ -572,6 +663,129 @@ OPTIONS:
   -p, --port <PORT>             Server port [default: 3000]
 ```
 
+**Examples:**
+
+```bash
+# Start on default port 3000
+rsb server
+
+# Start on custom port
+rsb server --port 8080
+```
+
+#### Security Key Management (`rsb auth`)
+
+Manage FIDO2/WebAuthn credentials. `register` and `authenticate` open a
+browser page on `http://localhost:3000` where you enter the user id and
+touch the key. Every subcommand accepts `-s, --storage <PATH>` (credential
+file, default `~/.rsb/auth.json`).
+
+```bash
+rsb auth <COMMAND>
+
+COMMANDS:
+  register        Register a security key (browser flow)
+  authenticate    Authenticate with a registered key (browser flow)
+  list            List registered credentials
+  delete          Delete the credentials of a user: delete <USER_ID>
+  generate-codes  Generate recovery codes: generate-codes <USER_ID>
+                  [-o, --output <FILE>] [--no-display]
+  list-codes      Count remaining recovery codes: list-codes <USER_ID>
+  export-codes    Export recovery codes: export-codes <USER_ID>
+                  -o, --output <FILE> [-f, --format text|json]
+```
+
+**Examples:**
+
+```bash
+# Register a key, then check it is listed
+rsb auth register
+rsb auth list
+
+# Generate recovery codes and save them to a file only (needs a session as
+# that user: `rsb login user@example.com` first)
+rsb auth generate-codes user@example.com --output ~/safe/codes.txt --no-display
+
+# Remove the credentials of a lost key (needs a session as that user)
+rsb auth delete user@example.com
+```
+
+### Diagnostics
+
+#### Diagnose
+
+Diagnose and repair backup issues.
+
+```bash
+rsb diagnose [OPTIONS] --backup <PATH>
+
+OPTIONS:
+  -b, --backup <PATH>           Backup path to diagnose
+  -k, --key <PASSWORD>          Decryption password (prefer RSB_ENCRYPTION_KEY)
+  -v, --verbose                 Detailed diagnostics output
+  -j, --json                    Output in JSON format
+  --repair                      Attempt to repair detected issues (needs `rsb login`)
+```
+
+**Examples:**
+
+```bash
+# Run diagnostics
+rsb diagnose --backup /backup/docs
+
+# Verbose output
+rsb diagnose --backup /backup/docs --verbose
+
+# JSON output for automation
+rsb diagnose --backup /backup/docs --json
+
+# Attempt repairs
+rsb diagnose --backup /backup/docs --repair
+
+# Diagnose encrypted backup
+RSB_ENCRYPTION_KEY='your-password' rsb diagnose --backup /backup/docs --verbose
+```
+
+### Credentials & Settings (`rsb config`)
+
+Manage credentials and settings.
+
+```bash
+rsb config <COMMAND>
+
+COMMANDS:
+  set-password             Set master password
+  s3-credentials           Configure S3 credentials: --bucket <BUCKET> --region <REGION>
+                           [--endpoint <URL>] [--access-key <ID>] (the secret key is prompted)
+  list                     List current configuration
+  reset                    Reset all settings [WARNING: destructive; needs --confirm]
+```
+
+**Examples:**
+
+```bash
+# Set master password
+rsb config set-password
+
+# Configure S3
+rsb config s3-credentials --bucket my-backups --region us-east-1 --access-key AKIA...
+
+# List config
+rsb config list
+
+# Reset (danger!)
+rsb config reset --confirm
+```
+
+### Version & Help
+
+```bash
+rsb --version              Print version
+rsb --help                 Print general help
+rsb <COMMAND> --help       Print command help
+rsb help <COMMAND>         Print command help (alternative)
+```
+
 ---
 
 ## Portability Guide
@@ -579,46 +793,55 @@ OPTIONS:
 ### What is Portable Mode?
 
 Portable mode allows you to:
-- Create backups without a config file
-- Use `--backup` flag to specify destination directory directly
+- Restore, verify and inspect a backup without its profile: `restore`,
+  `verify` and the `snapshots` commands accept `--backup <DIR>` (the backup
+  directory itself)
+- Create profiles that store relative paths (`create-profile --portable`)
 - Restore backups on different computers
 - Move backups to external drives
+
+Making a backup always needs a profile (`rsb backup <CONFIG>`).
 
 ### Portable Backup Workflow
 
 ```bash
-# 1. Create backup without config file (portable mode)
-rsb backup --backup /media/external/mybackup
+# 1. Create a profile that stores relative paths, then back up
+rsb create-profile --name mybackup --source ~/Documents \
+  --dest /media/external/mybackup --portable
+rsb backup mybackup.toml
 
-# 2. Verify on same computer
+# 2. Verify on same computer (no profile needed)
 rsb verify --backup /media/external/mybackup
 
 # 3. Move to another computer and restore
 # On computer B:
-rsb restore --backup /media/external/mybackup --output ~/restored
+rsb restore --backup /media/external/mybackup --target ~/restored
 
 # 4. Compare snapshots across systems
-rsb snapshots diff snap1 snap2 --backup /media/external/mybackup
+rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /media/external/mybackup
 ```
 
 ### Config vs Portable Mode
 
 | Feature | Config Mode | Portable Mode |
 |---------|------------|---------------|
-| Command | `rsb backup config.toml` | `rsb backup --backup /path` |
-| Requires config file | ✅ Yes | ❌ No |
+| Command | `rsb restore config.toml --target <DIR>` | `rsb restore --backup /path --target <DIR>` |
+| Requires config file | ✅ Yes | ❌ No (restore, verify, snapshots) |
 | Cross-computer | ❌ Limited | ✅ Yes |
 | Profile saved | ✅ Yes | ❌ No |
 | Use case | Regular backups | External drives, cross-platform |
 
 ### Auto-Discovery
 
-All commands look for `.toml` files in the current directory:
+`backup`, `prune`, `schedule`, `watch` and the `snapshots` commands use the
+profile in the current directory when no profile is given, if there is
+exactly one (a `.toml` with `source_path` and `destination_path`; files such
+as `Cargo.toml` are ignored). With several profiles they fail and list them.
+`restore` and `verify` always need a profile or `--backup`.
 
 ```bash
-# If mybackup.toml is in current directory:
+# If mybackup.toml is the only profile in the current directory:
 rsb backup          # Auto-discovers mybackup.toml
-rsb verify          # Auto-discovers mybackup.toml
 rsb snapshots list  # Auto-discovers mybackup.toml
 ```
 
@@ -655,587 +878,47 @@ rsb backup mybackup.toml
 
 ---
 
-## Exit Codes
-
-| Code | Meaning | Example |
-|------|---------|---------|
-| 0 | Success | Backup completed successfully |
-| 1 | General error | Configuration file not found |
-| 2 | I/O error | Cannot read source directory |
-| 3 | Encryption error | Invalid decryption password |
-| 4 | Verification failed | Backup integrity check failed |
-| 5 | Permission denied | Insufficient access to source/destination |
-  --encrypt \
-  --compression 6
-
-# With S3
-rsb create-profile --name cloud \
-  --source ~/Documents \
-  --dest s3://my-backups \
-  --s3-bucket my-backups \
-  --s3-region us-east-1 \
-  --encrypt
-```
-
-### Backup
-
-Perform a backup operation.
-
-```bash
-rsb backup [OPTIONS] --profile <FILE>
-
-OPTIONS:
-  -p, --profile <FILE>           Profile configuration file
-  -m, --mode <MODE>              Override backup mode (full/incremental)
-  -c, --password <PASSWORD>      Encryption password
-  -d, --dry-run                  Preview changes without backing up
-  -v, --verify                   Verify backup after completion
-  --no-compress                  Disable compression
-  --threads <COUNT>              Number of parallel threads
-  -q, --quiet                    Suppress progress output
-```
-
-**Examples:**
-
-```bash
-# Simple backup
-rsb backup --profile docs.toml
-
-# Dry run to preview
-rsb backup --profile docs.toml --dry-run
-
-# With verification
-rsb backup --profile docs.toml --verify
-
-# Full backup (override incremental)
-rsb backup --profile docs.toml --mode full
-
-# Custom thread count
-rsb backup --profile docs.toml --threads 4
-```
-
-### Restore
-
-Restore from a backup.
-
-```bash
-rsb restore [CONFIG] --target <PATH> [OPTIONS]
-
-OPTIONS:
-  -b, --backup <PATH>            Backup source path
-  -t, --target <PATH>            Restore destination
-  -k, --key <KEY>                Decryption password
-  -i, --files <PATTERN>...       Restore only matching files (path, folder or glob)
-  -d, --date <WHEN>              Latest snapshot at or before WHEN (YYYY-MM-DD = end of day, local time)
-  -v, --verify                   Verify the snapshot after restoring
-```
-
-See [Restore](#restore) above for the pattern and date rules.
-
-**Examples:**
-
-```bash
-# Full restore
-rsb restore --backup /backup/docs --target ~/restored
-
-# Specific files only
-rsb restore --backup /backup/docs --target ~/restored --files '**/*.pdf'
-
-# Restore the backup as of a date
-rsb restore --backup /backup/docs --target ~/restored --date 2026-02-01
-
-# From S3
-rsb restore --backup s3://my-backups/docs --target ~/restored
-```
-
-#### Verify
-
-Verify backup integrity (by config file or direct path).
-
-```bash
-rsb verify [OPTIONS]
-
-OPTIONS (use one of):
-  -c, --config <FILE>            Path to profile configuration file
-  -b, --backup <PATH>            Direct path to backup folder
-  -s, --snapshot <ID>            Specific snapshot ID to verify
-  -k, --key <PASSWORD>           Decryption password (if encrypted)
-  --quick                        Quick verification (hash only, skip decryption)
-  -f, --fast                     Fast verification (hash only, no decryption)
-  -q, --quiet                    Suppress output
-  -r, --report                   Generate HTML report
-```
-
-**Examples:**
-
-```bash
-# Verify via profile
-rsb verify --config docs.toml
-
-# Verify direct backup path
-rsb verify --backup /backup/docs
-
-# Quick check without decryption
-rsb verify --backup /backup/docs --quick
-
-# Verify specific snapshot
-rsb verify --backup /backup/docs --snapshot snap-2026-05-25
-
-# Generate report
-rsb verify --backup /backup/docs --report
-
-# Verify S3 backup
-rsb verify --backup s3://my-backups/docs --key mypassword
-```
-
-#### Prune
-
-Remove old backup files and optimize storage.
-
-```bash
-rsb prune [OPTIONS] --retention <POLICY>
-
-OPTIONS:
-  -p, --backup <PATH>            Backup directory to prune
-  -r, --retention <POLICY>       Retention policy (e.g., "30d", "6m", "1y")
-  --dry-run                      Preview what would be deleted
-  -q, --quiet                    Suppress output
-```
-
-**Examples:**
-
-```bash
-# Keep last 30 days
-rsb prune --backup /backup/docs --retention 30d --dry-run
-
-# Keep last 6 months
-rsb prune --backup /backup/docs --retention 6m
-
-# Keep last 1 year
-rsb prune --backup /backup/docs --retention 1y
-```
-
-### Verification & Diagnostics Commands
-
-#### Diagnose
-
-Diagnose and repair backup issues.
-
-```bash
-rsb diagnose [OPTIONS] --backup <PATH>
-
-OPTIONS:
-  -b, --backup <PATH>            Backup path to diagnose
-  -k, --key <PASSWORD>           Decryption password
-  -v, --verbose                  Detailed diagnostics output
-  -j, --json                     Output in JSON format
-  --repair                       Attempt to repair detected issues
-```
-
-**Examples:**
-
-```bash
-# Run diagnostics
-rsb diagnose --backup /backup/docs
-
-# Verbose output
-rsb diagnose --backup /backup/docs --verbose
-
-# JSON output for automation
-rsb diagnose --backup /backup/docs --json
-
-# Attempt repairs
-rsb diagnose --backup /backup/docs --repair
-
-# Diagnose encrypted backup
-rsb diagnose --backup /backup/docs --key mypassword --verbose
-```
-
-### Snapshots
-
-Manage backup snapshots and versions.
-
-```bash
-rsb snapshots [OPTIONS] <COMMAND>
-
-COMMANDS:
-  list          List all snapshots in a backup
-  info          Show detailed snapshot information
-  diff          Compare two snapshots
-  delete        Remove a snapshot
-```
-
-#### List Snapshots
-
-```bash
-rsb snapshots list --backup <PATH>
-
-OPTIONS:
-  -b, --backup <PATH>            Backup path
-  -f, --format <FORMAT>          Output format: table, json [default: table]
-```
-
-**Examples:**
-
-```bash
-# List all snapshots
-rsb snapshots list --backup /backup/docs
-
-# JSON output
-rsb snapshots list --backup /backup/docs --format json
-```
-
-#### Snapshot Info
-
-```bash
-rsb snapshots info --backup <PATH> --snapshot <ID>
-
-OPTIONS:
-  -b, --backup <PATH>            Backup path
-  -s, --snapshot <ID>            Snapshot ID
-```
-
-**Examples:**
-
-```bash
-# Show snapshot details
-rsb snapshots info --backup /backup/docs --snapshot snap-2026-05-25
-```
-
-#### Compare Snapshots
-
-```bash
-rsb snapshots diff --backup <PATH> --from <ID> --to <ID>
-
-OPTIONS:
-  -b, --backup <PATH>            Backup path
-  --from <ID>                    First snapshot ID
-  --to <ID>                      Second snapshot ID
-```
-
-**Examples:**
-
-```bash
-# Compare two snapshots
-rsb snapshots diff --backup /backup/docs --from snap-2026-05-20 --to snap-2026-05-25
-```
-
-### Management Commands
-
-#### Schedule
-
-Display scheduling instructions for automated backups.
-
-```bash
-rsb schedule [OPTIONS] --config <FILE>
-
-OPTIONS:
-  -c, --config <FILE>            Profile configuration file
-  -f, --format <FORMAT>          Format: cron, systemd [default: cron]
-```
-
-**Examples:**
-
-```bash
-# Get cron instruction
-rsb schedule --config docs.toml --format cron
-
-# Output:
-# 0 3 * * * "/usr/local/bin/rsb" backup "/home/user/docs.toml" --key "PASSWORD"
-
-# Get systemd timer instruction
-rsb schedule --config docs.toml --format systemd
-```
-
-### Watch
-
-Enable real-time file synchronization and automated backups.
-
-```bash
-rsb watch [OPTIONS] --config <FILE> --sync-to <PATH>
-
-OPTIONS:
-  -c, --config <FILE>            Profile configuration file
-  --sync-to <PATH>               Directory to sync changes to
-  -k, --key <PASSWORD>           Encryption password
-  -i, --interval <SECONDS>       Check interval [default: 2]
-  --healthcheck-url <URL>        Healthcheck endpoint for monitoring
-```
-
-**Examples:**
-
-```bash
-# Watch folder and auto-backup
-rsb watch --config docs.toml --sync-to /tmp/sync --key mypassword
-
-# With healthcheck
-rsb watch --config docs.toml --sync-to /tmp/sync --key mypassword \
-  --healthcheck-url https://healthchecks.io/ping/your-uuid
-```
-
-### Authentication Commands
-
-#### Login
-
-Authenticate with FIDO2 security key or recovery code.
-
-```bash
-rsb login [OPTIONS] --user-id <ID>
-
-OPTIONS:
-  -u, --user-id <ID>             User identifier (email or username)
-  --recovery                     Use recovery code instead of FIDO2
-```
-
-**Examples:**
-
-```bash
-# Login with FIDO2 key
-rsb login --user-id user@example.com
-
-# Login with recovery code
-rsb login --user-id user@example.com --recovery
-# Then enter recovery code when prompted
-```
-
-#### Server
-
-Start authentication server for FIDO2/WebAuthn.
-
-```bash
-rsb server [OPTIONS]
-
-OPTIONS:
-  -p, --port <PORT>              Server port [default: 3000]
-```
-
-**Examples:**
-
-```bash
-# Start on default port 3000
-rsb server
-
-# Start on custom port
-rsb server --port 8080
-
-# Access at http://localhost:3000
-```
-
-### Management Commands
-
-#### List Profiles
-
-List all available backup profiles.
-
-```bash
-rsb list-profiles [OPTIONS]
-
-OPTIONS:
-  -d, --directory <PATH>         Profile directory [default: ~/.config/rs-shield]
-  -f, --format <FORMAT>          Output format: table, json, csv [default: table]
-```
-
-**Examples:**
-
-```bash
-# List profiles
-rsb list-profiles
-
-# JSON output
-rsb list-profiles --format json
-
-# Custom directory
-rsb list-profiles --directory ~/.backup/profiles
-```
-
-#### Configuration
-
-Manage credentials and settings.
-
-```bash
-rsb config [OPTIONS] <COMMAND>
-
-COMMANDS:
-  set-password              Set master password
-  s3-credentials           Configure S3 credentials
-  list                     List current configuration
-  reset                    Reset all settings [WARNING: destructive]
-```
-
-**Examples:**
-
-```bash
-# Set master password
-rsb config set-password
-
-# Configure S3
-rsb config s3-credentials --bucket my-backups --region us-east-1
-
-# List config
-rsb config list
-
-# Reset (danger!)
-rsb config reset --confirm
-```
-
-#### FIDO2 Security Key Management
-
-Manage hardware security keys and FIDO2/WebAuthn credentials for phishing-resistant authentication.
-
-```bash
-rsb fido2 <COMMAND> [OPTIONS]
-
-COMMANDS:
-  register    Register a new Security Keysecurity key
-  authenticate   Authenticate using a registered Security Keykey
-  list        List all registered Security Keycredentials
-  revoke      Remove a Security Keycredential
-```
-
-#### Register a Security Key
-
-```bash
-rsb fido2 register --user-id <USER_ID> --name <NAME>
-
-OPTIONS:
-  -u, --user-id <USER_ID>        User identifier (email or username)
-  -n, --name <NAME>              Display name for the credential
-```
-
-**Examples:**
-
-```bash
-# Register YubiKey
-rsb fido2 register --user-id user@example.com --name "My YubiKey"
-
-# Register Windows Hello
-rsb fido2 register --user-id admin --name "Windows Hello"
-
-# Register Biometric (fingerprint)
-rsb fido2 register --user-id marciozebedeu --name "Fingerprint Sensor"
-```
-
-#### Authenticate with Security Key
-
-```bash
-rsb fido2 authenticate --user-id <USER_ID>
-
-OPTIONS:
-  -u, --user-id <USER_ID>        User identifier to authenticate
-```
-
-**Examples:**
-
-```bash
-# Authenticate user
-rsb fido2 authenticate --user-id user@example.com
-
-# Output:
-# ✅ Authentication challenge created
-#    Counter: 5
-```
-
-#### List Registered Credentials
-
-```bash
-rsb fido2 list
-```
-
-**Output:**
-
-```
-📱 Security KeyCredentials Registered
-
-┌─────────────────────┬──────────────────────┬─────────────────────────┐
-│ User ID             │ Created At           │ Last Used               │
-├─────────────────────┼──────────────────────┼─────────────────────────┤
-│ user@example.com    │ 2026-04-29 14:23:45  │ 2026-04-29 16:45:12    │
-│ admin               │ 2026-04-25 10:15:30  │ 2026-04-29 09:00:00    │
-└─────────────────────┴──────────────────────┴─────────────────────────┘
-```
-
-#### Revoke a Credential
-
-```bash
-rsb fido2 revoke --user-id <USER_ID>
-
-OPTIONS:
-  -u, --user-id <USER_ID>        User ID of credential to revoke
-```
-
-**Examples:**
-
-```bash
-# Remove credential (will ask for confirmation)
-rsb fido2 revoke --user-id user@example.com
-
-# Output:
-# 🗑️ Revoking Security KeyCredential
-# Continue? (y/n): y
-# ✅ Credential revoked successfully
-```
-
----
-
-### Version & Help
-
-Display version and help information.
-
-```bash
-rsb --version              Print version
-rsb --help                 Print general help
-rsb <COMMAND> --help       Print command help
-rsb help <COMMAND>         Print command help (alternative)
-```
-
-**Examples:**
-
-```bash
-rsb --version
-rsb backup --help
-rsb help restore
-```
-
----
-
 ## Examples
 
 ### Daily Automated Backup
 
-Create cron job:
+Generate the job with `rsb schedule` (see [Schedule](#schedule)); it reads
+the encryption key from a file only you can read:
 
 ```bash
-# Edit crontab
-crontab -e
+rsb schedule mybackup.toml --format cron
 
-# Add entry for daily 2 AM backup
-0 2 * * * /usr/local/bin/rsb backup --profile docs.toml --quiet
+# Edit crontab and paste the generated line
+crontab -e
 ```
 
 ### Encrypted Cloud Backup
 
 ```bash
-# Create profile with S3
+# Create profile with S3 (--dest is only used with --storage local)
 rsb create-profile --name cloud-backup \
   --source ~/Documents \
-  --dest s3://my-backups \
+  --dest ~/backups/cloud \
   --s3-bucket my-backups \
   --s3-region us-east-1 \
   --s3-endpoint https://s3.amazonaws.com \
   --encrypt
 
+# Store the S3 credentials (the secret key is prompted)
+rsb config s3-credentials --bucket my-backups --region us-east-1 --access-key AKIA...
+
 # Run backup
-rsb backup --profile cloud-backup.toml
+rsb backup cloud-backup.toml
 
 # Restore later
-rsb restore --backup s3://my-backups --output ~/restored
+rsb restore cloud-backup.toml --target ~/restored
 ```
 
 ### Backup with Verification
 
 ```bash
 # Backup and verify
-rsb backup --profile docs.toml --verify
+rsb backup mybackup.toml --verify
 
 # Later, verify without restore
 rsb verify --backup /backup/docs
@@ -1255,16 +938,12 @@ rsb restore --backup /backup/docs --target ~/restored --files projects/site/ --d
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | General error |
-| 2 | Configuration error |
-| 3 | File not found |
-| 4 | Permission denied |
-| 5 | Invalid credentials |
-| 6 | Backup verification failed |
-| 127 | Command not found |
+| Code | Meaning | Example |
+|------|---------|---------|
+| 0 | Success | Backup completed successfully |
+| 1 | Any error | Configuration file not found, wrong password, `verify` found problems, `prune` without `--confirm` |
+| 2 | Invalid command line | Unknown flag or missing required argument |
+| 130 | `watch` aborted | Ctrl+C pressed twice during a backup |
 
 ---
 
@@ -1272,20 +951,20 @@ rsb restore --backup /backup/docs --target ~/restored --files projects/site/ --d
 
 ### Dry Run Pattern
 
-Always use `--dry-run` first:
+Use `--dry-run` first with `backup` and `prune`:
 
 ```bash
-rsb restore --backup /backup --output ~/restored --dry-run
-# Review output, then run without --dry-run
-rsb restore --backup /backup --output ~/restored
+rsb prune mybackup.toml --retention 30d --dry-run
+# Review output, then run with --confirm
+rsb prune mybackup.toml --retention 30d --confirm
 ```
 
 ### Verbose Debugging
 
-Enable debug logging:
+For a detailed report on a backup directory:
 
 ```bash
-RUST_LOG=debug rsb backup --profile docs.toml --verbose
+rsb diagnose --backup /backup/docs --verbose
 ```
 
 ### Parallel Processing
@@ -1293,15 +972,18 @@ RUST_LOG=debug rsb backup --profile docs.toml --verbose
 Increase threads for faster backup:
 
 ```bash
-rsb backup --profile docs.toml --threads 8
+rsb backup mybackup.toml --threads 8
 ```
 
 ### Compression Trade-offs
 
+The compression level is set in the profile (`compression_level`, or
+`create-profile --compression`); `--no-compress` turns it off for one backup:
+
 ```bash
-rsb backup --profile docs.toml --compression 3  # Fast (default)
-rsb backup --profile docs.toml --compression 9  # Slow but small
-rsb backup --profile docs.toml --no-compress    # Fastest
+rsb create-profile --name fast --source ~/Documents --dest /backup/fast --compression 3    # Fast (default)
+rsb create-profile --name small --source ~/Documents --dest /backup/small --compression 19 # Slow but small
+rsb backup fast.toml --no-compress                                                         # Fastest
 ```
 
 ---
@@ -1315,7 +997,7 @@ rsb backup --profile docs.toml --no-compress    # Fastest
 chmod 700 /backup/docs
 
 # Run with elevated privileges if necessary
-sudo rsb backup --profile docs.toml
+sudo rsb backup mybackup.toml
 ```
 
 ### "Profile not found"
@@ -1328,11 +1010,18 @@ rsb list-profiles
 rsb create-profile --name docs --source ~/Documents --dest /backup
 ```
 
+### "Not authenticated"
+
+```bash
+# Start a session (FIDO2 key or recovery code)
+rsb login user@example.com
+```
+
 ### "Incorrect password"
 
 ```bash
 # Try again (passwords are case-sensitive)
-rsb restore --backup /backup/docs --output ~/restored
+rsb restore --backup /backup/docs --target ~/restored
 # (get prompted for password)
 ```
 
@@ -1340,7 +1029,7 @@ rsb restore --backup /backup/docs --output ~/restored
 
 ```bash
 # Reduce thread count
-rsb backup --profile docs.toml --threads 2
+rsb backup mybackup.toml --threads 2
 
 # Or use smaller profiles
 # Split into multiple profiles and backup separately
@@ -1358,8 +1047,9 @@ rsb backup --profile docs.toml --threads 2
 
 - [User Guide](/docs/USER_GUIDE.md)
 - [Developer Guide](/docs/DEVELOPER_GUIDE.md)
+- [Migration Guide](/docs/MIGRATION.md)
 - [Security Policy](/SECURITY.md)
 
 ---
 
-*Last Updated: February 2026*
+*Last Updated: October 2026*
