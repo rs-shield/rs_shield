@@ -13,7 +13,7 @@
 - 📊 **Detailed Reports** - Comprehensive backup reports with statistics
 - 🔔 **Smart Notifications** - Email, webhooks, and system notifications
 - 🔋 **Resource Aware** - Automatic pauses on low battery or high CPU
-- 🎒 **Portable Backups** - Create backups without config files, perfect for external drives and cross-computer restores
+- 🎒 **Portable Backups** - Restore and verify backups without config files, perfect for external drives and cross-computer restores
 - ⚙️ **Automatic Deduplication** - Intelligent duplicate detection saves storage and speeds up backups
 - 📸 **Snapshot Comparison** - Compare two backup snapshots to see exactly what changed
 
@@ -94,7 +94,7 @@ cargo clippy --all-targets
 source_path = "/home/user/documents"
 destination_path = "/mnt/backup"
 backup_mode = "incremental"
-encryption_key = "your-secure-password"
+encrypt_patterns = ["*"]   # password via RSB_ENCRYPTION_KEY, keyring or prompt
 compression_level = 3
 
 [s3]
