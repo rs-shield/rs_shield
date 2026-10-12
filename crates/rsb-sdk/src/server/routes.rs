@@ -191,7 +191,7 @@ pub async fn check_fido2_auth_with(
         match res {
             Ok(resp) if resp.status().is_success() => {}
             Ok(_) => {
-                return Err("❌ Session revoked or expired on server. Please login again.".into());
+                return Err("❌ Session revoked or expired on server. Please login again: rsb login <USER_ID>".into());
             }
             Err(e) => {
                 return Err(format!(
@@ -213,16 +213,19 @@ pub fn verify_token_locally(
     jwt_mgr: &auth::JwtManager,
     registry: &auth::SessionRegistry,
 ) -> Result<auth::SessionClaims, Box<dyn std::error::Error>> {
-    let claims = jwt_mgr
-        .verify_token(token)
-        .map_err(|e| format!("❌ Session expired or invalid: {}", e))?;
+    let claims = jwt_mgr.verify_token(token).map_err(|e| {
+        format!(
+            "❌ Session expired or invalid ({}). Please login again: rsb login <USER_ID>",
+            e
+        )
+    })?;
 
     match registry.status(&claims.jti, &claims.sub)? {
         SessionStatus::Active => Ok(claims),
-        SessionStatus::Revoked => Err("❌ Session revoked. Please login again.".into()),
-        SessionStatus::Expired => Err("❌ Session expired. Please login again.".into()),
+        SessionStatus::Revoked => Err("❌ Session revoked. Please login again: rsb login <USER_ID>".into()),
+        SessionStatus::Expired => Err("❌ Session expired. Please login again: rsb login <USER_ID>".into()),
         SessionStatus::Unknown => Err(
-            "❌ Session not recognized (not issued by this installation). Please login again."
+            "❌ Session not recognized (not issued by this installation). Please login again: rsb login <USER_ID>"
                 .into(),
         ),
     }
