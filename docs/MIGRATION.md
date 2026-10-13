@@ -20,6 +20,35 @@
 - `rsb_sdk::utils::calculate_retention_backups` was removed; use
   `rsb_sdk::core::RetentionPolicy` and `parse_retention_days`.
 
+- **Notification secrets leave `integrations.json`.**
+
+  `~/.rs-shield/integrations.json` used to hold the SMTP password, the
+  Slack/Discord webhook URLs and the Telegram bot token in plaintext. They
+  now live in the OS keyring (service `rsb-shield`, accounts
+  `integration:<name>:...`) and the file keeps only the other fields plus a
+  reference such as `"bot_token": { "stored": "keyring" }`.
+
+  The migration is automatic: the first time the desktop app or
+  `rsb config list` loads the file, each secret is written to the keyring,
+  read back, and only then is the file rewritten (atomically, mode 0600)
+  without it. A warning is logged once. Nothing else is needed.
+
+  Machines without a usable keyring (headless Linux servers, cron jobs):
+
+  - set `RSB_INTEGRATIONS_PASSPHRASE` to keep the secrets in the encrypted
+    file `~/.rs-shield/integrations_secrets.enc` instead (same format as
+    `s3_credentials.enc`); `RSB_INTEGRATIONS_SECRET_STORE=file` forces it,
+    `=keyring` forbids it;
+  - or provide the secrets at run time with `RSB_SMTP_PASSWORD`,
+    `RSB_SLACK_WEBHOOK_URL`, `RSB_TELEGRAM_BOT_TOKEN` and
+    `RSB_DISCORD_WEBHOOK_URL`; these override the stored values.
+
+  If neither the keyring nor the passphrase is available the file is left
+  unchanged (the secrets keep working) and a warning says so; `rsb config
+  list` marks them as `PLAINTEXT`. Older versions cannot read the rewritten
+  file (they see no integrations): after downgrading, configure the
+  integrations again.
+
 ## Upgrading from 0.1.0-alpha.8 to 0.1.0-alpha.9
 
 0.1.0-alpha.9 changes the encryption format of repositories, how S3

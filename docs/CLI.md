@@ -875,6 +875,14 @@ COMMANDS:
   reset                    Reset all settings [WARNING: destructive; needs --confirm]
 ```
 
+`list` also shows the notification integrations of the desktop app and
+where each secret is kept (OS keyring, encrypted file, environment), never
+the secret itself; it migrates plaintext secrets out of
+`~/.rs-shield/integrations.json` like the desktop app does. `reset` also
+removes those secrets from the keyring. See
+[MIGRATION.md](MIGRATION.md#9-notification-secrets-leave-integrationsjson)
+for headless machines.
+
 **Examples:**
 
 ```bash

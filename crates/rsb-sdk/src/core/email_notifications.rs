@@ -36,8 +36,8 @@ fn build_smtp_transport(config: &EmailConfig) -> Result<SmtpTransport, Box<dyn s
     }
 }
 
-/// Email configuration for notifications
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Email configuration for notifications (`Debug` hides the password).
+#[derive(Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct EmailConfig {
     pub smtp_server: String,     // e.g., "smtp.gmail.com"
@@ -46,6 +46,19 @@ pub struct EmailConfig {
     pub sender_password: String, // Password or API key
     pub recipient_email: String, // Recipient
     pub use_tls: bool,           // Use TLS
+}
+
+impl std::fmt::Debug for EmailConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmailConfig")
+            .field("smtp_server", &self.smtp_server)
+            .field("smtp_port", &self.smtp_port)
+            .field("sender_email", &self.sender_email)
+            .field("sender_password", &"***REDACTED***")
+            .field("recipient_email", &self.recipient_email)
+            .field("use_tls", &self.use_tls)
+            .finish()
+    }
 }
 
 /// Email notification structure
