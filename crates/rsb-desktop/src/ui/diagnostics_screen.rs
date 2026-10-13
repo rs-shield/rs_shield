@@ -119,7 +119,7 @@ fn fido2_finding(credentials: usize) -> DiagnosticInfo {
             DiagnosticStatus::Warning,
             "FIDO2",
             "No FIDO2 security key registered".to_string(),
-            Some("Register one with `rsb-cli fido2 register`".to_string()),
+            Some("Register one with `rsb auth register`".to_string()),
         )
     } else {
         info(

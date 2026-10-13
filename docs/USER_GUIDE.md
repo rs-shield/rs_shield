@@ -264,7 +264,7 @@ does, with the same SDK code:
 | Real-Time Sync | `rsb watch` |
 | Snapshots | `rsb snapshots` |
 | Schedule | `rsb schedule` |
-| FIDO2 | `rsb fido2 list`, `rsb fido2 generate-codes` |
+| FIDO2 | `rsb auth list`, `rsb auth generate-codes` |
 | Repository key | `rsb key export/import/change-password` |
 | Settings | S3 settings and session credentials, app defaults |
 

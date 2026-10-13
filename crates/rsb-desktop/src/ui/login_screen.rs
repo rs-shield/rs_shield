@@ -15,10 +15,10 @@ use tokio::sync::Mutex;
 /// registered with the CLI, so a first-time user is told how.
 pub fn login_not_found_message(id: &str, no_credentials: bool) -> String {
     if no_credentials {
-        "❌ No FIDO2 security key is registered on this computer. Register one first with `rsb-cli fido2 register`, then sign in with its identifier.".to_string()
+        "❌ No FIDO2 security key is registered on this computer. Register one first with `rsb auth register`, then sign in with its identifier.".to_string()
     } else {
         format!(
-            "❌ Identifier '{}' not found. Use the identifier you registered (`rsb-cli fido2 list` shows them).",
+            "❌ Identifier '{}' not found. Use the identifier you registered (`rsb auth list` shows them).",
             id
         )
     }
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn first_run_message_explains_registration() {
-        assert!(login_not_found_message("me", true).contains("fido2 register"));
+        assert!(login_not_found_message("me", true).contains("rsb auth register"));
         assert!(login_not_found_message("me", false).contains("'me'"));
     }
 }

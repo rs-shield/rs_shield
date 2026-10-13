@@ -1,4 +1,4 @@
-//! FIDO2 keys of this computer (`rsb fido2 list` / `generate-codes`).
+//! FIDO2 keys of this computer (`rsb auth list` / `generate-codes`).
 //! This tab used to be a placeholder.
 
 use dioxus::prelude::*;
@@ -32,7 +32,7 @@ pub fn credential_rows(mgr: &Fido2Manager) -> Vec<CredentialRow> {
 }
 
 /// Replaces the recovery codes of `user` and saves the credentials (like
-/// `rsb fido2 generate-codes`): reloaded from disk first so nothing newer
+/// `rsb auth generate-codes`): reloaded from disk first so nothing newer
 /// is overwritten, and refused for unknown users.
 pub fn regenerate_codes(
     mgr: &mut Fido2Manager,
@@ -109,7 +109,7 @@ pub fn Fido2ManagerView() -> Element {
         div { class: "card",
             h2 { class: "page-title", "🔑 FIDO2 Security Keys" }
             p { class: "hint mb-4",
-                "Keys registered on this computer (rsb fido2 list). Register or remove keys with `rsb-cli fido2 register` / `rsb-cli fido2 delete <user>`."
+                "Keys registered on this computer (rsb auth list). Register or remove keys with `rsb auth register` / `rsb auth delete <user>`."
             }
 
             if rows().is_empty() {
