@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RetentionPolicy`.
 
 ### Added
+- Desktop restore: the "Date" field is a date picker plus an optional time
+  picker (local time) with a clear button, instead of free text. No time
+  means the end of that day, as with `rsb restore --date YYYY-MM-DD`.
 - `rsb_sdk::snapshot`: snapshot listing, details, diff and delete with
   structured results (id, date, encrypted flag, file count, original and
   stored size, per-snapshot read errors), used by both the CLI and the

@@ -652,8 +652,7 @@ pub fn prompt_for_s3_config(config_path: &Path) -> io::Result<()> {
 
 #[cfg(not(feature = "cli"))]
 pub fn prompt_for_s3_config(_config_path: &Path) -> io::Result<()> {
-    Err(io::Error::new(
-        io::ErrorKind::Other,
+    Err(io::Error::other(
         "Interactive S3 configuration is only available in CLI mode",
     ))
 }

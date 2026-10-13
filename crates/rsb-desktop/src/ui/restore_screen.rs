@@ -26,6 +26,21 @@ pub struct RestoreSelection {
     pub include: Vec<String>,
 }
 
+/// Joins the date picker (`YYYY-MM-DD`) and the optional time picker
+/// (`HH:MM`, or `HH:MM:SS` on some webviews) into the text `rsb restore
+/// --date` accepts. No date means no date filter; no time means the end of
+/// that day.
+pub fn date_filter(date: &str, time: &str) -> String {
+    let date = date.trim();
+    if date.is_empty() {
+        return String::new();
+    }
+    match time.trim() {
+        "" => date.to_string(),
+        t => format!("{date} {}", t.get(..5).unwrap_or(t)),
+    }
+}
+
 /// Validates the snapshot / date / file fields exactly like `rsb restore
 /// --snapshot/--date/--files` (before the repository is touched).
 pub fn restore_selection(
@@ -62,7 +77,8 @@ pub fn RestoreScreen() -> Element {
     let mut key = use_signal(String::new);
     let mut snapshot_id = use_signal(String::new);
     let mut include_text = use_signal(String::new);
-    let mut date_text = use_signal(String::new);
+    let mut date_value = use_signal(String::new);
+    let mut time_value = use_signal(String::new);
     let mut generate_report = use_signal(|| false);
     let mut overwrite = use_signal(|| false);
     let mut versioned = use_signal(|| false);
@@ -147,7 +163,12 @@ pub fn RestoreScreen() -> Element {
         let loaded = profile();
         let bkp = source_path();
         let rst = restore_to();
-        let selection = restore_selection(&snapshot_id(), &date_text(), &include_text(), texts);
+        let selection = restore_selection(
+            &snapshot_id(),
+            &date_filter(&date_value(), &time_value()),
+            &include_text(),
+            texts,
+        );
         let typed_key = key();
         let force = overwrite();
         let versioned_mode = versioned();
@@ -422,12 +443,31 @@ pub fn RestoreScreen() -> Element {
 
             div { class: "form-group",
                 label { class: "label-text", "{texts.restore_date_label}" }
-                input {
-                    class: "input-field",
-                    r#type: "text",
-                    placeholder: "{texts.rs_date_placeholder}",
-                    value: "{date_text}",
-                    oninput: move |evt| date_text.set(evt.value())
+                div { class: "flex gap-3",
+                    input {
+                        class: "input-field",
+                        r#type: "date",
+                        value: "{date_value}",
+                        oninput: move |evt| date_value.set(evt.value())
+                    }
+                    input {
+                        class: "input-field",
+                        r#type: "time",
+                        title: "{texts.rs_time_label}",
+                        disabled: date_value().is_empty(),
+                        value: "{time_value}",
+                        oninput: move |evt| time_value.set(evt.value())
+                    }
+                    button {
+                        class: "btn-icon",
+                        title: "{texts.rs_date_clear}",
+                        disabled: date_value().is_empty() && time_value().is_empty(),
+                        onclick: move |_| {
+                            date_value.set(String::new());
+                            time_value.set(String::new());
+                        },
+                        "✕"
+                    }
                 }
                 p { class: "hint",
                     "{texts.rs_date_hint}"
@@ -572,6 +612,28 @@ mod tests {
             include_patterns("docs/\r\n**/*.pdf\n\nmy file.txt"),
             ["docs/", "**/*.pdf", "my file.txt"]
         );
+    }
+
+    #[test]
+    fn date_filter_joins_the_pickers() {
+        assert_eq!(date_filter("", ""), "");
+        assert_eq!(date_filter("", "12:00"), "");
+        assert_eq!(date_filter("2026-10-01", ""), "2026-10-01");
+        assert_eq!(date_filter("2026-10-01", "12:30"), "2026-10-01 12:30");
+        assert_eq!(date_filter("2026-10-01", "12:30:15"), "2026-10-01 12:30");
+        for (d, t) in [
+            ("2026-10-01", ""),
+            ("2026-10-01", "08:05"),
+            ("2026-10-01", "23:59:59"),
+        ] {
+            assert!(
+                restore_selection("", &date_filter(d, t), "")
+                    .unwrap()
+                    .at_or_before
+                    .is_some(),
+                "{d} {t}"
+            );
+        }
     }
 
     #[test]
