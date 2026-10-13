@@ -281,8 +281,12 @@ then a legacy key in the TOML. A profile with encryption enabled is never
 backed up without a key.
 
 HTML reports are written to `~/.rs-shield/reports/`. Notifications
-configured in **Integrations** (`~/.rs-shield/integrations.json`, mode
-0600) are sent after backup, restore and verify.
+configured in **Integrations** are sent after backup, restore and verify.
+Their settings are in `~/.rs-shield/integrations.json` (mode 0600), but the
+SMTP password, webhook URLs and bot token are kept in the OS keyring, never
+in that file (see [MIGRATION.md](MIGRATION.md#9-notification-secrets-leave-integrationsjson)
+for headless machines and the `RSB_SMTP_PASSWORD`, `RSB_SLACK_WEBHOOK_URL`,
+`RSB_TELEGRAM_BOT_TOKEN`, `RSB_DISCORD_WEBHOOK_URL` overrides).
 
 ---
 
