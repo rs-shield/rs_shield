@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- A backup into an encrypted repository (one with `keys/repo.key`) without
+  an encryption key is now refused before anything is read or written, in
+  the SDK, so for the CLI, the desktop app and real-time sync alike. It
+  used to store every file **unencrypted** in that repository without any
+  warning. An empty key counts as no key.
+
 ### Breaking
 - `rsb snapshots delete` now also deletes the data objects no other
   snapshot uses (like `rsb prune`), so it requires `--confirm`, exactly like

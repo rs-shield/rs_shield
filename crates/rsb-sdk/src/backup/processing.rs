@@ -59,7 +59,22 @@ pub async fn perform_backup(
     // before anything is read or written), or create it on the first
     // encrypted backup. Done before the shared lock: creation takes the
     // exclusive lock so two first backups cannot create two keys.
-    let repo_key = match options.key() {
+    let repo_key = match options.key().filter(|k| !k.is_empty()) {
+        // An encrypted (format v3) repository never receives unencrypted
+        // objects: without a key the backup is refused before anything is
+        // read or written (it used to write every file in clear).
+        None if crate::crypto::keyfile::repo_key_exists(&*storage).await? => {
+            return Err(RsbError::crypto(
+                crate::error::CryptoErrorKind::Other,
+                format!(
+                    "The repository is encrypted ({} exists) and no encryption key was \
+                     given: provide the key via {}, the profile's OS keyring entry or the \
+                     prompt. Refusing to back up unencrypted.",
+                    crate::crypto::keyfile::REPO_KEY_PATH,
+                    crate::config::ENCRYPTION_KEY_ENV
+                ),
+            ));
+        }
         Some(pw) => Some(Arc::new(
             crate::crypto::keyfile::open_or_init_repo_key(storage.clone(), pw.as_bytes(), dry_run)
                 .await?,
@@ -376,6 +391,53 @@ fn build_report_data(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn backup_into(
+        storage: Arc<dyn Storage>,
+        key: Option<&str>,
+    ) -> crate::error::Result<ReportData> {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.txt"), "secret").unwrap();
+        let cfg = Config::new(dir.path().to_string_lossy(), "unused");
+        perform_backup(
+            &cfg,
+            BackupOptions {
+                storage: Some(storage),
+                ..Default::default()
+            }
+            .with_encryption_key(key),
+        )
+        .await
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn encrypted_repository_refuses_a_backup_without_key() {
+        let mem = Arc::new(crate::storage::MemoryStorage::new());
+        let storage: Arc<dyn Storage> = mem.clone();
+        storage
+            .write(crate::crypto::keyfile::REPO_KEY_PATH, b"{}")
+            .await
+            .unwrap();
+        for key in [None, Some("")] {
+            let err = backup_into(storage.clone(), key).await.unwrap_err();
+            assert!(err.to_string().contains("repository is encrypted"), "{err}");
+        }
+        // Nothing but the key file is in the repository.
+        for prefix in ["data", "snapshots", "locks"] {
+            assert!(
+                storage.list(prefix).await.unwrap_or_default().is_empty(),
+                "{prefix}"
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unencrypted_repository_still_accepts_a_backup_without_key() {
+        let storage: Arc<dyn Storage> = Arc::new(crate::storage::MemoryStorage::new());
+        let report = backup_into(storage.clone(), None).await.unwrap();
+        assert_eq!(report.files_processed, 1);
+        assert!(!storage.list("data/clear").await.unwrap().is_empty());
+    }
 
     #[test]
     fn test_build_report_no_errors() {

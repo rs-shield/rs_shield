@@ -456,7 +456,7 @@ pub fn BackupScreen() -> Element {
                     oninput: move |evt| key.set(evt.value())
                 }
                 p { class: "hint",
-                    "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used. A profile with encryption is never backed up without a key; a backup without profile and without key is unencrypted."
+                    "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used. A profile with encryption is never backed up without a key; a backup without profile and without key is unencrypted (refused if the repository is already encrypted)."
                 }
             }
 
