@@ -150,6 +150,11 @@ no key is available, instead of backing up unencrypted.
 
 ### 5. CLI changes
 
+- **Log in again after upgrading.** Session tokens are now signed with a
+  random secret stored in the OS keyring (alpha.8 used a fixed key), so a
+  session saved by an older version fails with
+  `Session expired or invalid (InvalidSignature)`. Run
+  `rsb login <USER_ID>` once.
 - **`rsb prune -k` is now `rsb prune -l`.** The short form of
   `--keep-last` changed from `-k` to `-l`, so `-k` consistently means
   `--key` on the other commands. Update scripts that use the short form, or
