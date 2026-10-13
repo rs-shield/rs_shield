@@ -683,3 +683,84 @@ async fn s3_dedup_index() {
 
     repo.release().await;
 }
+
+/// `rsb snapshots` / the desktop Snapshots tab on S3: list (with and
+/// without the key), details, diff and delete through `rsb_sdk::snapshot`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_snapshot_management() {
+    use rsb_sdk::snapshot::{self, SnapshotContents};
+    let Some(env) = env() else {
+        eprintln!("skipped: RSB_TEST_S3_* not set");
+        return;
+    };
+    let s = storage(&env).await;
+    let repo = RepoGuard::claim(s.clone()).await;
+    let key = Some(PASSWORD);
+    keyfile::init_repo_key(s.clone(), PASSWORD.as_bytes(), KdfParams::MIN_CREATE)
+        .await
+        .unwrap();
+
+    // An empty bucket is an empty repository, not an error.
+    assert!(snapshot::list_snapshot_ids(&*s).await.unwrap().is_empty());
+
+    let src = tempfile::tempdir().unwrap();
+    let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    files.insert("a.txt".into(), b"first a".to_vec());
+    files.insert("b.txt".into(), b"only in the first snapshot".to_vec());
+    write_tree(src.path(), &files);
+    let cfg = config(src.path(), key);
+    backup(&cfg, &s, key, DedupIndexOptions::disabled()).await;
+    std::fs::remove_file(src.path().join("b.txt")).unwrap();
+    std::fs::write(src.path().join("c.txt"), b"added").unwrap();
+    backup(&cfg, &s, key, DedupIndexOptions::disabled()).await;
+
+    let ids = snapshot::list_snapshot_ids(&*s).await.unwrap();
+    assert_eq!(ids.len(), 2);
+    let (newest, oldest) = (ids[0].clone(), ids[1].clone());
+
+    // Without the key: ids and dates, contents locked.
+    let locked = snapshot::list_snapshots(&*s, None).await.unwrap();
+    assert!(
+        locked.iter().all(|i| i.encrypted
+            && i.contents == SnapshotContents::Locked
+            && i.timestamp.is_some())
+    );
+
+    let cache = snapshot::open_key_cache(&*s, key).await.unwrap();
+    let list = snapshot::list_snapshots(&*s, cache.as_ref()).await.unwrap();
+    for info in &list {
+        match &info.contents {
+            SnapshotContents::Readable(sum) => assert_eq!(sum.file_count, 2),
+            other => panic!("{}: {other:?}", info.id),
+        }
+    }
+    let d = snapshot::snapshot_details(&*s, &newest, cache.as_ref())
+        .await
+        .unwrap();
+    let paths: Vec<_> = d.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["a.txt", "c.txt"]);
+    let diff = snapshot::diff_snapshots(&*s, &oldest, &newest, cache.as_ref())
+        .await
+        .unwrap();
+    assert_eq!(diff.added.len(), 1);
+    assert_eq!(diff.removed.len(), 1);
+    assert!(diff.modified.is_empty());
+
+    // Delete the old snapshot: its own object goes, the shared one stays.
+    assert!(
+        snapshot::delete_snapshot(s.clone(), &oldest, None)
+            .await
+            .is_err(),
+        "an encrypted repository needs the key"
+    );
+    let done = snapshot::delete_snapshot(s.clone(), &oldest, key)
+        .await
+        .unwrap();
+    assert_eq!(done.objects_deleted, 1);
+    assert_eq!(snapshot::list_snapshot_ids(&*s).await.unwrap(), [newest]);
+    assert!(!s.exists(&object_key("enc", &files["b.txt"])).await.unwrap());
+    assert!(s.exists(&object_key("enc", &files["a.txt"])).await.unwrap());
+    assert!(s.list("locks").await.unwrap().is_empty());
+
+    repo.release().await;
+}
