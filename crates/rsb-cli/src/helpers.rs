@@ -481,6 +481,88 @@ pub fn obtain_encryption_key(
     ))
 }
 
+/// `--keep-last` applied when `rsb prune` gets neither `--keep-last` nor
+/// `--retention`.
+pub const DEFAULT_PRUNE_KEEP_LAST: usize = 10;
+
+/// The retention of `rsb prune --keep-last N --retention DAYS`: each flag
+/// given is a rule, and a snapshot is kept when either rule keeps it (see
+/// [`rsb_sdk::core::RetentionPolicy`]). Without either flag the newest
+/// [`DEFAULT_PRUNE_KEEP_LAST`] snapshots are kept.
+pub fn prune_policy(
+    keep_last: Option<usize>,
+    retention_days: Option<u32>,
+) -> rsb_sdk::core::RetentionPolicy {
+    let keep_last = match (keep_last, retention_days) {
+        (None, None) => Some(DEFAULT_PRUNE_KEEP_LAST),
+        (n, _) => n,
+    };
+    rsb_sdk::core::RetentionPolicy {
+        keep_last,
+        keep_within_days: retention_days,
+    }
+}
+
+/// Human-readable form of `policy`, e.g. "keeping the newest 5 snapshot(s)
+/// and every snapshot of the last 30 day(s)".
+pub fn describe_prune_policy(policy: &rsb_sdk::core::RetentionPolicy) -> String {
+    let count = policy
+        .keep_last
+        .map(|n| format!("the newest {} snapshot(s)", n));
+    let age = policy
+        .keep_within_days
+        .map(|d| format!("every snapshot of the last {} day(s)", d));
+    let rules = match (count, age) {
+        (Some(c), Some(a)) => format!("{} and {}", c, a),
+        (Some(c), None) => c,
+        (None, Some(a)) => format!("{} (the newest snapshot is always kept)", a),
+        (None, None) => "nothing".to_string(),
+    };
+    format!("keeping {}", rules)
+}
+
+/// Runs the prune of `doomed` (planned with
+/// [`rsb_sdk::core::plan_prune_by_policy_with_storage`]) for `rsb prune`:
+/// with `dry_run`, [`rsb_sdk::core::preview_prune`] (nothing is deleted;
+/// `None` when `encrypted` and no key is given, since the manifests cannot be
+/// read); otherwise [`rsb_sdk::core::prune_with_stats`], refused for an
+/// encrypted repository without its key.
+pub async fn execute_prune(
+    storage: std::sync::Arc<dyn rsb_sdk::storage::Storage>,
+    key: Option<&str>,
+    encrypted: bool,
+    doomed: &[String],
+    dry_run: bool,
+) -> std::result::Result<Option<rsb_sdk::core::PruneStats>, rsb_sdk::RsbError> {
+    if encrypted && key.is_none() {
+        if dry_run {
+            return Ok(None);
+        }
+        return Err(rsb_sdk::RsbError::InvalidInput(format!(
+            "The repository is encrypted and no key is available: set {}",
+            config::ENCRYPTION_KEY_ENV
+        )));
+    }
+    if dry_run {
+        rsb_sdk::core::preview_prune(&*storage, key, doomed)
+            .await
+            .map(Some)
+    } else {
+        rsb_sdk::core::prune_with_stats(storage, key, doomed)
+            .await
+            .map(Some)
+    }
+}
+
+/// The data-object part of a prune summary.
+pub fn describe_prune_objects(stats: Option<&rsb_sdk::core::PruneStats>) -> String {
+    match stats {
+        Some(s) if s.gc_ran => format!("{} unreferenced data object(s)", s.objects_deleted),
+        Some(_) => "no data objects (no snapshot would remain)".to_string(),
+        None => "an unknown number of data objects (no encryption key)".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

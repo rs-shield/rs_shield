@@ -21,8 +21,11 @@
 //!   matches top-level files and `**/*.txt` matches them at any depth. A glob
 //!   matching a directory selects everything under it (`photos/20*`).
 //!
-//! Matching is case sensitive and compares Unicode strings as they are
-//! (no normalization). `\` is read as `/`, `.` components and repeated `/`
+//! Matching is case sensitive. Unicode is compared after normalizing both
+//! the pattern and the manifest key to NFC, so `café` typed in NFC (as on
+//! Linux and Windows) selects a `café` stored in NFD (as macOS file systems
+//! report it) and vice versa; the file is still restored under the name
+//! stored in the manifest. `\` is read as `/`, `.` components and repeated `/`
 //! are ignored. Absolute paths, drive letters and `..` components are
 //! rejected. A pattern containing glob characters also matches the entry
 //! spelled exactly like it, so `photo[1].jpg` restores a file of that name.
@@ -47,6 +50,7 @@ use chrono::{
 use glob::{MatchOptions, Pattern};
 use std::path::PathBuf;
 use tracing::warn;
+use unicode_normalization::UnicodeNormalization;
 
 const GLOB_CHARS: [char; 3] = ['*', '?', '['];
 
@@ -60,7 +64,7 @@ const GLOB_OPTIONS: MatchOptions = MatchOptions {
 #[derive(Debug, Clone)]
 pub struct FilePattern {
     raw: String,
-    /// Normalized form: `/`-separated, no `.`/empty components.
+    /// Normalized form: NFC, `/`-separated, no `.`/empty components.
     path: String,
     glob: Option<Pattern>,
     /// Written with a trailing `/`: only matches what is under it.
@@ -79,7 +83,7 @@ impl FilePattern {
         if raw.contains('\0') {
             return Err(invalid("contains a NUL character"));
         }
-        let s = raw.replace('\\', "/");
+        let s: String = raw.replace('\\', "/").nfc().collect();
         let b = s.as_bytes();
         if s.starts_with('/') || (b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':') {
             return Err(invalid(
@@ -120,8 +124,11 @@ impl FilePattern {
 
     /// Whether the manifest key `key` (`/`-separated) is selected.
     pub fn matches(&self, key: &str) -> bool {
-        let key = key.replace('\\', "/");
-        let key = key.as_str();
+        self.matches_nfc(&nfc_key(key))
+    }
+
+    /// [`Self::matches`] for a key already passed through [`nfc_key`].
+    fn matches_nfc(&self, key: &str) -> bool {
         // The entry itself, then each of its parent directories.
         let whole = (!self.dir_only).then_some(key);
         let parents = key.match_indices('/').map(|(i, _)| &key[..i]);
@@ -138,6 +145,12 @@ impl FilePattern {
                 .as_ref()
                 .is_some_and(|g| g.matches_with(candidate, GLOB_OPTIONS))
     }
+}
+
+/// `key` with `/` separators, normalized to NFC (the form patterns are
+/// stored in), so canonically equivalent names compare equal.
+fn nfc_key(key: &str) -> String {
+    key.replace('\\', "/").nfc().collect()
 }
 
 /// A set of `--files` patterns; an empty selector selects every entry.
@@ -172,7 +185,11 @@ impl FileSelector {
 
     /// Whether `key` is selected (always `true` for an empty selector).
     pub fn matches(&self, key: &str) -> bool {
-        self.is_empty() || self.patterns.iter().any(|p| p.matches(key))
+        if self.is_empty() {
+            return true;
+        }
+        let key = nfc_key(key);
+        self.patterns.iter().any(|p| p.matches_nfc(&key))
     }
 
     /// Keeps the selected entries of `snapshot`.
@@ -193,10 +210,11 @@ impl FileSelector {
         let selected: Vec<(PathBuf, T)> = entries
             .into_iter()
             .filter(|(path, _)| {
-                let key = path.to_string_lossy();
+                // Matched in NFC; the entry keeps its stored name.
+                let key = nfc_key(&path.to_string_lossy());
                 let mut hit = false;
                 for (p, used) in self.patterns.iter().zip(used.iter_mut()) {
-                    if p.matches(&key) {
+                    if p.matches_nfc(&key) {
                         *used = true;
                         hit = true;
                     }
@@ -367,6 +385,38 @@ mod tests {
         assert!(!s.matches("docs/b.txt"));
         assert!(!s.matches("other/docs/a.txt"));
         assert!(sel(&["./docs//a.txt"]).matches("docs/a.txt"));
+    }
+
+    const CAFE_NFC: &str = "fotos/ver\u{e3}o/caf\u{e9}.txt";
+    const CAFE_NFD: &str = "fotos/vera\u{303}o/cafe\u{301}.txt";
+
+    #[test]
+    fn nfc_and_nfd_match_each_other() {
+        assert_ne!(CAFE_NFC, CAFE_NFD);
+        for (pattern, key) in [(CAFE_NFC, CAFE_NFD), (CAFE_NFD, CAFE_NFC)] {
+            assert!(sel(&[pattern]).matches(key), "{pattern:?} vs {key:?}");
+            let dir = pattern.rsplit_once('/').unwrap().0;
+            assert!(sel(&[dir]).matches(key), "dir {dir:?}");
+            assert!(sel(&[&format!("{dir}/")]).matches(key), "dir/ {dir:?}");
+            assert!(sel(&[&format!("{dir}/*.txt")]).matches(key), "glob");
+            assert!(sel(&["**/caf\u{e9}.*"]).matches(key), "** glob");
+            assert!(sel(&["**/cafe\u{301}.*"]).matches(key), "** glob nfd");
+        }
+        // Normalization does not fold different letters or case.
+        assert!(!sel(&[CAFE_NFC]).matches("fotos/verao/cafe.txt"));
+        assert!(!sel(&["fotos/VER\u{c3}O"]).matches(CAFE_NFD));
+    }
+
+    #[test]
+    fn select_keeps_the_stored_name() {
+        let entries = vec![
+            (PathBuf::from(CAFE_NFD), 1),
+            (PathBuf::from("other.txt"), 2),
+        ];
+        let got = sel(&[CAFE_NFC]).select(entries, "snap").unwrap();
+        assert_eq!(got, vec![(PathBuf::from(CAFE_NFD), 1)]);
+        // The pattern is reported as typed.
+        assert_eq!(sel(&[CAFE_NFD]).patterns()[0].as_str(), CAFE_NFD);
     }
 
     #[test]

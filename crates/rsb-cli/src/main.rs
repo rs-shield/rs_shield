@@ -4,9 +4,9 @@ use clap::Parser;
 use rsb_cli::command::list_profiles_cmd::{ListProfilesCmd, OutputFormat};
 use rsb_cli::command::main_cmd::{Commands, ListProfilesFormat, StorageChoice};
 use rsb_cli::helpers::{
-    check_repository_dir, is_s3_url, obtain_encryption_key, plan_profile_destination, profile_name,
-    profile_uses_relative_paths, render_schedule, resolve_command_profile, resolve_profile_path,
-    warn_secret_arg,
+    check_repository_dir, describe_prune_objects, describe_prune_policy, execute_prune, is_s3_url,
+    obtain_encryption_key, plan_profile_destination, profile_name, profile_uses_relative_paths,
+    prune_policy, render_schedule, resolve_command_profile, resolve_profile_path, warn_secret_arg,
 };
 use rsb_sdk::backup::diagnostic::{print_diagnostics, run_backup_diagnostics};
 use rsb_sdk::backup::perform_backup;
@@ -14,7 +14,7 @@ use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::server;
 use rsb_sdk::server::LoginFlow;
 use rsb_sdk::server::routes::check_fido2_auth;
-use rsb_sdk::utils::{calculate_retention_backups, ensure_directory_exists, send_healthcheck};
+use rsb_sdk::utils::{ensure_directory_exists, send_healthcheck};
 use rsb_sdk::{BackupOptions, RestoreOptions, VerifyOptions};
 use rsb_sdk::{config, core, credentials::Fido2Manager};
 use std::fs;
@@ -671,31 +671,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            // Determine the number of backups to keep
-            let keep_count = if let Some(count) = keep_last {
-                count
-            } else if let Some(ref policy) = retention {
-                // Parse retention policy (e.g., "30d", "6m", "1y") or number
-                // Attempt to parse as a number first (e.g., "10" -> 10 backups)
-                if let Ok(num) = policy.parse::<usize>() {
-                    num
-                } else {
-                    // Parse time-based retention policies
-                    // Examples: "30d" = 30 days, "6m" = 6 months, "1y" = 1 year
-                    calculate_retention_backups(policy)
-                }
-            } else {
-                // Default to keeping last 10 backups if neither specified
-                10
-            };
-
+            // Each flag given is a rule; a snapshot is kept if either keeps
+            // it (default: the newest 10).
+            let policy = prune_policy(keep_last, retention);
             if dry_run {
-                println!("DRY RUN MODE: Would keep last {} backups", keep_count);
+                println!("DRY RUN MODE: {}", describe_prune_policy(&policy));
             } else {
-                println!("🧹 Keeping last {} backups...", keep_count);
+                println!("🧹 Pruning, {}...", describe_prune_policy(&policy));
             }
 
-            let result = run_prune(&mut cfg, profile.as_deref(), keep_count, dry_run).await;
+            let result = run_prune(&mut cfg, profile.as_deref(), policy, dry_run).await;
             if let Err(e) = result {
                 send_healthcheck(&healthcheck_url, "/fail").await;
                 return Err(e);
@@ -1009,23 +994,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_prune(
     cfg: &mut config::Config,
     profile: Option<&str>,
-    keep: usize,
+    policy: core::RetentionPolicy,
     dry_run: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let storage = core::storage_backend::get_storage(cfg).await?;
-    if dry_run {
-        let doomed = core::plan_prune_by_count_with_storage(&*storage, keep).await?;
-        if doomed.is_empty() {
-            println!("Nothing to prune.");
-        }
-        for snap in doomed {
-            println!("  would delete {}", snap);
-        }
+    // Same planning as the desktop app (rsb_sdk::core::RetentionPolicy):
+    // age by snapshot time, never the newest snapshot.
+    let doomed = core::plan_prune_by_policy_with_storage(&*storage, policy).await?;
+    if doomed.is_empty() {
+        println!("Nothing to prune: every snapshot is kept by the retention.");
         return Ok(());
     }
     let encrypted =
         rsb_sdk::crypto::keyfile::repo_key_exists(&*storage).await? || cfg.encryption_required();
     let mut key = config::resolve_encryption_key(None, profile, Some(cfg));
+    if dry_run {
+        // A preview never prompts: without the key of an encrypted
+        // repository only the snapshots are listed.
+        let stats = execute_prune(storage, key.as_deref(), encrypted, &doomed, true).await?;
+        println!(
+            "Would delete {} snapshot(s) and {}:",
+            doomed.len(),
+            describe_prune_objects(stats.as_ref())
+        );
+        for snap in &doomed {
+            println!("  would delete {}", snap);
+        }
+        return Ok(());
+    }
     if key.is_none() && encrypted {
         if !std::io::stdin().is_terminal() {
             return Err(anyhow::anyhow!(
@@ -1041,7 +1037,19 @@ async fn run_prune(
         key = Some(k);
     }
     cfg.encryption_key = key;
-    core::perform_prune_with_storage(storage, cfg.encryption_key.as_deref(), keep).await?;
+    let stats = execute_prune(
+        storage,
+        cfg.encryption_key.as_deref(),
+        encrypted,
+        &doomed,
+        false,
+    )
+    .await?;
+    println!(
+        "✅ Deleted {} snapshot(s) and {}.",
+        stats.map_or(0, |s| s.snapshots_deleted),
+        describe_prune_objects(stats.as_ref())
+    );
     Ok(())
 }
 

@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snapshot uses (like `rsb prune`), so it requires `--confirm`, exactly like
   `rsb prune`; without it (or `--dry-run`) it refuses and exits with a
   non-zero status.
+- `rsb prune --retention <DAYS>` is now age based: it deletes the
+  snapshots taken more than DAYS days ago (by the time in the snapshot id)
+  and keeps every newer one, never the newest snapshot. It used to turn the
+  value into a snapshot **count** (`30d` kept the newest 30 snapshots,
+  `6m` 26, a bare `10` 10 snapshots), so the same command now deletes a
+  different set of snapshots. A bare number is a number of days; `d`, `w`,
+  `m` (30 days) and `y` (365 days) are accepted; 0, unknown units and more
+  than 36500 days are rejected instead of falling back to 10 snapshots.
+  With `--keep-last` as well, a snapshot is kept if either rule keeps it
+  (`--keep-last` used to silently override `--retention`). See the
+  [migration guide](docs/MIGRATION.md). The CLI and the desktop app now
+  plan prunes with the same SDK code (`rsb_sdk::core::RetentionPolicy`).
+- `rsb_sdk::utils::calculate_retention_backups` was removed (it computed
+  the count above); use `rsb_sdk::core::parse_retention_days` and
+  `RetentionPolicy`.
 
 ### Added
 - `rsb_sdk::snapshot`: snapshot listing, details, diff and delete with
@@ -27,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   desktop app so they show the same data. `rsb_sdk::core::prune_with_stats`
   returns what a prune deleted.
 - `rsb snapshots list --json` and `rsb snapshots show --json`.
+- `rsb_sdk::core::{RetentionPolicy, select_by_policy,
+  plan_prune_by_policy_with_storage, parse_retention_days}`: count and/or
+  age retention, used by `rsb prune` and the desktop prune.
+- `rsb prune --dry-run` also shows how many data objects would be deleted
+  when the key is available, and `rsb prune` prints what it deleted.
 - `rsb snapshots delete --dry-run`: shows the snapshot and the number of
   data objects that would be deleted, without deleting anything
   (`rsb_sdk::snapshot::preview_delete_snapshot`,
@@ -49,6 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).
 
 ### Fixed
+- `rsb restore --files` (and the desktop/SDK `include` patterns) compare
+  paths after normalizing both the pattern and the stored path to Unicode
+  NFC, so `café` typed in NFC selects a file backed up on macOS (stored in
+  NFD) and vice versa. The file is still restored under its stored name.
+- An age-based prune with a huge number of days no longer panics on date
+  overflow (it deletes nothing).
 - Desktop: the interface mixed Portuguese and English — most screens
   (navigation, profiles, real-time sync, snapshots, integrations, repository
   key, FIDO2, diagnostics, schedule, prune, verify, backup, restore, login)

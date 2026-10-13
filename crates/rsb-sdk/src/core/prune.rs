@@ -95,6 +95,120 @@ pub fn select_by_age(
         .collect()
 }
 
+/// Upper bound of an age-based retention (100 years): a larger value is
+/// almost certainly a typo, and `now - days` must stay representable.
+pub const MAX_RETENTION_DAYS: u32 = 36_500;
+
+/// Parses an age-based retention (`rsb prune --retention`) into days.
+///
+/// Accepts a whole number of days (`30`) or a number with a unit: `d`
+/// (days), `w` (weeks, 7 days), `m` (months, counted as 30 days) or `y`
+/// (years, counted as 365 days): `30d`, `2w`, `6m`, `1y`. The result must be
+/// between 1 and [`MAX_RETENTION_DAYS`].
+pub fn parse_retention_days(input: &str) -> Result<u32, RsbError> {
+    let invalid = |why: &str| {
+        RsbError::InvalidInput(format!(
+            "Invalid retention '{}': {} (use a number of days such as 30, or 30d, 2w, 6m, 1y)",
+            input, why
+        ))
+    };
+    let s = input.trim();
+    let (num, per_unit) = match s.char_indices().last() {
+        Some((i, c)) if c.is_ascii_alphabetic() => {
+            let factor = match c.to_ascii_lowercase() {
+                'd' => 1,
+                'w' => 7,
+                'm' => 30,
+                'y' => 365,
+                _ => return Err(invalid("unknown unit")),
+            };
+            (&s[..i], factor)
+        }
+        Some(_) => (s, 1),
+        None => return Err(invalid("empty value")),
+    };
+    let n: u64 = num.parse().map_err(|_| invalid("not a whole number"))?;
+    let days = n.saturating_mul(per_unit);
+    if days == 0 {
+        return Err(invalid("must be at least 1 day"));
+    }
+    if days > MAX_RETENTION_DAYS as u64 {
+        return Err(invalid(&format!("at most {} days", MAX_RETENTION_DAYS)));
+    }
+    Ok(days as u32)
+}
+
+/// What a prune keeps. Each rule that is set keeps some snapshots; a
+/// snapshot is deleted only when **no** rule keeps it (`rsb prune
+/// --keep-last N --retention D` keeps the newest N snapshots *and* every
+/// snapshot of the last D days). The newest snapshot is always kept.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RetentionPolicy {
+    /// Keep the newest N snapshots (`--keep-last`).
+    pub keep_last: Option<usize>,
+    /// Keep the snapshots taken in the last N days (`--retention`).
+    pub keep_within_days: Option<u32>,
+}
+
+impl RetentionPolicy {
+    fn check(&self) -> Result<(), RsbError> {
+        if self.keep_last.is_none() && self.keep_within_days.is_none() {
+            return Err(RsbError::InvalidInput(
+                "Retention policy keeps nothing: set keep_last and/or keep_within_days".to_string(),
+            ));
+        }
+        if let Some(n) = self.keep_last {
+            check_keep_last(n)?;
+        }
+        Ok(())
+    }
+}
+
+/// Returns the snapshots `policy` does not keep, with `now` as the reference
+/// time of the age rule (see [`RetentionPolicy`]). Never includes the newest
+/// snapshot; with an age rule, snapshots whose name cannot be parsed are
+/// kept (fail-closed).
+pub fn select_by_policy(
+    snapshots: Vec<String>,
+    policy: RetentionPolicy,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Vec<String>, RsbError> {
+    policy.check()?;
+    let by_count = match policy.keep_last {
+        Some(n) => Some(select_by_count(snapshots.clone(), n)?),
+        None => None,
+    };
+    let by_age = policy
+        .keep_within_days
+        .map(|days| select_by_age(snapshots, age_cutoff(now, days)));
+    // Deleted only if every rule that is set would delete it.
+    Ok(match (by_count, by_age) {
+        (Some(c), Some(a)) => a.into_iter().filter(|s| c.contains(s)).collect(),
+        (Some(c), None) => c,
+        (None, Some(a)) => a,
+        (None, None) => unreachable!("checked above"),
+    })
+}
+
+/// Snapshots that a prune with `policy` would delete (nothing is deleted),
+/// relative to the current time. See [`select_by_policy`].
+pub async fn plan_prune_by_policy_with_storage(
+    storage: &dyn Storage,
+    policy: RetentionPolicy,
+) -> Result<Vec<String>, RsbError> {
+    policy.check()?;
+    let snapshots = list_snapshots(storage).await?;
+    select_by_policy(snapshots, policy, chrono::Utc::now())
+}
+
+/// `now - days`; on overflow, the earliest representable time (nothing is
+/// older, so nothing is deleted).
+fn age_cutoff(now: chrono::DateTime<chrono::Utc>, days: u32) -> chrono::DateTime<chrono::Utc> {
+    chrono::Duration::try_days(days as i64)
+        .and_then(|d| now.checked_sub_signed(d))
+        .unwrap_or(chrono::DateTime::<chrono::Utc>::MIN_UTC)
+}
+
 /// Retenção por idade: mantém sempre o snapshot mais recente + os dos
 /// últimos `retention_days` dias. Corrige o bug da UI que passava "dias"
 /// como `keep_last` (contagem), o que deletava demais ou de menos.
@@ -134,7 +248,7 @@ pub async fn plan_prune_by_age_with_storage(
     retention_days: u32,
 ) -> Result<Vec<String>, RsbError> {
     let snapshots = list_snapshots(storage).await?;
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+    let cutoff = age_cutoff(chrono::Utc::now(), retention_days);
     // Snapshot names are `%Y-%m-%dT%H%M%S[.mmm]Z` (not RFC3339); the shared
     // parser handles every format ever written. Unparseable names are kept.
     Ok(select_by_age(snapshots, cutoff))
@@ -373,6 +487,117 @@ mod tests {
             .iter()
             .map(|n| format!("snapshots/{}.toml", n))
             .collect()
+    }
+
+    #[test]
+    fn retention_days_parsing() {
+        for (input, days) in [
+            ("30", 30),
+            (" 30d ", 30),
+            ("30D", 30),
+            ("2w", 14),
+            ("6m", 180),
+            ("1y", 365),
+            ("1", 1),
+            ("36500", MAX_RETENTION_DAYS),
+            ("100y", MAX_RETENTION_DAYS),
+        ] {
+            assert_eq!(parse_retention_days(input).unwrap(), days, "{input}");
+        }
+        for bad in [
+            "",
+            "d",
+            "0",
+            "0d",
+            "-5",
+            "abc",
+            "30x",
+            "3.5d",
+            "36501",
+            "101y",
+            "1é",
+            "99999999999999999999",
+        ] {
+            assert!(
+                matches!(parse_retention_days(bad), Err(RsbError::InvalidInput(_))),
+                "{bad:?}"
+            );
+        }
+    }
+
+    /// Snapshot names `days_ago` days before `now` (newest first).
+    fn aged(now: chrono::DateTime<chrono::Utc>, days_ago: &[i64]) -> Vec<String> {
+        days_ago
+            .iter()
+            .map(|d| {
+                format!(
+                    "snapshots/{}.toml",
+                    (now - chrono::Duration::days(*d) - chrono::Duration::minutes(1))
+                        .format(crate::core::manifest::SNAPSHOT_NAME_FORMAT)
+                )
+            })
+            .collect()
+    }
+
+    fn policy(keep_last: Option<usize>, days: Option<u32>) -> RetentionPolicy {
+        RetentionPolicy {
+            keep_last,
+            keep_within_days: days,
+        }
+    }
+
+    fn sorted(mut v: Vec<String>) -> Vec<String> {
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn policy_by_age_deletes_only_older_than_the_window() {
+        let now = chrono::Utc::now();
+        let s = aged(now, &[0, 5, 29, 31, 60, 400]);
+        let del = select_by_policy(s.clone(), policy(None, Some(30)), now).unwrap();
+        assert_eq!(sorted(del), sorted(s[3..].to_vec()));
+        // Independent of how many snapshots there are: 1 day keeps today's.
+        let del = select_by_policy(s.clone(), policy(None, Some(1)), now).unwrap();
+        assert_eq!(sorted(del), sorted(s[1..].to_vec()));
+    }
+
+    #[test]
+    fn policy_by_age_never_deletes_the_newest_snapshot() {
+        let now = chrono::Utc::now();
+        let s = aged(now, &[100, 200]);
+        let del = select_by_policy(s.clone(), policy(None, Some(30)), now).unwrap();
+        assert_eq!(del, vec![s[1].clone()]);
+    }
+
+    #[test]
+    fn policy_keeps_what_either_rule_keeps() {
+        let now = chrono::Utc::now();
+        let s = aged(now, &[0, 1, 2, 40, 50, 60]);
+        // keep_last 4 keeps 0,1,2,40; 30 days keeps 0,1,2: union = 4 kept.
+        let del = select_by_policy(s.clone(), policy(Some(4), Some(30)), now).unwrap();
+        assert_eq!(sorted(del), sorted(s[4..].to_vec()));
+        // keep_last 1 keeps 0; 45 days keeps 0..40: union keeps 0..40.
+        let del = select_by_policy(s.clone(), policy(Some(1), Some(45)), now).unwrap();
+        assert_eq!(sorted(del), sorted(s[4..].to_vec()));
+        // Count alone behaves like select_by_count.
+        let del = select_by_policy(s.clone(), policy(Some(2), None), now).unwrap();
+        assert_eq!(sorted(del), sorted(select_by_count(s, 2).unwrap()));
+    }
+
+    #[test]
+    fn policy_rejects_keep_nothing_and_keep_last_zero() {
+        let now = chrono::Utc::now();
+        let s = aged(now, &[0, 1]);
+        assert!(select_by_policy(s.clone(), policy(None, None), now).is_err());
+        assert!(select_by_policy(s, policy(Some(0), Some(30)), now).is_err());
+    }
+
+    #[test]
+    fn age_cutoff_saturates_instead_of_panicking() {
+        let now = chrono::Utc::now();
+        assert!(age_cutoff(now, u32::MAX) <= now - chrono::Duration::days(36_500));
+        assert_eq!(age_cutoff(now, 0), now);
     }
 
     #[test]

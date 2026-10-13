@@ -149,8 +149,9 @@ pub enum Commands {
 
         /// Restore only matching files: exact path (docs/a.txt), directory
         /// (docs or docs/) or glob (docs/*.pdf, '**/*.jpg'), relative to the
-        /// backup source with '/' separators. Repeatable; quote globs. Fails
-        /// if nothing matches
+        /// backup source with '/' separators. Repeatable; quote globs.
+        /// Unicode NFC/NFD spellings match each other. Fails if nothing
+        /// matches
         #[arg(short = 'i', long, value_name = "PATTERN", num_args = 1.., action = clap::ArgAction::Append)]
         files: Vec<String>,
 
@@ -229,12 +230,16 @@ pub enum Commands {
         #[arg(short = 'b', long, value_name = "DIR", conflicts_with = "config")]
         backup: Option<PathBuf>,
 
-        /// Retention policy
-        #[arg(short = 'r', long)]
-        retention: Option<String>,
+        /// Keep the snapshots taken in the last N days, by snapshot time
+        /// (`30`, `30d`, `2w`, `6m` = 180 days, `1y` = 365 days); older ones
+        /// are deleted. With --keep-last, a snapshot is kept if either rule
+        /// keeps it. The newest snapshot is always kept.
+        #[arg(short = 'r', long, value_name = "DAYS", value_parser = parse_retention)]
+        retention: Option<u32>,
 
-        /// Keep last N backups
-        #[arg(short = 'l', long)]
+        /// Keep the newest N snapshots (default 10 when --retention is not
+        /// given either)
+        #[arg(short = 'l', long, value_name = "COUNT")]
         keep_last: Option<usize>,
 
         /// Preview deletion
@@ -365,4 +370,9 @@ pub enum Commands {
     /// Manage credentials and settings
     #[command(subcommand, name = "config")]
     Config(ConfigCommand),
+}
+
+/// `--retention` value parser (see [`rsb_sdk::core::parse_retention_days`]).
+fn parse_retention(s: &str) -> Result<u32, String> {
+    rsb_sdk::core::parse_retention_days(s).map_err(|e| e.to_string())
 }
