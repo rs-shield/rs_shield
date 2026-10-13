@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   encrypted repository without its key (or with an unreadable manifest)
   now fails without deleting any snapshot. It used to delete the old
   snapshot manifests first and only then fail in the garbage collection.
+- Desktop: e-mail/Slack/Telegram/Discord notifications configured in the
+  Integrations screen are now sent after backup, restore and verify. The
+  operations looked for `integrations.json` next to the profile or the
+  backup folder instead of `~/.rs-shield/integrations.json`, where the
+  screen saves it (and the backup screen sent nothing without a profile).
+  The file is now written with mode 0600.
 
 ## [0.1.0-alpha.9] - 2026-10-12
 

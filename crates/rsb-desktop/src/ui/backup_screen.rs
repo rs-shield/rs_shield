@@ -203,8 +203,8 @@ pub fn BackupScreen() -> Element {
                     );
 
                     // Send notifications
-                    if let Some(profile_parent) = profile_path().parent() {
-                        let integrations = IntegrationConfig::load(profile_parent);
+                    {
+                        let integrations = IntegrationConfig::load_default();
                         let mut manager = NotificationManager::new();
 
                         // Add email config if enabled
@@ -265,8 +265,8 @@ pub fn BackupScreen() -> Element {
                     );
 
                     // Send error notification
-                    if let Some(profile_parent) = profile_path().parent() {
-                        let integrations = IntegrationConfig::load(profile_parent);
+                    {
+                        let integrations = IntegrationConfig::load_default();
                         let mut manager = NotificationManager::new();
 
                         if let Some(email_cfg) = integrations.to_email_config() {

@@ -1,9 +1,8 @@
 use dioxus::prelude::*;
 use rsb_sdk::core::{ChatIntegration, EmailConfig};
-use rsb_sdk::utils::ensure_directory_exists;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 /// Configurações de integrações salvas localmente
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IntegrationConfig {
@@ -45,21 +44,34 @@ pub struct DiscordIntegrationConfig {
 }
 
 impl IntegrationConfig {
-    /// Carregar configurações do arquivo de profile
-    pub fn load(profile_path: &Path) -> Self {
-        let config_dir = match profile_path.parent() {
-            Some(p) => p,
-            None => std::path::Path::new("."),
-        };
-        let config_path = config_dir.join("integrations.json");
+    /// The one file the Integrations screen saves and every operation
+    /// screen reads: `~/.rs-shield/integrations.json`. (Operations used to
+    /// look next to the profile or the backup folder instead, so configured
+    /// notifications were never sent.)
+    pub fn default_path() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".rs-shield")
+            .join("integrations.json")
+    }
 
-        if config_path.exists()
-            && let Ok(content) = fs::read_to_string(&config_path)
-            && let Ok(config) = serde_json::from_str(&content)
-        {
-            return config;
+    /// Loads [`Self::default_path`] (empty configuration if missing).
+    pub fn load_default() -> Self {
+        Self::load_from(&Self::default_path())
+    }
+
+    /// Loads the configuration file at `path` (empty if missing/invalid).
+    pub fn load_from(path: &Path) -> Self {
+        match fs::read_to_string(path) {
+            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
+                tracing::warn!("Ignoring invalid {}: {}", path.display(), e);
+                Self::empty()
+            }),
+            Err(_) => Self::empty(),
         }
+    }
 
+    fn empty() -> Self {
         Self {
             email: None,
             slack: None,
@@ -68,32 +80,13 @@ impl IntegrationConfig {
         }
     }
 
-    /// Salvar configurações no arquivo de profile
-    pub fn save(&self, profile_path: &Path) -> std::io::Result<()> {
-        let config_dir = match profile_path.parent() {
-            Some(p) => p,
-            None => std::path::Path::new("."),
-        };
-        let config_path = config_dir.join("integrations.json");
-
-        // Criar diretório se não existir
-        if let Some(dir_str) = config_dir.to_str() {
-            let _ = ensure_directory_exists(dir_str);
+    /// Saves to `path` (mode 0600: it holds SMTP passwords and webhooks).
+    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(dir) = path.parent() {
+            rsb_sdk::config::create_dir_secure(dir)?;
         }
-
         let json = serde_json::to_string_pretty(self)?;
-        // AVISO: contém sender_password / bot_token / webhook em claro.
-        // chmod 0600 best-effort + aviso para migrar para keyring.
-        eprintln!(
-            "⚠️ integrations.json contém segredos (SMTP/webhooks) em claro. Restrinja permissões e prefira keyring/env."
-        );
-        fs::write(&config_path, json)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600));
-        }
-        Ok(())
+        rsb_sdk::config::write_file_secure(path, json.as_bytes())
     }
 
     /// Converter para EmailConfig do SDK
@@ -148,16 +141,7 @@ impl IntegrationConfig {
 /// Componente de tela de integrações
 #[component]
 pub fn IntegrationScreen() -> Element {
-    // Memorizar o caminho do perfil para evitar cálculos em cada render
-    let profile_path = use_memo(move || {
-        if let Some(home) = dirs::home_dir() {
-            home.join(".rs-shield").join("default.toml")
-        } else {
-            std::path::PathBuf::from("~/.rs-shield/default.toml")
-        }
-    });
-
-    let mut config = use_signal(|| IntegrationConfig::load(&profile_path.read()));
+    let mut config = use_signal(IntegrationConfig::load_default);
     let mut active_tab = use_signal(|| "email");
     let mut status_msg = use_signal(String::new);
     let mut show_status = use_signal(|| false);
@@ -165,7 +149,7 @@ pub fn IntegrationScreen() -> Element {
     let mut test_results = use_signal(String::new);
 
     let handle_save_config = move |_| {
-        if let Ok(()) = config().save(&profile_path.read()) {
+        if let Ok(()) = config().save_to(&IntegrationConfig::default_path()) {
             status_msg.set("✅ Configurações salvas com sucesso!".to_string());
             show_status.set(true);
 
@@ -774,5 +758,36 @@ fn DiscordForm(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_config_is_loaded_back_from_the_same_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sub").join("integrations.json");
+        let mut cfg = IntegrationConfig::load_from(&path);
+        assert!(cfg.to_chat_integrations().is_empty());
+        cfg.discord = Some(DiscordIntegrationConfig {
+            enabled: true,
+            webhook_url: "https://discord.example/hook".into(),
+        });
+        cfg.save_to(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        assert_eq!(
+            IntegrationConfig::load_from(&path)
+                .to_chat_integrations()
+                .len(),
+            1
+        );
+        assert!(IntegrationConfig::default_path().ends_with(".rs-shield/integrations.json"));
     }
 }

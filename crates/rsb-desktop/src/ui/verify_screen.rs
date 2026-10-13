@@ -156,8 +156,8 @@ pub fn VerifyScreen() -> Element {
                     );
 
                     // Send notifications
-                    if let Some(bkp_parent) = bkp.parent() {
-                        let integrations = IntegrationConfig::load(bkp_parent);
+                    {
+                        let integrations = IntegrationConfig::load_default();
                         let mut manager = NotificationManager::new();
 
                         if let Some(email_cfg) = integrations.to_email_config() {
@@ -220,8 +220,8 @@ pub fn VerifyScreen() -> Element {
                     );
 
                     // Send error notification
-                    if let Some(bkp_parent) = bkp.parent() {
-                        let integrations = IntegrationConfig::load(bkp_parent);
+                    {
+                        let integrations = IntegrationConfig::load_default();
                         let mut manager = NotificationManager::new();
 
                         if let Some(email_cfg) = integrations.to_email_config() {
