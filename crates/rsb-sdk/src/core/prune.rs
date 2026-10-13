@@ -110,16 +110,34 @@ pub async fn perform_prune_by_age_with_storage(
     encryption_key: Option<&str>,
     retention_days: u32,
 ) -> Result<(), RsbError> {
-    let snapshots = list_snapshots(&*storage).await?;
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
-    // Snapshot names are `%Y-%m-%dT%H%M%S[.mmm]Z` (not RFC3339); the shared
-    // parser handles every format ever written. Unparseable names are kept.
-    let to_delete = select_by_age(snapshots, cutoff);
+    let to_delete = plan_prune_by_age_with_storage(&*storage, retention_days).await?;
     if to_delete.is_empty() {
         info!("Nothing to prune by age.");
         return Ok(());
     }
     prune_with_storage(storage, encryption_key, &to_delete).await
+}
+
+/// Snapshots that [`perform_prune_by_age`] would delete (preview, nothing
+/// is deleted): those older than `retention_days`, never the newest one.
+pub async fn plan_prune_by_age(
+    config: &Config,
+    retention_days: u32,
+) -> Result<Vec<String>, RsbError> {
+    let storage = super::storage_backend::get_storage(config).await?;
+    plan_prune_by_age_with_storage(&*storage, retention_days).await
+}
+
+/// [`plan_prune_by_age`] on an existing storage backend.
+pub async fn plan_prune_by_age_with_storage(
+    storage: &dyn Storage,
+    retention_days: u32,
+) -> Result<Vec<String>, RsbError> {
+    let snapshots = list_snapshots(storage).await?;
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+    // Snapshot names are `%Y-%m-%dT%H%M%S[.mmm]Z` (not RFC3339); the shared
+    // parser handles every format ever written. Unparseable names are kept.
+    Ok(select_by_age(snapshots, cutoff))
 }
 
 async fn list_snapshots(storage: &dyn Storage) -> Result<Vec<String>, RsbError> {
@@ -157,17 +175,33 @@ async fn prune_locked(
 ) -> Result<(), RsbError> {
     let mut deleted_count = 0;
 
+    let mut doomed: Vec<&String> = Vec::new();
+    for snap in delete_snapshots {
+        if snap.starts_with("snapshots/") && snap.ends_with(".toml") {
+            doomed.push(snap);
+        } else {
+            warn!("Skipping unexpected snapshot path during prune: {}", snap);
+        }
+    }
+
+    // 0) Read every manifest that stays BEFORE deleting anything. Any
+    //    unreadable manifest (no key / wrong key for an encrypted
+    //    repository, corruption) aborts here, fail-closed, instead of
+    //    after the doomed manifests were already gone.
+    let keep_snapshots: Vec<String> = list_snapshots(storage)
+        .await?
+        .into_iter()
+        .filter(|s| !doomed.contains(&s))
+        .collect();
+    let keep_hashes = referenced_hashes(storage, &keep_snapshots, cache).await?;
+
     // Local dedup indexes must not trust what this prune may delete.
     crate::core::dedup_index::bump_repo_epoch(storage).await?;
 
     // 1) Delete the snapshot manifests first. If we crash afterwards the
     //    worst case is unreferenced data (reclaimed by the next prune), never
     //    a manifest pointing at deleted data.
-    for snap in delete_snapshots {
-        if !snap.starts_with("snapshots/") || !snap.ends_with(".toml") {
-            warn!("Skipping unexpected snapshot path during prune: {}", snap);
-            continue;
-        }
+    for snap in doomed {
         info!("Pruning snapshot: {}", snap);
         match storage.delete(snap).await {
             Ok(()) => deleted_count += 1,
@@ -177,30 +211,10 @@ async fn prune_locked(
     }
 
     // 2) Garbage-collect data not referenced by any remaining snapshot.
-    let keep_snapshots = list_snapshots(storage).await?;
     if keep_snapshots.is_empty() {
         warn!("No snapshots left after prune; skipping data garbage collection.");
         info!("Prune completed. Deleted {} items.", deleted_count);
         return Ok(());
-    }
-
-    let mut keep_hashes = HashSet::new();
-    for snap in keep_snapshots {
-        // Any unreadable manifest aborts GC (fail-closed: we cannot know
-        // what it references).
-        let content = read_manifest_cached(storage, &snap, cache)
-            .await
-            .map_err(RsbError::from)?;
-        let manifest: HashMap<PathBuf, FileMetadata> = toml::from_str(&content)?;
-
-        for metadata in manifest.values() {
-            keep_hashes.insert(metadata.hash.clone());
-            if let Some(chunks) = &metadata.chunks {
-                for chunk in chunks {
-                    keep_hashes.insert(chunk.hash.clone());
-                }
-            }
-        }
     }
 
     let mut all_data = Vec::new();
@@ -235,6 +249,32 @@ async fn prune_locked(
     info!("Prune completed. Deleted {} items.", deleted_count);
 
     Ok(())
+}
+
+/// Hashes of every object referenced by `snapshots` (whole files and
+/// chunks). Fails if any manifest cannot be read: we cannot know what it
+/// references.
+async fn referenced_hashes(
+    storage: &dyn Storage,
+    snapshots: &[String],
+    cache: Option<&KeyCache>,
+) -> Result<HashSet<String>, RsbError> {
+    let mut keep_hashes = HashSet::new();
+    for snap in snapshots {
+        let content = read_manifest_cached(storage, snap, cache)
+            .await
+            .map_err(RsbError::from)?;
+        let manifest: HashMap<PathBuf, FileMetadata> = toml::from_str(&content)?;
+        for metadata in manifest.values() {
+            keep_hashes.insert(metadata.hash.clone());
+            if let Some(chunks) = &metadata.chunks {
+                for chunk in chunks {
+                    keep_hashes.insert(chunk.hash.clone());
+                }
+            }
+        }
+    }
+    Ok(keep_hashes)
 }
 
 #[cfg(test)]
@@ -361,6 +401,45 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn prune_deletes_nothing_when_a_kept_manifest_is_unreadable() {
+        // E.g. an encrypted repository pruned without its key: the kept
+        // manifests cannot be read, so nothing may be deleted at all.
+        let dir = tempfile::tempdir().unwrap();
+        let storage: Arc<dyn Storage> = Arc::new(LocalStorage::new(dir.path().to_str().unwrap()));
+        let old = "snapshots/2026-01-01T000000Z.toml";
+        let new = "snapshots/2026-01-02T000000Z.toml";
+        storage.write(old, b"[f]\nhash = 1").await.unwrap();
+        storage.write(new, &[0xff, 0x00, 0x13, 0x37]).await.unwrap();
+        storage.write("data/enc/abc", b"x").await.unwrap();
+
+        let plan = plan_prune_by_count_with_storage(&*storage, 1)
+            .await
+            .unwrap();
+        assert_eq!(plan, vec![old.to_string()]);
+        assert!(
+            prune_with_storage(storage.clone(), None, &plan)
+                .await
+                .is_err()
+        );
+        assert!(storage.exists(old).await.unwrap(), "manifest deleted");
+        assert!(storage.exists("data/enc/abc").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn plan_by_age_lists_old_snapshots_but_keeps_the_newest() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage: Arc<dyn Storage> = Arc::new(LocalStorage::new(dir.path().to_str().unwrap()));
+        for s in ["2020-01-01T000000Z", "2020-01-02T000000Z"] {
+            storage
+                .write(&format!("snapshots/{}.toml", s), b"")
+                .await
+                .unwrap();
+        }
+        let plan = plan_prune_by_age_with_storage(&*storage, 30).await.unwrap();
+        assert_eq!(plan, vec!["snapshots/2020-01-01T000000Z.toml".to_string()]);
     }
 
     #[tokio::test]

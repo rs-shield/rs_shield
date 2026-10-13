@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Prune reads every manifest it keeps before deleting anything: pruning an
+  encrypted repository without its key (or with an unreadable manifest)
+  now fails without deleting any snapshot. It used to delete the old
+  snapshot manifests first and only then fail in the garbage collection.
+
 ## [0.1.0-alpha.9] - 2026-10-12
 
 Read the [migration guide](docs/MIGRATION.md) before upgrading: once this
