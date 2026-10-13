@@ -45,8 +45,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not as a plain status; the key is found like in the CLI and a loaded
   profile's repository (also S3) is verified instead of a dummy
   configuration.
+- Desktop prune: an encrypted repository is no longer pruned without its
+  key (refused before anything is deleted, like `rsb prune`); the key is
+  found like in the CLI; invalid retention input is reported instead of
+  silently becoming 30 days; the result says what was deleted, or that
+  nothing matched, instead of always "Prune completed".
 
 ### Added
+- Desktop prune: "Keep the last N snapshots" (`rsb prune -l N`) besides the
+  age-based retention, and a Preview button (`--dry-run`).
 - Desktop verify: snapshot selection and `--repair`.
 - Desktop restore: `--versioned` and `--verify` options; with a date, the
   chosen snapshot is shown.
