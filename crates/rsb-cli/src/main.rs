@@ -327,7 +327,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Verify backup if requested
             if verify && !dry_run {
                 println!("🔍 Verifying backup integrity...");
-                match perform_verify(&cfg, VerifyOptions::default()).await {
+                match perform_verify(
+                    &cfg,
+                    VerifyOptions::default().with_encryption_key(key.as_deref()),
+                )
+                .await
+                {
                     Ok(verify_report) => {
                         println!(
                             "✅ Verification passed: {} files verified",
@@ -490,7 +495,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     VerifyOptions {
                         snapshot_id: snapshot.clone(),
                         ..Default::default()
-                    },
+                    }
+                    .with_encryption_key(key.as_deref()),
                 )
                 .await
                 {

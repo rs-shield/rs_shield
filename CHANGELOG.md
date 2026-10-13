@@ -50,6 +50,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   found like in the CLI; invalid retention input is reported instead of
   silently becoming 30 days; the result says what was deleted, or that
   nothing matched, instead of always "Prune completed".
+- `rsb backup --verify` and `rsb restore --verify` pass the encryption key
+  to the verification: with the key in the OS keyring or
+  `RSB_ENCRYPTION_KEY` (not in the TOML), verifying an encrypted backup
+  failed.
 
 ### Added
 - Desktop prune: "Keep the last N snapshots" (`rsb prune -l N`) besides the
