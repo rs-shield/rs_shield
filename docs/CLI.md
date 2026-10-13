@@ -594,9 +594,10 @@ ARGUMENTS:
 OPTIONS:
   -b, --backup <DIR>            Prune this repository directory directly,
                                 without a profile
-  -l, --keep-last <COUNT>       Keep last N backups (the short flag was -k
-                                before 0.1.0-alpha.9)
-  -r, --retention <POLICY>      Retention policy: "30d", "6m", "1y", or number
+  -l, --keep-last <COUNT>       Keep the newest N snapshots (the short flag
+                                was -k before 0.1.0-alpha.9)
+  -r, --retention <DAYS>        Keep the snapshots taken in the last N days:
+                                30, 30d, 2w, 6m (= 180 days), 1y (= 365 days)
   -d, --dry-run                 Preview deletions without removing
   --confirm                     Required to actually delete (unless --dry-run)
   -q, --quiet                   Suppress output
@@ -609,8 +610,11 @@ OPTIONS:
 # Preview what would be deleted
 rsb prune mybackup.toml --retention 30d --dry-run
 
-# Keep last 6 months
+# Delete the snapshots older than 180 days
 rsb prune mybackup.toml --retention 6m --confirm
+
+# Keep the last 30 days, but at least the 5 newest snapshots
+rsb prune mybackup.toml --retention 30 --keep-last 5 --confirm
 
 # Keep last 10 backups
 rsb prune mybackup.toml --keep-last 10 --confirm
@@ -620,10 +624,25 @@ rsb prune mybackup.toml -l 10 --confirm
 RSB_ENCRYPTION_KEY='your-password' rsb prune --backup /media/external/mybackup -l 10 --confirm
 ```
 
+Which snapshots are kept:
+
+- `--retention <DAYS>` is age based: a snapshot is kept when it was taken
+  less than DAYS days ago (measured from now, using the time in the
+  snapshot id), however many snapshots that is. Units: none or `d` = days,
+  `w` = 7 days, `m` = 30 days, `y` = 365 days; 1 to 36500 days.
+- `--keep-last <COUNT>` keeps the newest COUNT snapshots.
+- With both, a snapshot is kept if **either** rule keeps it (the newest
+  COUNT snapshots plus everything of the last DAYS days).
+- With neither, the newest 10 snapshots are kept.
+- The newest snapshot is never deleted, and a snapshot whose id has no
+  readable date is kept by `--retention`.
+
 Pruning only needs the repository and, for an encrypted repository, its
 key: from `RSB_ENCRYPTION_KEY`, the profile's keyring entry or a prompt
 (terminal only). Without a key an encrypted repository is refused before
-anything is deleted. `--dry-run` lists the snapshots that would be deleted.
+anything is deleted. `--dry-run` lists the snapshots that would be deleted
+and, when the key is available (it never prompts), the number of data
+objects that would be freed. The desktop app's prune uses the same rules.
 
 #### Schedule
 

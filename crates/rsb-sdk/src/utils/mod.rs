@@ -310,60 +310,6 @@ pub fn verify_directory_exists(path: &str) -> std::result::Result<PathBuf, Strin
     Ok(expanded_path)
 }
 
-/// Calculate the number of backups to keep based on retention policy
-/// Supports: Xd (days), Xm (months), Xy (years), or direct numbers
-/// Assumes 1 backup per day as the typical schedule
-pub fn calculate_retention_backups(policy: &str) -> usize {
-    match policy {
-        // Common presets with optimal backup counts
-        "7d" => 7,
-        "14d" => 14,
-        "30d" => 30,
-        "60d" => 60,
-        "90d" => 90,
-
-        // Monthly presets (weekly backups)
-        "6m" => 26,  // ~6 months
-        "12m" => 52, // ~1 year
-
-        // Yearly presets (weekly backups)
-        "1y" => 52,
-        "2y" => 104,
-        "3y" => 156,
-        "5y" => 260,
-
-        _ => {
-            // Parse custom daily retention
-            if let Some(days_str) = policy.strip_suffix('d')
-                && let Ok(days) = days_str.parse::<usize>()
-            {
-                return days;
-            }
-
-            // Parse custom monthly retention
-            if let Some(months_str) = policy.strip_suffix('m')
-                && let Ok(months) = months_str.parse::<usize>()
-            {
-                let weeks = (months * 30) / 7;
-                return weeks.max(1);
-            }
-
-            // Parse custom yearly retention
-            if let Some(years_str) = policy.strip_suffix('y')
-                && let Ok(years) = years_str.parse::<usize>()
-            {
-                return years * 52;
-            }
-
-            warn!(
-                "Unknown retention policy: '{}'. Using default: 10 backups",
-                policy
-            );
-
-            10
-        }
-    }
-}
 pub async fn send_healthcheck(url: &Option<String>, suffix: &str) {
     if let Some(base_url) = url {
         let target = format!("{}{}", base_url, suffix);
