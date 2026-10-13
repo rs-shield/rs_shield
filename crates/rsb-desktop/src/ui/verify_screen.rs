@@ -10,7 +10,7 @@ use rsb_sdk::{CancellationToken, VerifyOptions, perform_verify};
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    i18n::get_texts,
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
     ops,
     profile_loader::{
@@ -22,21 +22,28 @@ use crate::ui::{
 /// Judges a verification like `rsb verify` (whose exit code fails on any
 /// problem): `Err` with the problems listed when files had errors, so a
 /// failed verification is never shown as a plain status.
-pub fn verify_outcome(report: &ReportData) -> Result<String, String> {
-    let summary = format!(
-        "{}: {} file(s) checked, {} with errors",
-        report.status, report.total_files, report.files_with_errors
+pub fn verify_outcome(t: &Translations, report: &ReportData) -> Result<String, String> {
+    let summary = tr(
+        t.vf_summary,
+        &[
+            &report.status,
+            &report.total_files,
+            &report.files_with_errors,
+        ],
     );
     if report.files_with_errors == 0 && report.errors.is_empty() {
         return Ok(format!("✅ {}", summary));
     }
-    let mut msg = format!("❌ Verification found problems — {}", summary);
+    let mut msg = tr(t.vf_problems, &[&summary]);
     for e in report.errors.iter().take(10) {
         msg.push_str("\n  ❌ ");
         msg.push_str(e);
     }
     if report.errors.len() > 10 {
-        msg.push_str(&format!("\n  … {} more", report.errors.len() - 10));
+        msg.push_str(&format!(
+            "\n  {}",
+            tr(t.vf_more_errors, &[&(report.errors.len() - 10)])
+        ));
     }
     Err(msg)
 }
@@ -65,10 +72,10 @@ pub fn VerifyScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), texts) {
                     Ok(p) => {
                         backup_path.set(PathBuf::from(repository_label(&p.config)));
-                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status_msg.set(tr(texts.vf_profile_loaded, &[&p.path.display()]));
                         profile.set(Some(p));
                     }
                     Err(e) => status_msg.set(format!("❌ {}", e)),
@@ -116,7 +123,7 @@ pub fn VerifyScreen() -> Element {
                 }
             });
 
-            let cfg = repository_config(loaded.as_ref(), &bkp, &s3);
+            let cfg = repository_config(loaded.as_ref(), &bkp, &s3, texts);
             let repo_label = cfg.as_ref().map(repository_label).unwrap_or_default();
 
             let res = async {
@@ -148,7 +155,7 @@ pub fn VerifyScreen() -> Element {
                         report.duration.as_secs(),
                         repo_label.clone(),
                     );
-                    let outcome = verify_outcome(&report);
+                    let outcome = verify_outcome(texts, &report);
                     ops::notify(
                         if outcome.is_ok() {
                             NotificationEvent::VerificationCompleted
@@ -180,7 +187,10 @@ pub fn VerifyScreen() -> Element {
                             .unwrap_or_else(|| format!("Backup: {}", repo_label));
                         match ops::write_report("verify", &report) {
                             Ok(path) => {
-                                msg.push_str(&format!("\n📄 Report: {}", path.display()));
+                                msg.push_str(&format!(
+                                    "\n{}",
+                                    tr(texts.vf_report_path, &[&path.display()])
+                                ));
                                 last_report_path.set(Some(path));
                             }
                             Err(e) => msg.push_str(&format!("\n❌ {}", e)),
@@ -209,7 +219,7 @@ pub fn VerifyScreen() -> Element {
 
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️ Cancelling — waiting for the objects in progress...".to_string());
+        status_msg.set(texts.vf_cancelling.to_string());
     };
 
     let profile_label = profile()
@@ -228,12 +238,12 @@ pub fn VerifyScreen() -> Element {
             h2 { class: "page-title", "{texts.verify_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Load Profile (Optional)" }
+                label { class: "label-text", "{texts.vf_load_profile_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select a profile",
+                        placeholder: "{texts.vf_select_profile}",
                         value: "{profile_label}",
                         readonly: true
                     }
@@ -244,7 +254,7 @@ pub fn VerifyScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "Verifies the profile's repository (local or S3), like `rsb verify <profile>`." }
+                p { class: "hint", "{texts.vf_profile_hint}" }
             }
 
             div { class: "form-group",
@@ -273,7 +283,7 @@ pub fn VerifyScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "The repository folder (`rsb verify --backup <dir>`). Empty: the S3 bucket configured in Settings." }
+                p { class: "hint", "{texts.vf_backup_hint}" }
             }
 
             div { class: "form-group",
@@ -285,7 +295,7 @@ pub fn VerifyScreen() -> Element {
                     value: "{snapshot_id}",
                     oninput: move |evt| snapshot_id.set(evt.value())
                 }
-                p { class: "hint", "Optional; default: the latest snapshot" }
+                p { class: "hint", "{texts.vf_snapshot_hint}" }
             }
 
             div { class: "form-group",
@@ -297,7 +307,7 @@ pub fn VerifyScreen() -> Element {
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
                 }
-                p { class: "hint", "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used." }
+                p { class: "hint", "{texts.vf_key_hint}" }
             }
 
             div { class: "form-group space-y-2",
@@ -308,7 +318,7 @@ pub fn VerifyScreen() -> Element {
                         disabled: repair(),
                         onchange: move |_| fast_verify.toggle()
                     }
-                    "⚡ Quick verification (--fast: presence, size and stored hash, no decryption)"
+                    "{texts.vf_fast_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -316,7 +326,7 @@ pub fn VerifyScreen() -> Element {
                         checked: repair(),
                         onchange: move |_| repair.toggle()
                     }
-                    "🔧 Repair (--repair): delete objects proven corrupt, so the next backup uploads them again (always a full check)"
+                    "{texts.vf_repair_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -333,7 +343,7 @@ pub fn VerifyScreen() -> Element {
                     button {
                         class: "flex-1 px-4 py-3 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_cancel,
-                        "⏹️ Cancel Verification"
+                        "{texts.vf_cancel_button}"
                     }
                 }
             } else {
@@ -355,12 +365,12 @@ pub fn VerifyScreen() -> Element {
                     onclick: move |_| {
                         let _ = open::that(&path);
                     },
-                    "📄 Open Report"
+                    "{texts.vf_open_report}"
                 }
             }
 
             div { class: "status-box mt-6",
-                p { class: "font-semibold mb-2", "Status:" }
+                p { class: "font-semibold mb-2", "{texts.status_label}" }
                 p { class: "whitespace-pre-wrap", "{status_msg}" }
             }
         }
@@ -370,15 +380,21 @@ pub fn VerifyScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
 
     #[test]
     fn problems_are_a_failure_with_the_errors_listed() {
+        let t = get_texts(Language::En);
         let ok = ReportData {
             status: "Success".into(),
             total_files: 4,
             ..Default::default()
         };
-        assert!(verify_outcome(&ok).unwrap().contains("4 file(s) checked"));
+        assert!(
+            verify_outcome(t, &ok)
+                .unwrap()
+                .contains("4 file(s) checked")
+        );
 
         let bad = ReportData {
             status: "Failure with errors".into(),
@@ -387,7 +403,7 @@ mod tests {
             errors: vec!["data/enc/ab: missing".into()],
             ..Default::default()
         };
-        let msg = verify_outcome(&bad).unwrap_err();
+        let msg = verify_outcome(t, &bad).unwrap_err();
         assert!(msg.contains("data/enc/ab: missing"));
 
         // Errors without a per-file count (e.g. an unreadable manifest)
@@ -396,6 +412,6 @@ mod tests {
             errors: vec!["manifest".into()],
             ..Default::default()
         };
-        assert!(verify_outcome(&bad).is_err());
+        assert!(verify_outcome(t, &bad).is_err());
     }
 }

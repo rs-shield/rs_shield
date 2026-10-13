@@ -1,7 +1,7 @@
 use crate::ui::profile_loader::non_empty;
 use crate::ui::{
     app::AppConfig,
-    i18n::get_texts,
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
 };
 use dioxus::prelude::*;
@@ -69,7 +69,7 @@ pub async fn diagnose_repository(
 
 /// Turns the SDK diagnostics of a repository into report lines (real
 /// results; this screen used to show hard-coded "healthy" values).
-fn repository_findings(d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
+fn repository_findings(t: &Translations, d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
     let mut out = Vec::new();
     let det = &d.details;
     out.push(info(
@@ -78,17 +78,22 @@ fn repository_findings(d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
         } else {
             DiagnosticStatus::Critical
         },
-        "Repository",
+        t.dg_repository,
         format!("{} — {}", d.backup_path, d.status),
-        Some(format!(
-            "Snapshots: {} | Data objects: {} clear, {} encrypted | {:.2} MB",
-            det.snapshots_count, det.data_files_count, det.encrypted_files_count, det.total_size_mb
+        Some(tr(
+            t.dg_repository_details,
+            &[
+                &det.snapshots_count,
+                &det.data_files_count,
+                &det.encrypted_files_count,
+                &format!("{:.2}", det.total_size_mb),
+            ],
         )),
     ));
     for issue in &d.issues {
         out.push(info(
             DiagnosticStatus::Critical,
-            "Issue",
+            t.dg_issue,
             issue.trim().to_string(),
             None,
         ));
@@ -96,7 +101,7 @@ fn repository_findings(d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
     for warning in &d.warnings {
         out.push(info(
             DiagnosticStatus::Warning,
-            "Warning",
+            t.dg_warning,
             warning.trim().to_string(),
             None,
         ));
@@ -104,7 +109,7 @@ fn repository_findings(d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
     for s in &d.suggestions {
         out.push(info(
             DiagnosticStatus::Warning,
-            "Suggestion",
+            t.dg_suggestion,
             s.clone(),
             None,
         ));
@@ -113,31 +118,31 @@ fn repository_findings(d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
 }
 
 /// FIDO2 status from the credentials actually registered.
-fn fido2_finding(credentials: usize) -> DiagnosticInfo {
+fn fido2_finding(t: &Translations, credentials: usize) -> DiagnosticInfo {
     if credentials == 0 {
         info(
             DiagnosticStatus::Warning,
-            "FIDO2",
-            "No FIDO2 security key registered".to_string(),
-            Some("Register one with `rsb auth register`".to_string()),
+            t.diagnostics_fido2,
+            t.dg_no_fido2_key.to_string(),
+            Some(t.dg_register_fido2_hint.to_string()),
         )
     } else {
         info(
             DiagnosticStatus::Healthy,
-            "FIDO2",
-            format!("{} security key(s) registered", credentials),
+            t.diagnostics_fido2,
+            tr(t.dg_fido2_keys_registered, &[&credentials]),
             None,
         )
     }
 }
 
 /// Last backup recorded in the operations history.
-fn last_backup_finding(last: Option<&Operation>) -> DiagnosticInfo {
+fn last_backup_finding(t: &Translations, last: Option<&Operation>) -> DiagnosticInfo {
     match last {
         None => info(
             DiagnosticStatus::Warning,
-            "Last Backup",
-            "No backup recorded on this computer".to_string(),
+            t.diagnostics_backup,
+            t.dg_no_backup_recorded.to_string(),
             None,
         ),
         Some(op) => {
@@ -148,13 +153,15 @@ fn last_backup_finding(last: Option<&Operation>) -> DiagnosticInfo {
                 } else {
                     DiagnosticStatus::Critical
                 },
-                "Last Backup",
+                t.diagnostics_backup,
                 format!("{} — {}", op.timestamp, op.status),
-                Some(format!(
-                    "{} file(s) | {} → {}",
-                    op.files_processed,
-                    op.source_path.clone().unwrap_or_default(),
-                    op.destination_path.clone().unwrap_or_default()
+                Some(tr(
+                    t.dg_last_backup_details,
+                    &[
+                        &op.files_processed,
+                        &op.source_path.clone().unwrap_or_default(),
+                        &op.destination_path.clone().unwrap_or_default(),
+                    ],
                 )),
             )
         }
@@ -183,21 +190,23 @@ pub fn DiagnosticsScreen() -> Element {
             if repo.as_os_str().is_empty() {
                 diags.push(info(
                     DiagnosticStatus::Warning,
-                    "Repository",
-                    "No backup folder selected".to_string(),
-                    Some(
-                        "Select a backup folder to check it (rsb diagnose --backup <dir>)"
-                            .to_string(),
-                    ),
+                    texts.dg_repository,
+                    texts.dg_no_folder_selected.to_string(),
+                    Some(texts.dg_select_folder_hint.to_string()),
                 ));
             } else {
                 match diagnose_repository(repo, key_val).await {
-                    Ok(d) => diags.extend(repository_findings(&d)),
-                    Err(e) => diags.push(info(DiagnosticStatus::Critical, "Repository", e, None)),
+                    Ok(d) => diags.extend(repository_findings(texts, &d)),
+                    Err(e) => diags.push(info(
+                        DiagnosticStatus::Critical,
+                        texts.dg_repository,
+                        e,
+                        None,
+                    )),
                 }
             }
             let credentials = fido2.lock().await.list_credentials().len();
-            diags.push(fido2_finding(credentials));
+            diags.push(fido2_finding(texts, credentials));
             let last = tokio::task::spawn_blocking(|| {
                 OperationsManager::new()
                     .get_history()
@@ -209,7 +218,7 @@ pub fn DiagnosticsScreen() -> Element {
             .await
             .ok()
             .flatten();
-            diags.push(last_backup_finding(last.as_ref()));
+            diags.push(last_backup_finding(texts, last.as_ref()));
 
             diagnostics.set(diags);
             last_run.set(Some(chrono::Local::now().format("%H:%M:%S").to_string()));
@@ -243,16 +252,16 @@ pub fn DiagnosticsScreen() -> Element {
 
             // Last run info
             if let Some(run_time) = last_run.read().as_ref() {
-                div { class: "text-xs text-slate-500 dark:text-slate-400", "Last run: {run_time}" }
+                div { class: "text-xs text-slate-500 dark:text-slate-400", "{texts.dg_last_run} {run_time}" }
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Backup folder (rsb diagnose --backup)" }
+                label { class: "label-text", "{texts.dg_backup_folder_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select the repository folder",
+                        placeholder: "{texts.dg_select_repo_placeholder}",
                         value: "{repo_path.read().to_string_lossy()}",
                         oninput: move |evt| repo_path.set(PathBuf::from(evt.value()))
                     }
@@ -272,7 +281,7 @@ pub fn DiagnosticsScreen() -> Element {
                 input {
                     class: "input-field mt-2",
                     r#type: "password",
-                    placeholder: "Encryption key (optional)",
+                    placeholder: "{texts.key_label_opt}",
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
                 }
@@ -372,11 +381,14 @@ pub fn DiagnosticsScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn findings_reflect_the_real_repository() {
+        let t = get_texts(Language::En);
         let dir = tempfile::tempdir().unwrap();
         let empty = repository_findings(
+            t,
             &diagnose_repository(dir.path().to_path_buf(), None)
                 .await
                 .unwrap(),
@@ -391,7 +403,7 @@ mod tests {
         std::fs::write(repo.join("data/enc/abc"), "x").unwrap();
         let d = diagnose_repository(repo.to_path_buf(), None).await.unwrap();
         assert_eq!(d.details.snapshots_count, 1, "temp files are not snapshots");
-        let f = repository_findings(&d);
+        let f = repository_findings(t, &d);
         assert_eq!(f[0].status, DiagnosticStatus::Healthy);
         // Encrypted data without a key is flagged.
         assert!(f.iter().any(|i| i.status == DiagnosticStatus::Warning));
@@ -399,9 +411,13 @@ mod tests {
 
     #[test]
     fn fido2_and_history_findings() {
-        assert_eq!(fido2_finding(0).status, DiagnosticStatus::Warning);
-        assert_eq!(fido2_finding(2).status, DiagnosticStatus::Healthy);
-        assert_eq!(last_backup_finding(None).status, DiagnosticStatus::Warning);
+        let t = get_texts(Language::En);
+        assert_eq!(fido2_finding(t, 0).status, DiagnosticStatus::Warning);
+        assert_eq!(fido2_finding(t, 2).status, DiagnosticStatus::Healthy);
+        assert_eq!(
+            last_backup_finding(t, None).status,
+            DiagnosticStatus::Warning
+        );
         let op = Operation {
             id: "1".into(),
             operation_type: "Backup".into(),
@@ -416,7 +432,7 @@ mod tests {
             destination_path: None,
         };
         assert_eq!(
-            last_backup_finding(Some(&op)).status,
+            last_backup_finding(t, Some(&op)).status,
             DiagnosticStatus::Critical
         );
     }
