@@ -12,16 +12,17 @@ A complete guide for end users to backup, restore, and manage their data with RS
 4. [Configuration](#configuration)
 5. [Backup Operations](#backup-operations)
 6. [Restore Operations](#restore-operations)
-7. [Advanced Features](#advanced-features)
+7. [Verify, Prune and the Repository Key (Desktop)](#verify-prune-and-the-repository-key-desktop)
+8. [Advanced Features](#advanced-features)
    - [Snapshots & Versioning](#snapshots--versioning)
    - [Scheduled Backups](#scheduled-backups)
    - [Real-Time Sync](#real-time-sync)
    - [Backup Diagnostics](#backup-diagnostics)
    - [Portable Mode](#portable-mode-new) (NEW!)
    - [Automatic Deduplication](#automatic-deduplication) (NEW!)
-8. [S3 Storage Setup](#s3-storage-setup)
-9. [Troubleshooting](#troubleshooting)
-10. [FAQ](#faq)
+9. [S3 Storage Setup](#s3-storage-setup)
+10. [Troubleshooting](#troubleshooting)
+11. [FAQ](#faq)
 
 ---
 
@@ -248,23 +249,40 @@ rs-shield
 
 ### Main UI Elements
 
-1. **Top Navigation Bar**
-   - Profile selector
-   - Settings
-   - Help
+After signing in with your FIDO2 key (or a recovery code), the left
+sidebar opens the screens. Each one does what the matching CLI command
+does, with the same SDK code:
 
-2. **Left Sidebar**
-   - Create Backup
-   - Restore
-   - Verify
-   - Prune (cleanup)
-   - Real-Time Sync
-   - Dashboard
+| Screen | CLI equivalent |
+|--------|----------------|
+| Create Profile / Manage Profiles | `rsb create-profile`, `rsb list-profiles` |
+| Backup | `rsb backup <profile>` (`--dry-run`, `--verify`) |
+| Restore | `rsb restore` (`--snapshot`, `--date`, `--files`, `--force`, `--versioned`, `--verify`) |
+| Integrity / Diagnostics | `rsb diagnose --backup <dir>` |
+| Verify | `rsb verify` (`--snapshot`, `--fast`, `--repair`) |
+| Prune | `rsb prune` (`-l N` or age, `--dry-run`, `--confirm`) |
+| Real-Time Sync | `rsb watch` |
+| Snapshots | `rsb snapshots` |
+| Schedule | `rsb schedule` |
+| FIDO2 | `rsb fido2 list`, `rsb fido2 generate-codes` |
+| Repository key | `rsb key export/import/change-password` |
+| Settings | S3 settings and session credentials, app defaults |
 
-3. **Main Content Area**
-   - Tab-based interface
-   - Progress bars
-   - Status indicators
+The operation screens take either a **profile** (its source, repository —
+local or S3 — and key are used exactly as by the CLI; editing a path
+afterwards switches to working without the profile), a **repository
+folder** (like `--backup <dir>`), or the **S3 bucket** configured in
+Settings.
+
+**Encryption key.** When the key field is left blank, the key is looked
+up like in the CLI: `RSB_ENCRYPTION_KEY`, then the profile's entry in the
+OS keyring (written by Create Profile or `rsb create-profile --encrypt`),
+then a legacy key in the TOML. A profile with encryption enabled is never
+backed up without a key.
+
+HTML reports are written to `~/.rs-shield/reports/`. Notifications
+configured in **Integrations** (`~/.rs-shield/integrations.json`, mode
+0600) are sent after backup, restore and verify.
 
 ---
 
@@ -272,32 +290,22 @@ rs-shield
 
 ### Creating a Backup Profile
 
-1. **Open RS Shield Desktop App**
-2. **Click "Create Backup" or "Settings" → "New Profile"**
-3. **Enter Profile Details:**
-   - Name: `my-documents-backup`
-   - Source: `/home/user/Documents`
-   - Destination: `/mnt/external-drive/backups`
-
-4. **Configure Options:**
-   - Backup Mode: `Incremental` (recommended)
-   - Compression Level: `3` (balanced)
-   - Encryption: ✅ Enable
-   - Password: Set a strong password
-
-5. **S3 Configuration (Optional)**
-   - Click "Configure S3"
-   - Select provider (AWS, MinIO, etc.)
-   - Enter credentials
-   - Test connection
-
-6. **Save Profile** → Profile is now ready to use
+1. Open **Create Profile**.
+2. Enter a name (letters, digits, `-`, `_`, `.`), the source folder and the
+   destination folder. For an S3 profile, open **S3 Configuration** and
+   enter the bucket (the destination can then stay empty: it becomes
+   `s3://<bucket>`); access keys entered there are saved encrypted in
+   `~/.rs-shield/s3_credentials.enc`, never in the profile.
+3. Leave **Encrypt backups** on and type the password twice: it is stored
+   in the OS keyring for this profile, never in the TOML file.
+4. Click **Create Profile**. An existing profile with the same name is
+   never overwritten.
 
 ### Profile File Location
 
-Profile files are stored as TOML in:
-- **macOS/Linux:** `~/.config/rs-shield/profiles/`
-- **Windows:** `%APPDATA%\rs-shield\profiles\`
+Profiles created by the desktop app are stored as TOML files (mode 0600)
+in `~/.rsb-desktop/` (`%USERPROFILE%\.rsb-desktop\` on Windows); the CLI
+writes them in the current directory. Both read either.
 
 Example profile:
 ```toml
@@ -319,14 +327,14 @@ endpoint = "https://s3.amazonaws.com"
 
 ### Starting a Backup
 
-1. **Select Profile** from dropdown
-2. **Review Settings** (click gear icon to change)
-3. **Click "Start Backup"**
-4. **Monitor Progress:**
-   - Real-time file count
-   - Data size transferred
-   - Estimated time remaining
-   - Speed (MB/s)
+1. Open **Backup** and load a profile (📂), or type a source and a
+   destination folder (the options of Settings are then used).
+2. Optionally tick **Dry-Run** (nothing is written), **Verify the backup
+   afterwards** or **Generate report**.
+3. Click **Start Backup**. The status shows the files processed and lists
+   the files that failed, if any.
+4. **Cancel** stops after the files in progress; no snapshot is written
+   for a cancelled backup.
 
 ### Backup Options
 
@@ -340,17 +348,20 @@ endpoint = "https://s3.amazonaws.com"
 
 ### Real-Time Sync
 
-Monitor a folder continuously:
+Monitor a folder continuously (same engine as `rsb watch`):
 
-1. **Open "Real-Time Sync" Tab**
-2. **Select Source Folder** to monitor
-3. **Select Destination** for synced files
-4. **Optional:** Enable encrypted backups
-5. **Click "Start"** to begin monitoring
-6. **View Dashboard** for live statistics
-7. **Click "Stop"** to end monitoring
-
-Changes are detected every 2 seconds and automatically synced.
+1. Open **Real-Time Sync**.
+2. Load a profile, or select the folder to monitor and the backup
+   (repository) folder.
+3. Select the **synchronization folder**, which receives a copy of new and
+   modified files.
+4. Type the encryption password (optional with a profile whose key is in
+   the keyring): these backups are always encrypted.
+5. Click **Start**. An initial backup runs, then each burst of changes is
+   mirrored and backed up (incremental) once the folder is quiet for 2
+   seconds. Failed backups are retried; the ignore patterns are applied.
+6. **Stop** lets a running backup finish and reports changes that were not
+   backed up yet.
 
 ---
 
@@ -358,17 +369,17 @@ Changes are detected every 2 seconds and automatically synced.
 
 ### Restoring from a Backup
 
-1. **Click "Restore" Tab**
-2. **Select Backup Source:**
-   - Local backup folder
-   - S3 bucket
-3. **Verify Backup** (Recommended)
-   - Checks integrity
-   - Shows file count
-4. **Select Restore Location** (destination to restore to)
-5. **Enter Encryption Password** (if encrypted)
-6. **Click "Start Restore"**
-7. **Monitor Progress** until complete
+1. Open **Restore**.
+2. Choose the source: load a profile, pick the repository folder (or
+   **Load backup directly**, which validates it first), or leave both empty
+   to restore from the S3 bucket configured in Settings.
+3. Select the restore target folder.
+4. Optionally choose a snapshot ID or a date, and files to restore.
+5. Existing files in the target are kept unless **Overwrite existing
+   files** (`--force`) is ticked; **Restore into a new folder**
+   (`--versioned`) restores into `restore_<timestamp>`; **Verify the
+   snapshot afterwards** checks it (`--verify`).
+6. Click **Start Restore**.
 
 ### Restoring Specific Files
 
@@ -396,6 +407,26 @@ rsb restore --backup /backup/docs --target ~/restored --date 2026-10-01
 ```
 
 See [docs/CLI.md](CLI.md#restore) for the full pattern and date rules.
+
+## Verify, Prune and the Repository Key (Desktop)
+
+- **Verify** checks the latest snapshot (or the one entered). A
+  verification that finds problems is shown as a failure, with the
+  problems listed. **Quick** checks presence, size and stored hash without
+  decrypting; **Repair** deletes objects proven corrupt so the next backup
+  uploads them again.
+- **Prune** keeps the last N snapshots or the snapshots of the last N
+  days (the newest is always kept). **Preview** lists what would be
+  deleted; deleting requires ticking the confirmation box. An encrypted
+  repository is never pruned without its key.
+- **Repository key** exports `keys/repo.key` (JSON or printable paper
+  form), imports an exported key file and changes the repository
+  password. Keep an export: without `keys/repo.key` encrypted backups
+  cannot be read, even with the password.
+- **Schedule** shows the cron line or systemd service of `rsb schedule`
+  for a profile; the key is read from `~/.rs-shield/rsb-backup.env`
+  (mode 0600) and never written into the job. Nothing is installed
+  automatically.
 
 ---
 
