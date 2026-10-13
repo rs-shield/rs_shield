@@ -174,9 +174,17 @@ mod tests {
     fn job_matches_the_cli_and_never_contains_a_key() {
         let dir = tempfile::tempdir().unwrap();
         let profile = dir.path().join("docs.toml");
+        // Absolute on every platform ("/src" has no drive letter on
+        // Windows); TOML literal strings keep backslashes as they are.
+        let src = dir.path().join("src");
+        let repo = dir.path().join("repo");
         std::fs::write(
             &profile,
-            "source_path = \"/src\"\ndestination_path = \"/repo\"\nencrypt_patterns = [\"*\"]\n",
+            format!(
+                "source_path = '{}'\ndestination_path = '{}'\nencrypt_patterns = [\"*\"]\n",
+                src.display(),
+                repo.display()
+            ),
         )
         .unwrap();
         let exe = Path::new("/opt/rsb/rsb-cli");
