@@ -61,6 +61,7 @@ regex = { workspace = true }
 rand = { workspace = true }
 
 open = { workspace = true }
+zeroize = { workspace = true }
 anyhow = { workspace = true }
 
 # TLS

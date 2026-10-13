@@ -95,6 +95,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   off the UI thread.
 
 ### Added
+- Desktop "Repository key" screen: export `keys/repo.key` (JSON or paper
+  form, 0600, never overwriting), import an exported key file (`--force`
+  keeps a backup of the replaced one) and change the repository password —
+  the SDK calls behind `rsb key export/import/change-password`.
 - Desktop create profile: encryption (`--encrypt`), with the password
   stored in the OS keyring under the profile name, where backup, restore,
   verify and prune (desktop and CLI) find it.

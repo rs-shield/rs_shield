@@ -18,6 +18,7 @@ use crate::ui::{
     fido2_manager_view::Fido2ManagerView,
     i18n::{Language, Theme, get_texts},
     integrations_screen::IntegrationScreen,
+    key_screen::KeyScreen,
     login_screen::LoginScreen,
     profile_manager_screen::ProfileManagerScreen,
     prune_screen::PruneScreen,
@@ -43,6 +44,7 @@ pub enum ActiveTab {
     Snapshots,
     Diagnostics,
     Fido2Manager,
+    Keys,
     Integrations,
     Config,
 }
@@ -309,6 +311,7 @@ pub fn App() -> Element {
                             h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Sistema" }
                             TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
                             TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
+                            TabButton { label: "Chave do repositório".to_string(), icon: "🗝️", active: *active_tab.read() == ActiveTab::Keys, onclick: move |_| active_tab.set(ActiveTab::Keys) }
                             TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
                             TabButton { label: "Diagnósticos".to_string(), icon: "🔧", active: *active_tab.read() == ActiveTab::Diagnostics, onclick: move |_| active_tab.set(ActiveTab::Diagnostics) }
                             TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
@@ -371,6 +374,7 @@ pub fn App() -> Element {
                                     ActiveTab::Diagnostics => rsx! { DiagnosticsScreen {} },
                                     ActiveTab::Schedule => rsx! { ScheduleScreen {} },
                                     ActiveTab::Fido2Manager => rsx! { Fido2ManagerView {} },
+                                    ActiveTab::Keys => rsx! { KeyScreen {} },
                                     ActiveTab::Integrations => rsx! { IntegrationScreen {} },
                                     ActiveTab::Config => rsx! { ConfigScreen {} },
                                 }
