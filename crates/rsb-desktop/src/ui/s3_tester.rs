@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 use rsb_sdk::verify_s3_connection;
 
+use crate::ui::{app::AppConfig, i18n::get_texts};
+
 #[component]
 pub fn S3ConnectionTester(
     bucket: Signal<String>,
@@ -9,6 +11,8 @@ pub fn S3ConnectionTester(
     access_key: Signal<String>,
     secret_key: Signal<String>,
 ) -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
     let mut is_testing = use_signal(|| false);
     let mut result_message = use_signal(|| None::<String>);
     let mut is_success = use_signal(|| false);
@@ -44,12 +48,12 @@ pub fn S3ConnectionTester(
     rsx! {
         div { class: "flex flex-col gap-3 mt-2",
             div { class: "flex items-center justify-between",
-                label { class: "text-sm font-medium text-gray-700 dark:text-gray-300", "Teste de Conexão" }
+                label { class: "text-sm font-medium text-gray-700 dark:text-gray-300", "{texts.s3s_connection_test}" }
                 button {
                     class: "px-3 py-1.5 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm",
                     onclick: on_test_click,
                     disabled: is_testing(),
-                    if is_testing() { "Verificando..." } else { "Testar Conexão S3" }
+                    if is_testing() { "{texts.s3s_testing}" } else { "{texts.s3s_test_button}" }
                 }
             }
 

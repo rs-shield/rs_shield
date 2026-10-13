@@ -4,7 +4,7 @@ use crate::ui::components::{
     Button, ButtonSize, ButtonVariant, Card, CardVariant, Input, InputState, InputVariant,
 };
 use crate::ui::error_handler::format_user_error;
-use crate::ui::i18n::get_texts;
+use crate::ui::i18n::{Translations, get_texts, tr};
 use axum::response::Html;
 use dioxus::prelude::*;
 use rsb_sdk::credentials::Fido2Manager;
@@ -13,14 +13,11 @@ use tokio::sync::Mutex;
 
 /// Message when the identifier has no FIDO2 credential. Keys are
 /// registered with the CLI, so a first-time user is told how.
-pub fn login_not_found_message(id: &str, no_credentials: bool) -> String {
+pub fn login_not_found_message(t: &Translations, id: &str, no_credentials: bool) -> String {
     if no_credentials {
-        "❌ No FIDO2 security key is registered on this computer. Register one first with `rsb auth register`, then sign in with its identifier.".to_string()
+        t.login_no_credentials.to_string()
     } else {
-        format!(
-            "❌ Identifier '{}' not found. Use the identifier you registered (`rsb auth list` shows them).",
-            id
-        )
+        tr(t.login_id_not_found, &[&id])
     }
 }
 
@@ -40,7 +37,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
     let handle_login = move |_| {
         let id = user_id();
         if id.is_empty() {
-            error_msg.set(format!("⚠️ {} is required.", texts.user_identifier));
+            error_msg.set(tr(texts.login_field_required, &[&texts.user_identifier]));
             return;
         }
 
@@ -64,17 +61,17 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
             };
 
             if let Some(e) = load_error {
-                error_msg.set(format!("❌ Could not read the FIDO2 credentials: {}", e));
+                error_msg.set(tr(texts.login_read_credentials_failed, &[&e]));
                 is_authenticating.set(false);
                 return;
             }
             if !has_cred {
-                error_msg.set(login_not_found_message(&id, no_credentials));
+                error_msg.set(login_not_found_message(texts, &id, no_credentials));
                 is_authenticating.set(false);
                 return;
             }
 
-            error_msg.set("🌐 Browser is opening for authentication...".into());
+            error_msg.set(texts.login_browser_opening.to_string());
             let html_content = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
 
             let result = rsb_sdk::fido2::fido2_web::run_server(
@@ -85,7 +82,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 
             match result {
                 Ok(_) => on_login.call(id),
-                Err(e) => error_msg.set(format_user_error(e, "fido2")),
+                Err(e) => error_msg.set(format_user_error(texts, e, "fido2")),
             }
             is_authenticating.set(false);
         });
@@ -97,7 +94,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
         let code = recovery_code();
 
         if id.is_empty() || code.is_empty() {
-            error_msg.set("⚠️ Identifier and code are required.".into());
+            error_msg.set(texts.login_id_and_code_required.to_string());
             return;
         }
 
@@ -115,13 +112,10 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                     .and_then(|path| mgr.save_to_file(&path).map_err(|e| e.to_string()));
                 match saved {
                     Ok(()) => on_login.call(id),
-                    Err(e) => error_msg.set(format!(
-                        "❌ Não foi possível registar o uso do código de recuperação: {}",
-                        e
-                    )),
+                    Err(e) => error_msg.set(tr(texts.login_recovery_save_failed, &[&e])),
                 }
             } else {
-                error_msg.set("❌ Código de recuperação inválido ou já utilizado.".into());
+                error_msg.set(texts.login_recovery_invalid.to_string());
             }
             is_authenticating.set(false);
         });
@@ -132,9 +126,9 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
             is_visible: is_authenticating(),
             style: LoadingStyle::Spinner,
             message: if show_recovery_input() {
-                "Verifying recovery code...".to_string()
+                texts.login_verifying_recovery.to_string()
             } else {
-                "Authenticating with FIDO2...".to_string()
+                texts.login_authenticating.to_string()
             },
         }
 
@@ -161,7 +155,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                         label: texts.user_identifier.to_string(),
                         placeholder: "admin@rsb".to_string(),
                         value: "{user_id}",
-                        helper_text: "Your unique identifier".to_string(),
+                        helper_text: texts.login_identifier_hint.to_string(),
                         disabled: is_authenticating(),
                         oninput: Some(EventHandler::new(move |evt: FormEvent| user_id.set(evt.value()))),
                     }
@@ -174,7 +168,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                             label: texts.recovery_codes_label.to_string(),
                             placeholder: "XXXX-XXXX".to_string(),
                             value: "{recovery_code}",
-                            helper_text: "Enter your backup recovery code".to_string(),
+                            helper_text: texts.login_recovery_hint.to_string(),
                             disabled: is_authenticating(),
                             oninput: Some(EventHandler::new(move |evt: FormEvent| recovery_code.set(evt.value()))),
                         }
@@ -200,7 +194,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                                 loading: is_authenticating(),
                                 class: "flex-1".to_string(),
                                 onclick: handle_recovery_login,
-                                "Verify Code"
+                                "{texts.login_verify_code}"
                             }
                         } else {
                             Button {
@@ -220,7 +214,7 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                         button {
                             class: "text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors duration-150 cursor-pointer",
                             onclick: move |_| show_recovery_input.toggle(),
-                            if show_recovery_input() { "← Back to FIDO2" } else { "Use recovery code →" }
+                            if show_recovery_input() { "{texts.login_back_to_fido2}" } else { "{texts.login_use_recovery}" }
                         }
                     }
                 }
@@ -232,10 +226,14 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 #[cfg(test)]
 mod tests {
     use super::login_not_found_message;
+    use crate::ui::i18n::{Language, get_texts};
 
     #[test]
     fn first_run_message_explains_registration() {
-        assert!(login_not_found_message("me", true).contains("rsb auth register"));
-        assert!(login_not_found_message("me", false).contains("'me'"));
+        for lang in [Language::Pt, Language::En] {
+            let t = get_texts(lang);
+            assert!(login_not_found_message(t, "me", true).contains("rsb auth register"));
+            assert!(login_not_found_message(t, "me", false).contains("'me'"));
+        }
     }
 }

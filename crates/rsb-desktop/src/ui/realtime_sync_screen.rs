@@ -1,7 +1,10 @@
 use crate::ui::profile_loader::{
     LoadedProfile, load_profile, repository_label, resolve_key_blocking,
 };
-use crate::ui::{app::AppConfig, i18n::get_texts};
+use crate::ui::{
+    app::AppConfig,
+    i18n::{Translations, get_texts, tr},
+};
 use battery::Manager;
 use dioxus::prelude::*;
 use notify_rust::Notification;
@@ -195,19 +198,22 @@ fn push_event(history: &mut Signal<Vec<SyncEvent>>, kind: &str, details: String)
 
 /// Message shown once monitoring stopped (pending changes are not lost
 /// silently: they need a manual backup).
-fn stop_summary(stats: &SyncStats) -> String {
-    let mut msg = format!(
-        "⏹️ Monitoring stopped: {} change(s) backed up, {} backup(s) succeeded, {} failed",
-        stats.synced, stats.backups_completed, stats.backups_failed
+fn stop_summary(t: &Translations, stats: &SyncStats) -> String {
+    let mut msg = tr(
+        t.rt_stop_summary,
+        &[
+            &stats.synced,
+            &stats.backups_completed,
+            &stats.backups_failed,
+        ],
     );
     if stats.pending_changes > 0 {
-        msg.push_str(&format!(
-            "\n⚠️ {} change(s) were NOT backed up yet: run a backup to capture them.",
-            stats.pending_changes
-        ));
+        msg.push('\n');
+        msg.push_str(&tr(t.rt_stop_pending, &[&stats.pending_changes]));
     }
     if let Some(e) = &stats.last_error {
-        msg.push_str(&format!("\n❌ Last backup error: {}", e));
+        msg.push('\n');
+        msg.push_str(&tr(t.rt_stop_last_error, &[e]));
     }
     msg
 }
@@ -224,7 +230,7 @@ pub fn RealtimeSyncScreen() -> Element {
     let mut is_monitoring = use_signal(|| false);
     let mut stopping = use_signal(|| false);
     let mut profile = use_signal(|| Option::<LoadedProfile>::None);
-    let mut status_msg = use_signal(|| "Ready to monitor and backup".to_string());
+    let mut status_msg = use_signal(|| texts.rt_ready_to_monitor.to_string());
 
     let mut files_synced = use_signal(|| 0usize);
     let mut files_changed = use_signal(|| 0usize);
@@ -233,7 +239,7 @@ pub fn RealtimeSyncScreen() -> Element {
 
     // History events for dashboard
     let mut sync_history = use_signal(Vec::<SyncEvent>::new);
-    let mut last_sync_time = use_signal(|| String::from("Nunca"));
+    let mut last_sync_time = use_signal(|| texts.rt_never.to_string());
     let mut success_rate = use_signal(|| 100.0);
 
     // Notificações do sistema
@@ -325,11 +331,11 @@ pub fn RealtimeSyncScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), texts) {
                     Ok(p) => {
                         source_path.set(PathBuf::from(&p.config.source_path));
                         backup_path.set(PathBuf::from(repository_label(&p.config)));
-                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status_msg.set(tr(texts.rt_profile_loaded, &[&p.path.display()]));
                         profile.set(Some(p));
                     }
                     Err(e) => status_msg.set(format!("❌ {}", e)),
@@ -357,7 +363,7 @@ pub fn RealtimeSyncScreen() -> Element {
         }
 
         is_monitoring.set(true);
-        status_msg.set("⏳ Starting...".to_string());
+        status_msg.set(format!("⏳ {}", texts.starting));
         files_synced.set(0);
         files_changed.set(0);
         backups_created.set(0);
@@ -400,16 +406,21 @@ pub fn RealtimeSyncScreen() -> Element {
                 })),
             ));
             if let Err(e) = rt.start(&source).await {
-                status_msg.set(format!("❌ Cannot watch {}: {}", source.display(), e));
+                status_msg.set(tr(texts.rt_cannot_watch, &[&source.display(), &e]));
                 is_monitoring.set(false);
                 return;
             }
             // Back up once at start-up, then only on changes (like rsb watch).
             rt.queue_full_backup(&source).await;
             let loop_handle = rt.clone().spawn_processing_loop();
-            status_msg.set("🟢 Monitoring changes (initial backup queued)...".to_string());
+            status_msg.set(texts.rt_monitoring_initial.to_string());
             if notify_enabled {
-                send_system_notification("RS Shield", "Monitoring started", "info", None);
+                send_system_notification(
+                    "RS Shield",
+                    texts.rt_notif_monitoring_started,
+                    "info",
+                    None,
+                );
             }
 
             let mut last_failed = 0usize;
@@ -420,12 +431,12 @@ pub fn RealtimeSyncScreen() -> Element {
                         let (kind, details, title) = match &event {
                             WatchEvent::Mirrored { files } => {
                                 files_changed.set(files_changed() + files);
-                                ("file_synced", format!("{} file(s) mirrored", files), "📄 Files Synchronized")
+                                ("file_synced", tr(texts.rt_files_mirrored, &[files]), texts.rt_notif_files_synced)
                             }
                             WatchEvent::BackedUp { number, summary } => {
                                 backups_created.set(*number);
                                 status_msg.set(format!("✅ Backup #{}: {}", number, summary));
-                                ("backup_created", format!("Backup #{}: {}", number, summary), "💾 Backup Created")
+                                ("backup_created", format!("Backup #{}: {}", number, summary), texts.rt_notif_backup_created)
                             }
                         };
                         push_event(&mut sync_history, kind, details.clone());
@@ -449,19 +460,19 @@ pub fn RealtimeSyncScreen() -> Element {
                     let err = stats
                         .last_error
                         .clone()
-                        .unwrap_or_else(|| "unknown error".into());
-                    status_msg.set(format!(
-                        "❌ Backup failed (will retry): {} — {} change(s) pending",
-                        err, stats.pending_changes
+                        .unwrap_or_else(|| texts.rt_unknown_error.into());
+                    status_msg.set(tr(
+                        texts.rt_backup_failed_retry,
+                        &[&err, &stats.pending_changes],
                     ));
                     push_event(
                         &mut sync_history,
                         "error",
-                        format!("Backup failed: {}", err),
+                        tr(texts.rt_backup_failed_event, &[&err]),
                     );
                     if notify_enabled {
                         send_system_notification(
-                            "❌ Backup Error",
+                            texts.rt_notif_backup_error,
                             &err,
                             "error",
                             webhook.as_deref(),
@@ -477,21 +488,18 @@ pub fn RealtimeSyncScreen() -> Element {
                             .unwrap_or((100.0, true, "N/A".to_string()));
                     battery_percent.set(percent);
                     battery_status.set(if is_charging {
-                        "⚡ Charging".to_string()
+                        texts.rt_charging.to_string()
                     } else {
-                        "🔋 Battery".to_string()
+                        texts.rt_on_battery.to_string()
                     });
                     battery_health.set(health);
                     if percent < 15.0 && !is_charging && !show_low_battery_alert() {
                         show_low_battery_alert.set(true);
-                        let msg = format!(
-                            "Battery at {:.0}% - Consider connecting the charger",
-                            percent
-                        );
-                        show_dialog("⚠️ Low Battery", &msg, "warning");
+                        let msg = tr(texts.rt_low_battery_msg, &[&format!("{:.0}", percent)]);
+                        show_dialog(texts.rt_low_battery_title, &msg, "warning");
                         if notify_enabled {
                             send_system_notification(
-                                "⚠️ Low Battery",
+                                texts.rt_low_battery_title,
                                 &msg,
                                 "warning",
                                 webhook.as_deref(),
@@ -506,20 +514,19 @@ pub fn RealtimeSyncScreen() -> Element {
             // Stop: a backup in progress is allowed to finish (its snapshot
             // is all-or-nothing), then report what is still pending.
             stopping.set(true);
-            status_msg
-                .set("⏹️ Stopping — a backup in progress is allowed to finish...".to_string());
+            status_msg.set(texts.rt_stopping_msg.to_string());
             rt.stop().await;
             let _ = loop_handle.await;
             let stats = rt.get_stats().await;
             files_synced.set(stats.synced);
             backups_created.set(stats.backups_completed);
             sync_errors.set(stats.backups_failed);
-            status_msg.set(stop_summary(&stats));
+            status_msg.set(stop_summary(texts, &stats));
             stopping.set(false);
             if notify_enabled {
                 send_system_notification(
-                    "⏹️ Monitoring Stopped",
-                    &stop_summary(&stats),
+                    texts.rt_notif_monitoring_stopped,
+                    &stop_summary(texts, &stats),
                     "info",
                     None,
                 );
@@ -542,19 +549,19 @@ pub fn RealtimeSyncScreen() -> Element {
                 patterns.push(pattern);
                 ignore_patterns.set(patterns);
                 new_pattern.set(String::new());
-                status_msg.set("✅ Pattern added successfully".to_string());
+                status_msg.set(texts.rt_pattern_added.to_string());
             } else {
-                status_msg.set("❌ Pattern already exists".to_string());
+                status_msg.set(texts.rt_pattern_exists.to_string());
             }
         } else {
-            status_msg.set("❌ Enter a valid pattern".to_string());
+            status_msg.set(texts.rt_pattern_invalid.to_string());
         }
     };
 
     let handle_test_pattern = move |_| {
         let test_input = pattern_test_input().trim().to_string();
         if test_input.is_empty() {
-            pattern_test_result.set("❌ Enter a file path to test".to_string());
+            pattern_test_result.set(texts.rt_test_path_required.to_string());
             return;
         }
 
@@ -570,12 +577,11 @@ pub fn RealtimeSyncScreen() -> Element {
         }
 
         if matched_patterns.is_empty() {
-            pattern_test_result.set(format!("✅ '{}' would NOT be ignored", test_input));
+            pattern_test_result.set(tr(texts.rt_test_not_ignored, &[&test_input]));
         } else {
-            pattern_test_result.set(format!(
-                "🚫 '{}' would be ignored by: {}",
-                test_input,
-                matched_patterns.join(", ")
+            pattern_test_result.set(tr(
+                texts.rt_test_ignored_by,
+                &[&test_input, &matched_patterns.join(", ")],
             ));
         }
     };
@@ -590,24 +596,24 @@ pub fn RealtimeSyncScreen() -> Element {
             "node_modules".to_string(),
             "target".to_string(),
         ]);
-        status_msg.set("✅ Patterns restored to default".to_string());
+        status_msg.set(texts.rt_patterns_reset.to_string());
     };
 
     rsx! {
         div { class: "card",
-            h2 { class: "page-title", "⚡ Real-Time Sync with Backup" }
+            h2 { class: "page-title", "{texts.rt_title}" }
 
             p { class: "hint mb-4",
-                "Watches a folder; after each burst of changes it mirrors new/modified files to the synchronization folder and runs an encrypted incremental backup (same engine as `rsb watch`)."
+                "{texts.rt_intro}"
             }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Profile (Optional, like `rsb watch <profile>`)" }
+                label { class: "label-text", "{texts.rt_profile_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "No profile: use the folders below",
+                        placeholder: "{texts.rt_profile_placeholder}",
                         value: "{profile().map(|p| p.path.to_string_lossy().into_owned()).unwrap_or_default()}",
                         readonly: true
                     }
@@ -626,16 +632,16 @@ pub fn RealtimeSyncScreen() -> Element {
                         }
                     }
                 }
-                p { class: "hint", "With a profile its source, repository (local or S3) and keyring key are used; the password below is then optional." }
+                p { class: "hint", "{texts.rt_profile_hint}" }
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Folder to Monitor (Source)" }
+                label { class: "label-text", "{texts.rt_source_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Click to select",
+                        placeholder: "{texts.rt_click_to_select}",
                         value: "{source_path.read().to_string_lossy()}",
                         readonly: true,
                         disabled: is_monitoring()
@@ -650,12 +656,12 @@ pub fn RealtimeSyncScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Synchronization Folder (Destination)" }
+                label { class: "label-text", "{texts.rt_sync_folder_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Click to select",
+                        placeholder: "{texts.rt_click_to_select}",
                         value: "{dest_path.read().to_string_lossy()}",
                         readonly: true,
                         disabled: is_monitoring()
@@ -670,12 +676,12 @@ pub fn RealtimeSyncScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Backup Folder (Automatic)" }
+                label { class: "label-text", "{texts.rt_backup_folder_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Click to select",
+                        placeholder: "{texts.rt_click_to_select}",
                         value: "{backup_path.read().to_string_lossy()}",
                         readonly: true,
                         disabled: is_monitoring()
@@ -690,11 +696,11 @@ pub fn RealtimeSyncScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "🔐 Encryption Password" }
+                label { class: "label-text", "{texts.rt_password_label}" }
                 input {
                     class: "input-field",
                     r#type: "password",
-                    placeholder: "Enter a strong password",
+                    placeholder: "{texts.rt_password_placeholder}",
                     value: "{backup_password()}",
                     oninput: move |evt| backup_password.set(evt.value()),
                     disabled: is_monitoring()
@@ -715,9 +721,9 @@ pub fn RealtimeSyncScreen() -> Element {
                     div { class: "flex items-center gap-3",
                         span { class: "text-lg", "🔔" }
                         div {
-                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "System Notifications" }
+                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "{texts.rt_system_notifications}" }
                             p { class: "text-xs text-slate-600 dark:text-slate-400",
-                                if notifications_enabled() { "Enabled" } else { "Disabled" }
+                                if notifications_enabled() { "{texts.rt_enabled}" } else { "{texts.rt_disabled}" }
                             }
                         }
                     }
@@ -729,16 +735,16 @@ pub fn RealtimeSyncScreen() -> Element {
                             "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
                         },
                         onclick: move |_| notifications_enabled.set(!notifications_enabled()),
-                        if notifications_enabled() { "✅ Active" } else { "❌ Inactive" }
+                        if notifications_enabled() { "{texts.rt_active}" } else { "{texts.rt_inactive}" }
                     }
                 }
                 div { class: "mt-3 text-xs text-slate-600 dark:text-slate-400 space-y-1",
-                    p { "📨 You will receive notifications for:" }
+                    p { "{texts.rt_notify_for}" }
                     ul { class: "list-disc list-inside ml-1",
-                        li { "Start and stop monitoring" }
-                        li { "Files successfully synchronized" }
-                        li { "Backups created and encrypted" }
-                        li { "Errors during the process" }
+                        li { "{texts.rt_notify_start_stop}" }
+                        li { "{texts.rt_notify_files_synced}" }
+                        li { "{texts.rt_notify_backups}" }
+                        li { "{texts.rt_notify_errors}" }
                     }
                 }
             }
@@ -749,9 +755,9 @@ pub fn RealtimeSyncScreen() -> Element {
                     div { class: "flex items-center gap-3",
                         span { class: "text-lg", "🔗" }
                         div {
-                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "Webhook Notifications" }
+                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "{texts.rt_webhook_notifications}" }
                             p { class: "text-xs text-slate-600 dark:text-slate-400",
-                                if webhook_enabled() { "Enabled" } else { "Disabled" }
+                                if webhook_enabled() { "{texts.rt_enabled}" } else { "{texts.rt_disabled}" }
                             }
                         }
                     }
@@ -763,14 +769,14 @@ pub fn RealtimeSyncScreen() -> Element {
                             "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600"
                         },
                         onclick: move |_| webhook_enabled.set(!webhook_enabled()),
-                        if webhook_enabled() { "✅ Active" } else { "❌ Inactive" }
+                        if webhook_enabled() { "{texts.rt_active}" } else { "{texts.rt_inactive}" }
                     }
                 }
 
                 if webhook_enabled() {
                     div { class: "space-y-3 border-t border-slate-200 dark:border-slate-600 pt-4",
                         div { class: "form-group",
-                            label { class: "label-text text-xs", "Webhook URL (e.g., https://webhook.site/abc123)" }
+                            label { class: "label-text text-xs", "{texts.rt_webhook_url_label}" }
                             input {
                                 class: "input-field",
                                 r#type: "text",
@@ -782,7 +788,7 @@ pub fn RealtimeSyncScreen() -> Element {
                         }
 
                         div { class: "bg-blue-50 dark:bg-blue-900/20 rounded p-3 text-xs text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 space-y-2",
-                            p { class: "font-semibold", "📤 JSON payload structure:" }
+                            p { class: "font-semibold", "{texts.rt_json_payload}" }
                             pre { class: "block font-mono text-xs overflow-auto bg-white dark:bg-slate-800 p-2 rounded border border-blue-200 dark:border-blue-700 text-left",
     r#"{{"#
     r#"  "event_type": "sync_complete","#
@@ -803,16 +809,16 @@ pub fn RealtimeSyncScreen() -> Element {
                     div { class: "flex items-center gap-3",
                         span { class: "text-lg", "🚫" }
                         div {
-                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "Ignore Patterns" }
+                            p { class: "text-sm font-medium text-slate-900 dark:text-slate-100", "{texts.rt_ignore_patterns}" }
                             p { class: "text-xs text-slate-600 dark:text-slate-400",
-                                "{ignore_patterns().len()} patterns configured"
+                                {tr(texts.rt_patterns_configured, &[&ignore_patterns().len()])}
                             }
                         }
                     }
                     button {
                         class: "px-3 py-2 rounded-lg font-medium text-sm transition-colors bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600",
                         onclick: move |_| show_ignore_editor.set(!show_ignore_editor()),
-                        if show_ignore_editor() { "🔼 Fechar" } else { "⚙️ Editar" }
+                        if show_ignore_editor() { "{texts.rt_close_editor}" } else { "{texts.rt_edit}" }
                     }
                 }
 
@@ -823,7 +829,7 @@ pub fn RealtimeSyncScreen() -> Element {
                         div { class: "flex gap-2",
                             input {
                                 class: "input-field flex-1",
-                                placeholder: "e.g., .*\\.temp$ or node_modules",
+                                placeholder: "{texts.rt_pattern_placeholder}",
                                 value: "{new_pattern()}",
                                 oninput: move |evt| new_pattern.set(evt.value()),
                                 disabled: is_monitoring()
@@ -838,18 +844,18 @@ pub fn RealtimeSyncScreen() -> Element {
 
                         // Test pattern
                         div { class: "bg-white dark:bg-slate-800 rounded p-3 border border-slate-200 dark:border-slate-600",
-                            p { class: "text-xs font-medium text-slate-700 dark:text-slate-300 mb-2", "🧪 Test Pattern" }
+                            p { class: "text-xs font-medium text-slate-700 dark:text-slate-300 mb-2", "{texts.rt_test_pattern}" }
                             div { class: "flex gap-2 mb-2",
                                 input {
                                     class: "input-field flex-1 text-sm",
-                                    placeholder: "Enter a path (e.g., /home/user/.tmp/file.txt)",
+                                    placeholder: "{texts.rt_test_path_placeholder}",
                                     value: "{pattern_test_input()}",
                                     oninput: move |evt| pattern_test_input.set(evt.value()),
                                 }
                                 button {
                                     class: "px-3 py-1 rounded text-sm font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50",
                                     onclick: handle_test_pattern,
-                                    "Testar"
+                                    "{texts.rt_test_button}"
                                 }
                             }
                             if !pattern_test_result().is_empty() {
@@ -868,7 +874,7 @@ pub fn RealtimeSyncScreen() -> Element {
                                             let mut patterns = ignore_patterns();
                                             patterns.retain(|p| p != &pattern);
                                             ignore_patterns.set(patterns);
-                                            status_msg.set(format!("✅ Pattern '{}' removed", pattern));
+                                            status_msg.set(tr(texts.rt_pattern_removed, &[&pattern]));
                                         },
                                         disabled: is_monitoring(),
                                         "✕"
@@ -882,7 +888,7 @@ pub fn RealtimeSyncScreen() -> Element {
                             class: "w-full px-3 py-2 rounded text-sm font-medium bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600",
                             onclick: handle_reset_patterns,
                             disabled: is_monitoring(),
-                            "🔄 Restore Patterns"
+                            "{texts.rt_restore_patterns}"
                         }
                     }
                 } else {
@@ -907,32 +913,32 @@ pub fn RealtimeSyncScreen() -> Element {
                     class: "btn-primary flex-1",
                     onclick: handle_start_monitoring,
                     disabled: is_monitoring() || stopping() || source_path().as_os_str().is_empty(),
-                    if is_monitoring() { "🔴 Monitoring..." } else if stopping() { "⏳ Stopping..." } else { "▶️ Start" }
+                    if is_monitoring() { "{texts.rt_monitoring_btn}" } else if stopping() { "{texts.rt_stopping_btn}" } else { "{texts.rt_start_btn}" }
                 }
                 button {
                     class: "btn-secondary flex-1",
                     onclick: handle_stop_monitoring,
                     disabled: !is_monitoring(),
-                    "⏹️ Stop"
+                    "{texts.rt_stop_btn}"
                 }
             }
 
             // Statistics panel
             div { class: "grid grid-cols-4 gap-3 mb-4",
                 div { class: "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3",
-                    p { class: "text-xs text-blue-600 dark:text-blue-400 font-medium", "Files Synced" }
+                    p { class: "text-xs text-blue-600 dark:text-blue-400 font-medium", "{texts.rt_files_synced}" }
                     p { class: "text-xl font-bold text-blue-900 dark:text-blue-300", "{files_synced}" }
                 }
                 div { class: "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3",
-                    p { class: "text-xs text-green-600 dark:text-green-400 font-medium", "Changes Detected" }
+                    p { class: "text-xs text-green-600 dark:text-green-400 font-medium", "{texts.rt_changes_detected}" }
                     p { class: "text-xl font-bold text-green-900 dark:text-green-300", "{files_changed}" }
                 }
                 div { class: "bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3",
-                    p { class: "text-xs text-purple-600 dark:text-purple-400 font-medium", "Backups Created" }
+                    p { class: "text-xs text-purple-600 dark:text-purple-400 font-medium", "{texts.rt_backups_created}" }
                     p { class: "text-xl font-bold text-purple-900 dark:text-purple-300", "{backups_created}" }
                 }
                 div { class: "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3",
-                    p { class: "text-xs text-red-600 dark:text-red-400 font-medium", "Errors" }
+                    p { class: "text-xs text-red-600 dark:text-red-400 font-medium", "{texts.rt_errors}" }
                     p { class: "text-xl font-bold text-red-900 dark:text-red-300", "{sync_errors}" }
                 }
             }
@@ -940,12 +946,12 @@ pub fn RealtimeSyncScreen() -> Element {
             // Visual dashboard with graphs
             if is_monitoring() {
                 div { class: "card-section mb-4",
-                    h3 { class: "section-title", "📊 Real-Time Dashboard" }
+                    h3 { class: "section-title", "{texts.rt_dashboard_title}" }
 
                     // Visual success rate
                     div { class: "mb-6",
                         div { class: "flex justify-between items-center mb-2",
-                            span { class: "text-sm font-medium text-slate-700 dark:text-slate-300", "Success Rate" }
+                            span { class: "text-sm font-medium text-slate-700 dark:text-slate-300", "{texts.rt_success_rate}" }
                             span { class: "text-sm font-bold text-slate-900 dark:text-slate-100", "{(success_rate() as i32)}%" }
                         }
                         div { class: "w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden",
@@ -960,23 +966,23 @@ pub fn RealtimeSyncScreen() -> Element {
                     // Last sync
                     div { class: "grid grid-cols-2 gap-3 mb-5",
                         div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-3 border border-slate-200 dark:border-slate-700",
-                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "⏱️ Last Sync" }
+                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "{texts.rt_last_sync}" }
                             p { class: "text-lg font-bold text-slate-900 dark:text-slate-100", "{last_sync_time}" }
                         }
                         div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700",
-                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "📈 Ratio" }
+                            p { class: "text-xs text-slate-600 dark:text-slate-400 font-medium mb-1", "{texts.rt_ratio}" }
                             {
                                 let total = backups_created() + sync_errors();
                                 if total > 0 {
                                     rsx! {
                                         p { class: "text-lg font-bold text-slate-900 dark:text-slate-100",
-                                            "{backups_created()}/{total} backups OK"
+                                            {tr(texts.rt_backups_ok, &[&backups_created(), &total])}
                                         }
                                     }
                                 } else {
                                     rsx! {
                                         p { class: "text-lg font-bold text-slate-900 dark:text-slate-100",
-                                            "Waiting for events"
+                                            "{texts.rt_waiting_events}"
                                         }
                                     }
                                 }
@@ -987,7 +993,7 @@ pub fn RealtimeSyncScreen() -> Element {
                     // History events
                     if !sync_history().is_empty() {
                         div { class: "bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700",
-                            p { class: "text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3", "📜 History (Last 20 events)" }
+                            p { class: "text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3", "{texts.rt_history_title}" }
                             div { class: "max-h-48 overflow-y-auto space-y-2",
                                     {
                                         let events: Vec<_> = sync_history().iter().rev().cloned().collect();
@@ -1023,13 +1029,13 @@ pub fn RealtimeSyncScreen() -> Element {
 
             // Information
             div { class: "card-section",
-                h3 { class: "section-title", "ℹ️ How it Works" }
+                h3 { class: "section-title", "{texts.rt_how_it_works}" }
                 div { class: "space-y-2 text-sm text-slate-700 dark:text-slate-300",
-                    p { "🔍 Monitors folder in real-time (every 2 seconds)" }
-                    p { "✅ Syncs new/modified files to destination" }
-                    p { "💾 Creates automatic backup (.tar.gz) upon each detected change" }
-                    p { "📊 Shows statistics: files, changes, backups" }
-                    p { "🔴 Keep open for continuous operation" }
+                    p { "{texts.rt_how_monitor}" }
+                    p { "{texts.rt_how_sync}" }
+                    p { "{texts.rt_how_backup}" }
+                    p { "{texts.rt_how_stats}" }
+                    p { "{texts.rt_how_keep_open}" }
                 }
             }
 
@@ -1062,7 +1068,7 @@ pub fn RealtimeSyncScreen() -> Element {
                             button {
                                 class: "flex-1 px-4 py-2 rounded-lg font-medium text-sm transition-colors bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600",
                                 onclick: move |_| show_alert.set(false),
-                                "Close"
+                                "{texts.rt_close}"
                             }
                         }
                     }
@@ -1075,6 +1081,7 @@ pub fn RealtimeSyncScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
 
     #[test]
     fn watch_without_profile_encrypts_everything() {
@@ -1094,7 +1101,7 @@ mod tests {
             backup_running: false,
             last_error: Some("disk full".into()),
         };
-        let msg = stop_summary(&stats);
+        let msg = stop_summary(get_texts(Language::En), &stats);
         assert!(msg.contains("2 change(s) were NOT backed up"));
         assert!(msg.contains("disk full"));
     }

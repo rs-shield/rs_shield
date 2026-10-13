@@ -9,9 +9,16 @@ pub use rsb_sdk::integrations::{
     TelegramIntegrationConfig,
 };
 
+use crate::ui::{
+    app::AppConfig,
+    i18n::{get_texts, tr},
+};
+
 /// Componente de tela de integrações
 #[component]
 pub fn IntegrationScreen() -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
     let mut config = use_signal(IntegrationConfig::load_default);
     let mut active_tab = use_signal(|| "email");
     let mut status_msg = use_signal(String::new);
@@ -26,10 +33,10 @@ pub fn IntegrationScreen() -> Element {
         config.set(updated);
         if let Err(e) = result {
             // The error never contains secret values.
-            status_msg.set(format!("❌ Erro ao salvar configurações: {}", e));
+            status_msg.set(tr(texts.integ_save_error_detail, &[&e]));
             show_status.set(true);
         } else {
-            status_msg.set("✅ Configurações salvas com sucesso!".to_string());
+            status_msg.set(texts.integ_save_ok.to_string());
             show_status.set(true);
 
             // Auto-hide após 3 segundos
@@ -42,7 +49,7 @@ pub fn IntegrationScreen() -> Element {
 
     let handle_test_config = move |_| {
         testing.set(true);
-        test_results.set("🧪 Testando integrações...".to_string());
+        test_results.set(texts.integ_testing_status.to_string());
 
         let current_config = config();
         spawn(async move {
@@ -60,16 +67,17 @@ pub fn IntegrationScreen() -> Element {
             // Testar
             match manager.test().await {
                 Ok(results) => {
-                    let mut result_text = String::from("✅ Testes Concluídos:\n");
+                    let mut result_text = format!("{}\n", texts.integ_tests_done);
 
                     if results.email_success {
-                        result_text.push_str("✅ Email enviado com sucesso\n");
+                        result_text.push_str(&format!("{}\n", texts.integ_email_sent_ok));
                     } else if let Some(err) = &results.email_error {
                         result_text.push_str(&format!("❌ Email: {}\n", err));
                     }
 
                     for success in &results.chat_success {
-                        result_text.push_str(&format!("✅ {}: enviado com sucesso\n", success));
+                        result_text
+                            .push_str(&format!("{}\n", tr(texts.integ_chat_sent_ok, &[success])));
                     }
 
                     for (channel, err) in &results.chat_errors {
@@ -79,7 +87,7 @@ pub fn IntegrationScreen() -> Element {
                     test_results.set(result_text);
                 }
                 Err(e) => {
-                    test_results.set(format!("❌ Erro nos testes: {}", e));
+                    test_results.set(tr(texts.integ_tests_error, &[&e]));
                 }
             }
 
@@ -91,9 +99,9 @@ pub fn IntegrationScreen() -> Element {
         div { class: "flex flex-col h-full gap-4 p-4 bg-slate-50 dark:bg-slate-900",
             // Header
             div {
-                h1 { class: "text-xl font-bold text-slate-900 dark:text-slate-100 mb-2", "⚙️ Integrações" }
+                h1 { class: "text-xl font-bold text-slate-900 dark:text-slate-100 mb-2", "{texts.integ_title}" }
                 p { class: "text-sm text-slate-600 dark:text-slate-400",
-                    "Configure notificações por Email, Slack, Telegram e Discord"
+                    "{texts.integ_subtitle}"
                 }
             }
 
@@ -165,16 +173,19 @@ pub fn IntegrationScreen() -> Element {
                 button {
                     class: "btn btn-primary flex-1 text-sm py-2",
                     onclick: handle_save_config,
-                    "💾 Salvar Configurações"
+                    "{texts.integ_save_button}"
+                }
+                p { class: "text-xs text-slate-500 dark:text-slate-400",
+                    "{texts.integ_secrets_hint}"
                 }
                 button {
                     class: "btn btn-secondary flex-1 text-sm py-2",
                     onclick: handle_test_config,
                     disabled: testing(),
                     if testing() {
-                        "⏳ Testando..."
+                        "{texts.integ_testing_button}"
                     } else {
-                        "🧪 Testar Integrações"
+                        "{texts.integ_test_button}"
                     }
                 }
             }
@@ -204,6 +215,8 @@ fn EmailForm(
             .sender_password
             .updated(v)
     };
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
 
     let mut enabled = use_signal(|| email_config.enabled);
     let mut smtp_server = use_signal(|| email_config.smtp_server.clone());
@@ -244,8 +257,8 @@ fn EmailForm(
         div { class: "space-y-4 p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700",
             // Enable Toggle
             div { class: "flex items-center justify-between",
-                label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "Ativar Email" }
-                    label { class: "text-base font-semibold text-slate-700 dark:text-slate-300", "Ativar Email" }
+                label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "{texts.integ_enable_email}" }
+                    label { class: "text-base font-semibold text-slate-700 dark:text-slate-300", "{texts.integ_enable_email}" }
                 input {
                     r#type: "checkbox",
                     class: "checkbox",
@@ -257,7 +270,7 @@ fn EmailForm(
             if enabled() {
                 // Servidor SMTP
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Servidor SMTP" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_smtp_server}" }
                     input {
                         r#type: "text",
                         placeholder: "smtp.gmail.com",
@@ -275,7 +288,7 @@ fn EmailForm(
 
                 // Porta SMTP
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Porta SMTP" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_smtp_port}" }
                     input {
                         r#type: "number",
                         placeholder: "587",
@@ -287,16 +300,16 @@ fn EmailForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Geralmente 587 (TLS) ou 465 (SSL)"
+                        "{texts.integ_smtp_port_hint}"
                     }
                 }
 
                 // Email do Remetente
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Email do Remetente" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_sender_email}" }
                     input {
                         r#type: "email",
-                        placeholder: "seu_email@gmail.com",
+                        placeholder: "{texts.integ_sender_email_placeholder}",
                         class: "input input-bordered w-full",
                         value: sender_email(),
                         onchange: move |e| {
@@ -308,10 +321,10 @@ fn EmailForm(
 
                 // Senha/Token
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Senha/Token de App" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_app_password}" }
                     input {
                         r#type: "password",
-                        placeholder: "Senha ou App Password",
+                        placeholder: "{texts.integ_app_password_placeholder}",
                         class: "input input-bordered w-full",
                         value: sender_password(),
                         onchange: move |e| {
@@ -320,16 +333,16 @@ fn EmailForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Gmail: Use App Password (não a senha da conta)"
+                        "{texts.integ_app_password_hint}"
                     }
                 }
 
                 // Email do Destinatário
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Email do Destinatário" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_recipient_email}" }
                     input {
                         r#type: "email",
-                        placeholder: "destino@example.com",
+                        placeholder: "{texts.integ_recipient_email_placeholder}",
                         class: "input input-bordered w-full",
                         value: recipient_email(),
                         onchange: move |e| {
@@ -341,7 +354,7 @@ fn EmailForm(
 
                 // Use TLS
                 div { class: "flex items-center justify-between",
-                    label { class: "font-medium text-slate-700 dark:text-slate-300", "Usar TLS" }
+                    label { class: "font-medium text-slate-700 dark:text-slate-300", "{texts.integ_use_tls}" }
                     input {
                         r#type: "checkbox",
                         class: "checkbox",
@@ -374,6 +387,8 @@ fn SlackForm(
 ) -> Element {
     let slack_config = config().slack.unwrap_or_default();
     let webhook_secret = move |v: &str| config().slack.unwrap_or_default().webhook_url.updated(v);
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
 
     let mut enabled = use_signal(|| slack_config.enabled);
     let mut webhook_url = use_signal(|| slack_config.webhook_url.expose().to_string());
@@ -408,7 +423,7 @@ fn SlackForm(
     div { class: "space-y-4 p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700",
         // Enable Toggle
         div { class: "flex items-center justify-between",
-            label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "Ativar Slack" }
+            label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "{texts.integ_enable_slack}" }
             input {
                 r#type: "checkbox",
                 class: "checkbox",
@@ -432,16 +447,16 @@ fn SlackForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Obtenha em: api.slack.com → Incoming Webhooks"
+                        "{texts.integ_slack_webhook_hint}"
                     }
                 }
 
                 // Mention User (Optional)
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Mencionar Usuário (Opcional)" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_slack_mention_user}" }
                     input {
                         r#type: "text",
-                        placeholder: "U123456 ou nome_usuario",
+                        placeholder: "{texts.integ_slack_mention_placeholder}",
                         class: "input input-bordered w-full",
                         value: mention_user(),
                         onchange: move |e| {
@@ -450,7 +465,7 @@ fn SlackForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "ID do usuário ou @username"
+                        "{texts.integ_slack_mention_hint}"
                     }
                 }
             }
@@ -466,6 +481,8 @@ fn TelegramForm(
 ) -> Element {
     let telegram_config = config().telegram.unwrap_or_default();
     let token_secret = move |v: &str| config().telegram.unwrap_or_default().bot_token.updated(v);
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
 
     let mut enabled = use_signal(|| telegram_config.enabled);
     let mut bot_token = use_signal(|| telegram_config.bot_token.expose().to_string());
@@ -492,7 +509,7 @@ fn TelegramForm(
         div { class: "space-y-4 p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700",
             // Enable Toggle
             div { class: "flex items-center justify-between",
-                label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "Ativar Telegram" }
+                label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "{texts.integ_enable_telegram}" }
                 input {
                     r#type: "checkbox",
                     class: "checkbox",
@@ -504,7 +521,7 @@ fn TelegramForm(
             if enabled() {
                 // Bot Token
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "Token do Bot" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_tg_bot_token}" }
                     input {
                         r#type: "password",
                         placeholder: "123456789:ABCdefGHIjklmnoPQRstuvWXYZ",
@@ -516,13 +533,13 @@ fn TelegramForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Obtenha com @BotFather no Telegram (formato: número:letras)"
+                        "{texts.integ_tg_bot_token_hint}"
                     }
                 }
 
                 // Chat ID
                 div {
-                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "ID do Chat" }
+                    label { class: "label font-medium text-slate-700 dark:text-slate-300", "{texts.integ_tg_chat_id}" }
                     input {
                         r#type: "text",
                         placeholder: "-1001234567890",
@@ -534,31 +551,31 @@ fn TelegramForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Envie /start ao bot e acesse api.telegram.org/botTOKEN/getUpdates (substitua TOKEN)"
+                        "{texts.integ_tg_chat_id_hint}"
                     }
                 }
 
                 // Help section
                 div { class: "p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800",
-                    p { class: "text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2", "📖 Como Configurar:" }
+                    p { class: "text-sm font-semibold text-blue-900 dark:text-blue-300 mb-2", "{texts.integ_tg_howto_title}" }
                     ul { class: "text-xs text-blue-800 dark:text-blue-400 space-y-1 list-disc list-inside",
-                        li { "Abra Telegram e procure por @BotFather" }
-                        li { "Envie /newbot e siga as instruções" }
-                        li { "Copie o token (formato: 123456789:ABC...)" }
-                        li { "Procure pelo seu bot e envie /start" }
-                        li { "Acesse: https://api.telegram.org/bot[TOKEN]/getUpdates (substitua [TOKEN])" }
-                        li { "Procure por \"chat\": {{\"id\": -1001234567890}} (esse é o chat_id)" }
+                        li { "{texts.integ_tg_howto_1}" }
+                        li { "{texts.integ_tg_howto_2}" }
+                        li { "{texts.integ_tg_howto_3}" }
+                        li { "{texts.integ_tg_howto_4}" }
+                        li { "{texts.integ_tg_howto_5}" }
+                        li { "{texts.integ_tg_howto_6}" }
                     }
                 }
 
                 // Troubleshooting section
                 div { class: "p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800",
-                    p { class: "text-sm font-semibold text-yellow-900 dark:text-yellow-300 mb-2", "🔧 Troubleshooting:" }
+                    p { class: "text-sm font-semibold text-yellow-900 dark:text-yellow-300 mb-2", "{texts.integ_tg_troubleshooting_title}" }
                     ul { class: "text-xs text-yellow-800 dark:text-yellow-400 space-y-1 list-disc list-inside",
-                        li { "Erro 403 Forbidden: Envie /start ao bot primeiro" }
-                        li { "Certifique-se de enviar /start ao bot no Telegram" }
-                        li { "Chat ID começa com '-' para grupos, sem sinal para chats privados" }
-                        li { "Teste o token: https://api.telegram.org/bot[TOKEN]/getMe (substitua [TOKEN])" }
+                        li { "{texts.integ_tg_trouble_1}" }
+                        li { "{texts.integ_tg_trouble_2}" }
+                        li { "{texts.integ_tg_trouble_3}" }
+                        li { "{texts.integ_tg_trouble_4}" }
                     }
                 }
             }
@@ -574,6 +591,8 @@ fn DiscordForm(
 ) -> Element {
     let discord_config = config().discord.unwrap_or_default();
     let webhook_secret = move |v: &str| config().discord.unwrap_or_default().webhook_url.updated(v);
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
 
     let mut enabled = use_signal(|| discord_config.enabled);
     let mut webhook_url = use_signal(|| discord_config.webhook_url.expose().to_string());
@@ -597,7 +616,7 @@ fn DiscordForm(
         div { class: "space-y-4 p-4 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700",
             // Enable Toggle
             div { class: "flex items-center justify-between",
-                label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "Ativar Discord" }
+                label { class: "text-lg font-semibold text-slate-700 dark:text-slate-300", "{texts.integ_enable_discord}" }
                 input {
                     r#type: "checkbox",
                     class: "checkbox",
@@ -621,7 +640,7 @@ fn DiscordForm(
                         }
                     }
                     p { class: "text-xs text-slate-500 dark:text-slate-400 mt-1",
-                        "Clique direito no canal → Editar → Integrações → Webhooks"
+                        "{texts.integ_discord_webhook_hint}"
                     }
                 }
             }

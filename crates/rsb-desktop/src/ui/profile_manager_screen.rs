@@ -2,17 +2,37 @@ use dioxus::prelude::*;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::ui::app::AppConfig;
 use crate::ui::components::{
     Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Card, CardVariant, EmptyState,
 };
 use crate::ui::error_handler::format_user_error;
+use crate::ui::i18n::{Translations, get_texts, tr};
 
 /// Estrutura simplificada de um perfil
 #[derive(Debug, Clone)]
 pub struct ProfileEntry {
     pub name: String,
     pub path: PathBuf,
-    pub created: String,
+    pub created: ProfileAge,
+}
+
+/// Age of a profile file, rendered in the current language.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProfileAge {
+    Days(u64),
+    Recent,
+    Unknown,
+}
+
+impl ProfileAge {
+    pub fn label(self, t: &Translations) -> String {
+        match self {
+            ProfileAge::Days(d) => tr(t.pm_days_ago, &[&d]),
+            ProfileAge::Recent => t.pm_recently.to_string(),
+            ProfileAge::Unknown => t.pm_unknown.to_string(),
+        }
+    }
 }
 
 pub struct ProfileManager;
@@ -47,12 +67,12 @@ impl ProfileManager {
                     // Get modification date
                     let created = if let Ok(modified) = metadata.modified() {
                         if let Ok(duration) = modified.elapsed() {
-                            format!("{} days ago", duration.as_secs() / 86400)
+                            ProfileAge::Days(duration.as_secs() / 86400)
                         } else {
-                            "Recently".to_string()
+                            ProfileAge::Recent
                         }
                     } else {
-                        "Unknown".to_string()
+                        ProfileAge::Unknown
                     };
 
                     profiles.push(ProfileEntry {
@@ -69,14 +89,16 @@ impl ProfileManager {
         profiles
     }
 
-    pub fn delete_profile(profile_path: &PathBuf) -> Result<(), String> {
-        fs::remove_file(profile_path).map_err(|e| format!("Error deleting profile: {}", e))
+    pub fn delete_profile(t: &Translations, profile_path: &PathBuf) -> Result<(), String> {
+        fs::remove_file(profile_path).map_err(|e| tr(t.pm_error_deleting, &[&e]))
     }
 }
 
 /// Profile Management Screen
 #[component]
 pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
     let mut profiles = use_signal(ProfileManager::list_profiles);
     let mut status_msg = use_signal(String::new);
     let mut show_status = use_signal(|| false);
@@ -84,15 +106,15 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
     let mut to_delete = use_signal(|| Option::<ProfileEntry>::None);
 
     let mut handle_delete = move |profile_name: String, profile_path: PathBuf| {
-        match ProfileManager::delete_profile(&profile_path) {
+        match ProfileManager::delete_profile(texts, &profile_path) {
             Ok(()) => {
-                status_msg.set(format!("Profile '{}' deleted successfully!", profile_name));
+                status_msg.set(tr(texts.pm_deleted, &[&profile_name]));
                 status_type.set("success");
                 to_delete.set(None);
                 profiles.set(ProfileManager::list_profiles());
             }
             Err(e) => {
-                status_msg.set(format_user_error(e, "profile"));
+                status_msg.set(format_user_error(texts, e, "profile"));
                 status_type.set("error");
             }
         }
@@ -116,8 +138,8 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
         div { class: "flex flex-col h-full gap-4 p-4 bg-slate-50 dark:bg-slate-900",
             // Header
             div { class: "space-y-2",
-                h1 { class: "text-2xl font-bold text-slate-900 dark:text-slate-100", "📋 Profile Management" }
-                p { class: "text-slate-600 dark:text-slate-400", "View and manage your backup profiles" }
+                h1 { class: "text-2xl font-bold text-slate-900 dark:text-slate-100", "{texts.pm_title}" }
+                p { class: "text-slate-600 dark:text-slate-400", "{texts.pm_subtitle}" }
             }
 
             // Status message
@@ -142,8 +164,8 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                 Card { variant: CardVariant::Outlined, class: "flex-1".to_string(),
                     EmptyState {
                         icon: "📭".to_string(),
-                        title: "No profiles created".to_string(),
-                        description: "Create your first profile to get started with backups".to_string(),
+                        title: texts.pm_empty_title.to_string(),
+                        description: texts.pm_empty_description.to_string(),
                         action_label: None,
                         on_action: None,
                     }
@@ -158,14 +180,14 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                                         span { class: "text-base", "📦" }
                                         h3 { class: "text-base font-semibold text-slate-900 dark:text-slate-100", "{profile.name}" }
                                     }
-                                    p { class: "text-xs text-slate-600 dark:text-slate-400", "Path: {profile.path.display()}" }
-                                    Badge { variant: BadgeVariant::Neutral, "{profile.created}" }
+                                    p { class: "text-xs text-slate-600 dark:text-slate-400", "{texts.pm_path_label} {profile.path.display()}" }
+                                    Badge { variant: BadgeVariant::Neutral, "{profile.created.label(texts)}" }
                                 }
                                 Button {
                                     variant: ButtonVariant::Danger,
                                     size: ButtonSize::SM,
                                     onclick: move |_| to_delete.set(Some(profile.clone())),
-                                    "Delete"
+                                    "{texts.pm_delete}"
                                 }
                             }
                         }
@@ -181,10 +203,10 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                             div { class: "space-y-2",
                                 h2 { class: "text-xl font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2",
                                     span { "⚠️" }
-                                    "Confirm Deletion"
+                                    "{texts.pm_confirm_title}"
                                 }
                                 p { class: "text-slate-600 dark:text-slate-400",
-                                    "Are you sure you want to delete the profile \"{profile.name}\"? This action cannot be undone."
+                                    "{tr(texts.pm_confirm_message, &[&profile.name])}"
                                 }
                             }
 
@@ -194,14 +216,14 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                                     size: ButtonSize::MD,
                                     class: "flex-1".to_string(),
                                     onclick: move |_| to_delete.set(None),
-                                    "Cancel"
+                                    "{texts.pm_cancel}"
                                 }
                                 Button {
                                     variant: ButtonVariant::Danger,
                                     size: ButtonSize::MD,
                                     class: "flex-1".to_string(),
                                     onclick: move |_| handle_delete(profile.name.clone(), profile.path.clone()),
-                                    "Delete"
+                                    "{texts.pm_delete}"
                                 }
                             }
                         }
@@ -216,14 +238,14 @@ pub fn ProfileManagerScreen(mut active_tab: Signal<crate::ui::app::ActiveTab>) -
                     size: ButtonSize::MD,
                     class: "flex-1".to_string(),
                     onclick: move |_| active_tab.set(crate::ui::app::ActiveTab::CreateProfile),
-                    "➕ Create New Profile"
+                    "{texts.pm_create_new}"
                 }
                 Button {
                     variant: ButtonVariant::Secondary,
                     size: ButtonSize::MD,
                     class: "flex-1".to_string(),
                     onclick: move |_| profiles.set(ProfileManager::list_profiles()),
-                    "🔄 Refresh"
+                    "{texts.pm_refresh}"
                 }
             }
         }
