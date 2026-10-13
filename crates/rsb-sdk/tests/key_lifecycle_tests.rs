@@ -863,3 +863,57 @@ async fn rotation_requires_completed_migration() {
     assert_eq!(rep.unreadable_unreferenced.len(), 1, "{:?}", rep);
     all_operations_work(&repo.cfg, &storage, PW, &repo.files()).await;
 }
+
+// ---------------------------------------------------------------------------
+// Key status (what the desktop and `rsb key rotate` show before running)
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn key_status_reports_what_migrate_and_rotate_will_do() {
+    // Empty repository: only init applies.
+    let empty: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+    let s = lifecycle::key_status(&*empty).await.unwrap();
+    assert!(s.can_init() && !s.can_rotate() && !s.needs_migration());
+    assert_eq!(s.encrypted_objects, 0);
+
+    // Mixed v1/v2 + v3 repository: the legacy counts match legacy_summary.
+    let mem = FailingStorage::new();
+    let storage: Arc<dyn Storage> = mem.clone();
+    let _repo = mixed_repo(&storage).await;
+    let s = lifecycle::key_status(&*storage).await.unwrap();
+    assert_eq!(
+        s.legacy,
+        lifecycle::legacy_summary(&*storage).await.unwrap()
+    );
+    assert!(!s.can_init() && s.can_rotate() && s.needs_migration());
+    assert_eq!(s.encrypted_objects, list(&*storage, "data/enc").await.len());
+    assert!(s.encrypted_objects > s.legacy.objects);
+    assert!(s.encrypted_bytes >= s.legacy.bytes);
+    assert_eq!(s.encrypted_manifests, 2, "{s:?}");
+    assert!(!s.rotating);
+    let key_id = s.key_id.clone().expect("key id");
+
+    // After the migration only the unreadable garbage blob stays v1/v2.
+    lifecycle::migrate_legacy_objects(storage.clone(), PW.as_bytes(), None, None)
+        .await
+        .unwrap();
+    let s = lifecycle::key_status(&*storage).await.unwrap();
+    assert_eq!(s.legacy.objects, 1, "{s:?}");
+    assert_eq!(s.legacy.manifests, 0, "{s:?}");
+
+    // An interrupted rotation is reported (running rotate resumes it).
+    mem.fail_after("data/enc/", 1);
+    assert!(
+        lifecycle::rotate_repo_key(storage.clone(), PW.as_bytes(), None, None)
+            .await
+            .is_err()
+    );
+    mem.heal();
+    let s = lifecycle::key_status(&*storage).await.unwrap();
+    assert!(s.rotating, "{s:?}");
+    lifecycle::rotate_repo_key(storage.clone(), PW.as_bytes(), None, None)
+        .await
+        .unwrap();
+    let s = lifecycle::key_status(&*storage).await.unwrap();
+    assert!(!s.rotating);
+    assert_ne!(s.key_id.as_deref(), Some(key_id.as_str()));
+}

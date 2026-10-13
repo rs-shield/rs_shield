@@ -1,11 +1,16 @@
-//! FIDO2 keys of this computer (`rsb auth list` / `generate-codes`).
-//! This tab used to be a placeholder.
+//! FIDO2 keys of this computer (`rsb auth list / register / delete /
+//! generate-codes`), through the same SDK calls as the CLI.
 
 use crate::ui::app::AppConfig;
 use crate::ui::i18n::{Translations, get_texts, tr};
+use axum::response::Html;
 use dioxus::prelude::*;
+use rsb_sdk::CancellationToken;
 use rsb_sdk::credentials::Fido2Manager;
+use rsb_sdk::credentials::fido2_manager::Fido2Error;
+use rsb_sdk::fido2::fido2_web::{self, ServerMode};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
 
 /// One row of the list.
@@ -55,15 +60,66 @@ pub fn regenerate_codes(
     Ok(codes)
 }
 
+/// Deletes every key of the signed-in user `me` (like `rsb auth delete`,
+/// which only lets a session delete its own user), after the user typed
+/// the identifier again to confirm.
+pub fn delete_own_keys(
+    mgr: &mut Fido2Manager,
+    path: &std::path::Path,
+    me: &str,
+    typed: &str,
+    t: &Translations,
+) -> Result<String, String> {
+    if me.is_empty() || typed.trim() != me {
+        return Err(t.kl_fido2_delete_mismatch.to_string());
+    }
+    mgr.revoke_user_persisted(path, me).map_err(|e| match e {
+        Fido2Error::CredentialNotFound => tr(t.kl_fido2_delete_unknown, &[&me]),
+        e => e.to_string(),
+    })?;
+    Ok(tr(t.kl_fido2_delete_done, &[&me]))
+}
+
+/// Resolves once `token` is cancelled.
+async fn cancelled(token: CancellationToken) {
+    while !token.is_cancelled() {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+/// Registers a key in the browser (like `rsb auth register`): the same
+/// local FIDO2 server, in registration mode. `Ok(false)` when cancelled
+/// (the server future is dropped, which frees its port).
+pub async fn register_key(
+    manager: Arc<Mutex<Fido2Manager>>,
+    token: CancellationToken,
+) -> Result<bool, String> {
+    let html = include_str!("../../../rsb-cli/src/assets/fido2_auth.html");
+    tokio::select! {
+        // Cancellation first: a cancelled token never starts the server.
+        biased;
+        _ = cancelled(token) => Ok(false),
+        res = fido2_web::run_server_with_mode(manager, Html(html), ServerMode::Register) => {
+            res.map(|_| true).map_err(|e| e.to_string())
+        }
+    }
+}
+
 #[component]
 pub fn Fido2ManagerView() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
     let manager = use_context::<Arc<Mutex<Fido2Manager>>>();
-    let user = use_context::<Signal<Option<String>>>();
+    let app_config = use_context::<AppConfig>();
+    let t = get_texts(app_config.language());
+    let mut user = use_context::<Signal<Option<String>>>();
     let mut rows = use_signal(Vec::<CredentialRow>::new);
     let mut codes = use_signal(Vec::<String>::new);
     let mut status = use_signal(String::new);
+    let mut registering = use_signal(|| false);
+    let mut register_token = use_signal(CancellationToken::new);
+    let mut confirm_delete = use_signal(|| false);
+    let mut typed_id = use_signal(String::new);
 
     let refresh_mgr = manager.clone();
     let refresh = use_callback(move |_: ()| {
@@ -95,6 +151,53 @@ pub fn Fido2ManagerView() -> Element {
                 Ok(c) => {
                     codes.set(c);
                     status.set(texts.fido_codes_generated.to_string());
+                }
+                Err(e) => status.set(format!("❌ {}", e)),
+            }
+        });
+    };
+
+    let register_mgr = manager.clone();
+    let handle_register = move |_| {
+        let mgr = register_mgr.clone();
+        let token = CancellationToken::new();
+        register_token.set(token.clone());
+        registering.set(true);
+        status.set(t.kl_fido2_register_waiting.to_string());
+        spawn(async move {
+            let res = register_key(mgr, token).await;
+            registering.set(false);
+            status.set(match res {
+                Ok(true) => t.kl_fido2_register_done.to_string(),
+                Ok(false) => t.kl_fido2_register_cancelled.to_string(),
+                Err(e) => format!("❌ {}", e),
+            });
+            refresh.call(());
+        });
+    };
+
+    let delete_mgr = manager.clone();
+    let handle_delete = move |_| {
+        let Some(me) = user() else {
+            return;
+        };
+        let typed = typed_id();
+        let mgr = delete_mgr.clone();
+        spawn(async move {
+            let res = {
+                let mut m = mgr.lock().await;
+                Fido2Manager::default_storage_path()
+                    .and_then(|path| delete_own_keys(&mut m, &path, &me, &typed, t))
+            };
+            match res {
+                Ok(msg) => {
+                    confirm_delete.set(false);
+                    typed_id.set(String::new());
+                    status.set(msg);
+                    codes.set(Vec::new());
+                    refresh.call(());
+                    // The session's user has no key any more: sign out.
+                    user.set(None);
                 }
                 Err(e) => status.set(format!("❌ {}", e)),
             }
@@ -145,6 +248,59 @@ pub fn Fido2ManagerView() -> Element {
                 }
             }
 
+            div { class: "flex gap-3 mt-3",
+                if registering() {
+                    button {
+                        class: "btn-secondary flex-1",
+                        onclick: move |_| register_token().cancel(),
+                        "{t.kl_cancel_button}"
+                    }
+                } else {
+                    button {
+                        class: "btn-primary flex-1",
+                        onclick: handle_register,
+                        "{t.kl_fido2_register_button}"
+                    }
+                }
+                button {
+                    class: "flex-1 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
+                    disabled: me.is_empty() || registering(),
+                    onclick: move |_| {
+                        typed_id.set(String::new());
+                        confirm_delete.toggle();
+                    },
+                    "{t.kl_fido2_delete_button}"
+                }
+            }
+            p { class: "hint mt-2", "{t.kl_fido2_register_hint}" }
+
+            if confirm_delete() && !me.is_empty() {
+                div { class: "status-box mt-4 border-l-4 border-red-500",
+                    p { class: "font-semibold mb-2", "{t.kl_confirm_title}" }
+                    p { class: "whitespace-pre-wrap mb-2", {tr(t.kl_fido2_delete_confirm, &[&me])} }
+                    input {
+                        class: "input-field mb-2",
+                        r#type: "text",
+                        placeholder: "{me}",
+                        value: "{typed_id}",
+                        oninput: move |evt| typed_id.set(evt.value())
+                    }
+                    div { class: "flex gap-3",
+                        button {
+                            class: "flex-1 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
+                            disabled: typed_id().trim() != me,
+                            onclick: handle_delete,
+                            "{t.kl_fido2_delete_action}"
+                        }
+                        button {
+                            class: "flex-1 btn-secondary",
+                            onclick: move |_| confirm_delete.set(false),
+                            "{t.kl_cancel_button}"
+                        }
+                    }
+                }
+            }
+
             if !status().is_empty() {
                 div { class: "status-box mt-4", p { class: "whitespace-pre-wrap", "{status}" } }
             }
@@ -162,6 +318,37 @@ pub fn Fido2ManagerView() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn delete_needs_the_typed_identifier_and_a_known_user() {
+        use crate::ui::i18n::EN_STRINGS;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fido2.json");
+        let mut mgr = Fido2Manager::new("http://localhost:3000", "localhost", "test").unwrap();
+        // Typed identifier does not match: refused before anything is read.
+        assert_eq!(
+            delete_own_keys(&mut mgr, &path, "alice", "alic", &EN_STRINGS).unwrap_err(),
+            EN_STRINGS.kl_fido2_delete_mismatch
+        );
+        assert!(delete_own_keys(&mut mgr, &path, "", "", &EN_STRINGS).is_err());
+        // No credentials file and no such user: refused, nothing written
+        // (and the OS keyring is never touched).
+        let e = delete_own_keys(&mut mgr, &path, "alice", "alice", &EN_STRINGS).unwrap_err();
+        assert!(e.contains("Unknown user: alice"), "{e}");
+        assert!(!path.exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelled_registration_never_starts_the_server() {
+        // The cancellation branch is polled first, so the server (which
+        // would read the real credentials file) is never polled.
+        let mgr = Arc::new(Mutex::new(
+            Fido2Manager::new("http://localhost:3000", "localhost", "test").unwrap(),
+        ));
+        let token = CancellationToken::new();
+        token.cancel();
+        assert_eq!(register_key(mgr, token).await, Ok(false));
+    }
 
     #[test]
     fn unknown_user_gets_no_codes_and_nothing_is_written() {

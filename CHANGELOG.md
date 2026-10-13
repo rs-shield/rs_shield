@@ -82,6 +82,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop restore: `--versioned` and `--verify` options; with a date, the
   chosen snapshot is shown.
 - Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).
+- Desktop key lifecycle at parity with the CLI: the "Repository key"
+  screen can now check the repository's key status, create the key
+  (`rsb key init`), migrate v1/v2 data to v3 (`rsb key migrate`) and rotate
+  the data key (`rsb key rotate`), for local and S3 repositories. Migrate
+  and rotate first show what they will rewrite (v1/v2 object and manifest
+  counts, encrypted objects and size) and ask for confirmation; they run
+  off the UI thread with a progress bar and a Stop button, and resume when
+  run again. After init and rotate the screen reminds the user to export
+  `keys/repo.key`. The screen's texts are translated (pt/en).
+- Desktop FIDO2 tab: register a new security key (`rsb auth register`,
+  cancellable) and delete the signed-in user's keys (`rsb auth delete`,
+  after typing the identifier again; signs out).
+- Desktop verify `--repair` and diagnostics repair now preview what they
+  change and ask for confirmation: verify lists the corrupt objects it
+  would delete (and the missing ones it cannot fix) from a read-only full
+  check first; diagnostics lists the directories it would create.
+- `rsb_sdk::crypto::lifecycle::key_status` (`KeyStatus`): key file state,
+  interrupted rotation, v1/v2 counts and encrypted object/manifest totals,
+  without a password; `rsb key rotate` now shows these counts before asking
+  for confirmation. `rsb_sdk::integrity::perform_verify_detailed` returns
+  the per-object outcome (corrupt, missing, deleted objects) with the
+  report. `Fido2Manager::revoke_user_persisted` (shared by `rsb auth
+  delete` and the desktop) and `rsb_sdk::backup::diagnostic::missing_directories`.
 
 ### Fixed
 - `rsb restore --files` (and the desktop/SDK `include` patterns) compare
