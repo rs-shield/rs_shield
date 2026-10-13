@@ -8,6 +8,7 @@
 //! --encrypt` and the desktop "Create profile" screen) → the legacy
 //! `encryption_key` in the TOML.
 
+use crate::ui::s3_settings::S3Settings;
 use rsb_sdk::config::{self, Config};
 use std::path::{Path, PathBuf};
 
@@ -66,6 +67,38 @@ pub fn repository_label(cfg: &Config) -> String {
         Some(b) => format!("s3://{}", b),
         None => cfg.destination_path.clone(),
     }
+}
+
+/// The repository an operation (restore, verify, prune) works on, chosen
+/// like the CLI's `<profile>` / `--backup <repository dir>`, or the S3
+/// bucket configured in Settings when neither is given.
+pub fn repository_config(
+    profile: Option<&LoadedProfile>,
+    repo_dir: &Path,
+    s3: &S3Settings,
+) -> Result<Config, String> {
+    if let Some(p) = profile {
+        return Ok(p.config.clone());
+    }
+    if !repo_dir.as_os_str().is_empty() {
+        if repo_dir.is_file() {
+            return Err(format!(
+                "{} is a file: select the backup (repository) folder, or load it as a profile",
+                repo_dir.display()
+            ));
+        }
+        return rsb_sdk::config_from_backup_path(repo_dir, None)
+            .map_err(|e| format!("Not a backup repository: {}", e));
+    }
+    if let Some(bucket) = &s3.bucket {
+        return rsb_sdk::portable_restore::config_for_s3_restore(
+            bucket,
+            s3.region.clone(),
+            s3.endpoint.clone(),
+        )
+        .map_err(|e| e.to_string());
+    }
+    Err("Select a profile or a backup folder, or configure an S3 bucket in Settings.".to_string())
 }
 
 /// `None` for an empty (or blank) text field.
@@ -391,6 +424,43 @@ mod tests {
             check_backup_key(&cfg, Some("k".into())),
             Ok(Some("k".to_string()))
         );
+    }
+
+    #[test]
+    fn repository_from_profile_folder_or_s3() {
+        let dir = tempfile::tempdir().unwrap();
+        let none = S3Settings::default();
+        assert!(repository_config(None, Path::new(""), &none).is_err());
+
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join("snapshots")).unwrap();
+        std::fs::create_dir_all(repo.join("data")).unwrap();
+        let cfg = repository_config(None, &repo, &none).unwrap();
+        assert_eq!(cfg.destination_path, repo.to_string_lossy());
+        assert!(cfg.s3_bucket.is_none());
+
+        let not_repo = dir.path().join("empty");
+        std::fs::create_dir_all(&not_repo).unwrap();
+        assert!(repository_config(None, &not_repo, &none).is_err());
+        let file = write(
+            dir.path(),
+            "p.toml",
+            "source_path = \"/s\"\ndestination_path = \"/d\"\n",
+        );
+        assert!(
+            repository_config(None, &file, &none)
+                .unwrap_err()
+                .contains("is a file")
+        );
+
+        let s3 = S3Settings::from_values("bkt".into(), "eu-west-1".into(), String::new());
+        let cfg = repository_config(None, Path::new(""), &s3).unwrap();
+        assert_eq!(cfg.s3_bucket.as_deref(), Some("bkt"));
+
+        // A loaded profile wins over the other fields.
+        let prof = load_profile(&file).unwrap();
+        let cfg = repository_config(Some(&prof), &repo, &s3).unwrap();
+        assert_eq!(cfg.destination_path, "/d");
     }
 
     #[test]

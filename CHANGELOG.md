@@ -34,8 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ignored; the history no longer records the duration as the backup size;
   dry runs are not recorded or notified; HTML reports go to
   `~/.rs-shield/reports/` instead of the app's working directory.
+- Desktop restore: the encryption key is found like in the CLI (keyring,
+  `RSB_ENCRYPTION_KEY`), existing files are no longer overwritten unless
+  "Overwrite existing files" (`--force`) is ticked (it was always forced),
+  a backup folder typed or picked after loading a profile is used instead
+  of being silently ignored, and restoring straight from the S3 bucket of
+  Settings is possible again (the button stayed disabled without a folder).
 
 ### Added
+- Desktop restore: `--versioned` and `--verify` options; with a date, the
+  chosen snapshot is shown.
 - Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).
 
 ## [0.1.0-alpha.9] - 2026-10-12
