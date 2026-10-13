@@ -18,6 +18,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backup folder instead of `~/.rs-shield/integrations.json`, where the
   screen saves it (and the backup screen sent nothing without a profile).
   The file is now written with mode 0600.
+- Desktop backup: a loaded profile is used as `rsb backup <profile>` uses
+  it, and its encryption key is found like in the CLI (typed key →
+  `RSB_ENCRYPTION_KEY` → the profile's OS keyring entry → legacy TOML key).
+  Before, only a key written in the TOML was read, so a profile created with
+  `--encrypt` (key in the keyring) was backed up **unencrypted** without any
+  warning; such a backup is now refused when no key is found. Profiles are
+  read with the SDK loader (minimal profiles without `exclude_patterns` /
+  `backup_mode` no longer fail; `max_threads` and S3 settings are kept), and
+  loading one no longer overwrites the app-wide settings.
+- Desktop backup: Cancel keeps the screen busy until the backup has really
+  stopped (a second backup could be started while the first was still
+  running); errors of files that failed are listed instead of a bare
+  status; invalid numbers in Settings are reported instead of silently
+  ignored; the history no longer records the duration as the backup size;
+  dry runs are not recorded or notified; HTML reports go to
+  `~/.rs-shield/reports/` instead of the app's working directory.
+
+### Added
+- Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).
 
 ## [0.1.0-alpha.9] - 2026-10-12
 

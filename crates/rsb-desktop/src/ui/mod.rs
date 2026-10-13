@@ -14,6 +14,7 @@ mod i18n;
 pub mod integrations_screen;
 pub mod loading_state;
 mod login_screen;
+mod ops;
 pub mod profile_loader;
 pub mod profile_manager_screen;
 pub mod prune_screen;

@@ -4,7 +4,7 @@ use crate::ui::{
     error_handler::format_user_error,
     i18n::get_texts,
     loading_state::{LoadingOverlay, LoadingStyle},
-    profile_loader::{ProfileData, load_profile},
+    profile_loader::legacy::{ProfileData, load_profile},
 };
 use rsb_sdk::operation::operations_helpers::record_prune_operation;
 
