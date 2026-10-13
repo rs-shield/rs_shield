@@ -81,7 +81,7 @@ pub fn ConfigScreen() -> Element {
                         class: "input-field",
                         r#type: "range",
                         min: "0",
-                        max: "11",
+                        max: "22",
                         value: "{app_config.compression_level}",
                         oninput: move |evt| app_config.compression_level.set(evt.value())
                     }

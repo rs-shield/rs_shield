@@ -93,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every 2 s; the activity counters were read once at start-up and never
   showed the operations of the running session. Both are now refreshed
   off the UI thread.
+- Desktop login: an unreadable FIDO2 credentials file is reported instead
+  of looking like "identifier not found", and a first-time user is told to
+  register a key with `rsb-cli fido2 register`. Settings: the compression
+  slider allows the zstd levels up to 22 (it stopped at 11).
 
 ### Added
 - Desktop FIDO2 tab (was a placeholder): lists the registered security
