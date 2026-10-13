@@ -40,8 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a backup folder typed or picked after loading a profile is used instead
   of being silently ignored, and restoring straight from the S3 bucket of
   Settings is possible again (the button stayed disabled without a folder).
+- Desktop verify: a verification that found problems is reported as a
+  failure with the problems listed (like the exit code of `rsb verify`),
+  not as a plain status; the key is found like in the CLI and a loaded
+  profile's repository (also S3) is verified instead of a dummy
+  configuration.
 
 ### Added
+- Desktop verify: snapshot selection and `--repair`.
 - Desktop restore: `--versioned` and `--verify` options; with a date, the
   chosen snapshot is shown.
 - Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).

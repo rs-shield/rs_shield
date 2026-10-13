@@ -1,34 +1,58 @@
-use chrono::Local;
 use dioxus::prelude::*;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::ui::integrations_screen::IntegrationConfig;
-use rsb_sdk::core::{NotificationEvent, NotificationManager, NotificationPayload};
+use rsb_sdk::core::NotificationEvent;
 use rsb_sdk::operation::operations_helpers::record_verify_operation;
-use rsb_sdk::{CancellationToken, VerifyOptions, config, perform_verify};
+use rsb_sdk::report::ReportData;
+use rsb_sdk::{CancellationToken, VerifyOptions, perform_verify};
 
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    error_handler::format_user_error,
     i18n::get_texts,
     loading_state::{LoadingOverlay, LoadingStyle},
-    profile_loader::legacy::{ProfileData, load_profile},
+    ops,
+    profile_loader::{
+        LoadedProfile, load_profile, repository_config, repository_label, resolve_key_blocking,
+    },
     shared::ProgressBar,
 };
 
+/// Judges a verification like `rsb verify` (whose exit code fails on any
+/// problem): `Err` with the problems listed when files had errors, so a
+/// failed verification is never shown as a plain status.
+pub fn verify_outcome(report: &ReportData) -> Result<String, String> {
+    let summary = format!(
+        "{}: {} file(s) checked, {} with errors",
+        report.status, report.total_files, report.files_with_errors
+    );
+    if report.files_with_errors == 0 && report.errors.is_empty() {
+        return Ok(format!("✅ {}", summary));
+    }
+    let mut msg = format!("❌ Verification found problems — {}", summary);
+    for e in report.errors.iter().take(10) {
+        msg.push_str("\n  ❌ ");
+        msg.push_str(e);
+    }
+    if report.errors.len() > 10 {
+        msg.push_str(&format!("\n  … {} more", report.errors.len() - 10));
+    }
+    Err(msg)
+}
+
 #[component]
 pub fn VerifyScreen() -> Element {
-    let mut app_config = use_context::<AppConfig>();
+    let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
-    let mut profile_path = use_signal(PathBuf::new);
+    let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut backup_path = use_signal(PathBuf::new);
     let mut key = use_signal(String::new);
+    let mut snapshot_id = use_signal(String::new);
     let mut status_msg = use_signal(|| texts.ready.to_string());
     let mut is_running = use_signal(|| false);
     let mut fast_verify = use_signal(|| false);
+    let mut repair = use_signal(|| false);
     let mut generate_report = use_signal(|| false);
     let mut last_report_path = use_signal(|| Option::<PathBuf>::None);
     let mut progress = use_signal(|| 0.0);
@@ -41,28 +65,13 @@ pub fn VerifyScreen() -> Element {
                 .pick_file()
                 .await
             {
-                let path = h.path().to_path_buf();
-                match load_profile(&path) {
-                    Ok(cfg) => {
-                        let profile_data = ProfileData::from(cfg);
-                        profile_path.set(path);
-                        backup_path.set(PathBuf::from(profile_data.destination_path));
-                        key.set(profile_data.encryption_key);
-
-                        // Load all profile settings
-                        app_config
-                            .exclude_patterns
-                            .set(profile_data.exclude_patterns);
-                        app_config.backup_mode.set(profile_data.backup_mode);
-                        app_config.s3_bucket.set(profile_data.s3_bucket);
-                        app_config.s3_region.set(profile_data.s3_region);
-                        app_config.s3_endpoint.set(profile_data.s3_endpoint);
-
-                        status_msg.set("✅ Perfil carregado com sucesso!".to_string());
+                match load_profile(h.path()) {
+                    Ok(p) => {
+                        backup_path.set(PathBuf::from(repository_label(&p.config)));
+                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        profile.set(Some(p));
                     }
-                    Err(e) => {
-                        status_msg.set(format_user_error(e, "verify"));
-                    }
+                    Err(e) => status_msg.set(format!("❌ {}", e)),
                 }
             }
         });
@@ -73,33 +82,26 @@ pub fn VerifyScreen() -> Element {
             return;
         }
         is_running.set(true);
-
-        // Reset do token de cancellation para nova operação
         let token = CancellationToken::new();
         cancellation_token.set(token.clone());
-
         progress.set(0.0);
         status_msg.set(texts.starting.to_string());
         last_report_path.set(None);
 
+        let loaded = profile();
         let bkp = backup_path();
-        let key_val = key();
-        let is_fast = fast_verify();
+        let typed_key = key();
+        let snapshot = Some(snapshot_id().trim().to_string()).filter(|s| !s.is_empty());
+        let is_repair = repair();
+        // --repair always performs the full check (like the CLI).
+        let is_fast = fast_verify() && !is_repair;
         let create_report = generate_report();
-        let key_opt = if key_val.is_empty() {
-            None
-        } else {
-            Some(key_val)
-        };
-
-        // Bucket/região/endpoint do ecrã; as chaves digitadas ficam só em
-        // memória (credenciais de sessão), nunca no Config.
+        // Session credentials typed in Settings stay in memory only.
         let s3 = S3Settings::from_app(&app_config);
 
         spawn(async move {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(f64, String)>();
-
-            let progress_cb = Arc::new(move |cur, tot, msg: String| {
+            let progress_cb = Arc::new(move |cur: usize, tot: usize, msg: String| {
                 let prog = if tot > 0 {
                     cur as f64 / tot as f64
                 } else {
@@ -107,7 +109,6 @@ pub fn VerifyScreen() -> Element {
                 };
                 let _ = tx.send((prog, msg));
             });
-
             spawn(async move {
                 while let Some((p, msg)) = rx.recv().await {
                     progress.set(p);
@@ -115,30 +116,23 @@ pub fn VerifyScreen() -> Element {
                 }
             });
 
+            let cfg = repository_config(loaded.as_ref(), &bkp, &s3);
+            let repo_label = cfg.as_ref().map(repository_label).unwrap_or_default();
+
             let res = async {
-                if bkp.as_os_str().is_empty() && !s3.is_enabled() {
-                    return Err(texts.define_backup_or_s3.to_string());
-                }
-
-                let mut cfg = config::Config {
-                    source_path: "dummy".to_string(),
-                    destination_path: bkp.to_string_lossy().into_owned(),
-                    exclude_patterns: vec![],
-                    encryption_key: key_opt,
-                    compression_level: Some(3),
-                    ..Default::default()
-                };
-                s3.apply_to(&mut cfg);
-
-                let token = cancellation_token();
+                let cfg = cfg?;
+                let key = resolve_key_blocking(typed_key, loaded.clone()).await;
                 perform_verify(
                     &cfg,
                     VerifyOptions {
+                        snapshot_id: snapshot,
                         fast: is_fast,
+                        repair: is_repair,
                         on_progress: Some(progress_cb),
                         cancellation_token: Some(token),
                         ..Default::default()
-                    },
+                    }
+                    .with_encryption_key(key.as_deref()),
                 )
                 .await
                 .map_err(|e| e.to_string())
@@ -152,97 +146,59 @@ pub fn VerifyScreen() -> Element {
                         report.files_processed,
                         report.files_with_errors,
                         report.duration.as_secs(),
-                        bkp.to_string_lossy().to_string(),
+                        repo_label.clone(),
                     );
-
-                    // Send notifications
-                    {
-                        let integrations = IntegrationConfig::load_default();
-                        let mut manager = NotificationManager::new();
-
-                        if let Some(email_cfg) = integrations.to_email_config() {
-                            manager.set_email_config(email_cfg);
-                        }
-
-                        for chat_integration in integrations.to_chat_integrations() {
-                            manager.add_chat_integration(chat_integration);
-                        }
-
-                        let notification = NotificationPayload {
-                            event: if report.files_with_errors > 0 {
-                                NotificationEvent::VerificationFailed
-                            } else {
-                                NotificationEvent::VerificationCompleted
-                            },
-                            title: if report.files_with_errors > 0 {
-                                "⚠️ Verificação Concluída com Erros".to_string()
-                            } else {
-                                "✅ Verificação Concluída".to_string()
-                            },
-                            message: format!(
-                                "Arquivos: {}\nErros: {}\nDuração: {}s",
-                                report.files_processed,
-                                report.files_with_errors,
-                                report.duration.as_secs()
-                            ),
-                            details: Some(format!("Backup: {}", bkp.to_string_lossy())),
-                            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                        };
-
-                        let _ = manager.send(&notification).await;
-                    }
-
-                    if create_report {
-                        report.profile_path = "Desktop UI".to_string();
-                        let html = rsb_sdk::report::generate_html(&report);
-                        let filename = format!(
-                            "rsb-report-verify-{}.html",
-                            Local::now().format("%Y%m%d-%H%M%S")
-                        );
-                        if fs::write(&filename, html).is_ok() {
-                            status_msg.set(format!("{} Relatório: {}", report.status, filename));
-                            last_report_path.set(Some(PathBuf::from(filename)));
+                    let outcome = verify_outcome(&report);
+                    ops::notify(
+                        if outcome.is_ok() {
+                            NotificationEvent::VerificationCompleted
                         } else {
-                            status_msg.set(format!("{} (Erro ao gravar relatório)", report.status));
+                            NotificationEvent::VerificationFailed
+                        },
+                        if outcome.is_ok() {
+                            "✅ Verification completed"
+                        } else {
+                            "⚠️ Verification found problems"
+                        },
+                        format!(
+                            "Files: {}\nErrors: {}\nDuration: {}s",
+                            report.total_files,
+                            report.files_with_errors,
+                            report.duration.as_secs()
+                        ),
+                        format!("Backup: {}", repo_label),
+                    )
+                    .await;
+
+                    let mut msg = match outcome {
+                        Ok(m) | Err(m) => m,
+                    };
+                    if create_report {
+                        report.profile_path = loaded
+                            .as_ref()
+                            .map(|p| p.path.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| format!("Backup: {}", repo_label));
+                        match ops::write_report("verify", &report) {
+                            Ok(path) => {
+                                msg.push_str(&format!("\n📄 Report: {}", path.display()));
+                                last_report_path.set(Some(path));
+                            }
+                            Err(e) => msg.push_str(&format!("\n❌ {}", e)),
                         }
-                    } else {
-                        status_msg.set(report.status);
                     }
+                    status_msg.set(msg);
                     progress.set(1.0);
                 }
                 Err(e) => {
-                    let _ = record_verify_operation(
-                        "Falha".to_string(),
-                        0,
-                        0,
-                        0,
-                        bkp.to_string_lossy().to_string(),
-                    );
-
-                    // Send error notification
-                    {
-                        let integrations = IntegrationConfig::load_default();
-                        let mut manager = NotificationManager::new();
-
-                        if let Some(email_cfg) = integrations.to_email_config() {
-                            manager.set_email_config(email_cfg);
-                        }
-
-                        for chat_integration in integrations.to_chat_integrations() {
-                            manager.add_chat_integration(chat_integration);
-                        }
-
-                        let notification = NotificationPayload {
-                            event: NotificationEvent::VerificationFailed,
-                            title: "❌ Verificação Falhou".to_string(),
-                            message: format!("Erro: {}", e),
-                            details: Some(format!("Backup: {}", bkp.to_string_lossy())),
-                            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                        };
-
-                        let _ = manager.send(&notification).await;
-                    }
-
+                    let _ =
+                        record_verify_operation("Failed".to_string(), 0, 0, 0, repo_label.clone());
+                    ops::notify(
+                        NotificationEvent::VerificationFailed,
+                        "❌ Verification failed",
+                        format!("Error: {}", e),
+                        format!("Backup: {}", repo_label),
+                    )
+                    .await;
                     status_msg.set(format!("{} {}", texts.error_prefix, e));
                 }
             }
@@ -253,12 +209,14 @@ pub fn VerifyScreen() -> Element {
 
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️ Verificação cancelada pelo usuário".to_string());
-        is_running.set(false);
+        status_msg.set("⏹️ Cancelling — waiting for the objects in progress...".to_string());
     };
 
+    let profile_label = profile()
+        .map(|p| p.path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
     rsx! {
-        // Loading overlay
         LoadingOverlay {
             is_visible: is_running(),
             style: LoadingStyle::ProgressBar,
@@ -270,13 +228,13 @@ pub fn VerifyScreen() -> Element {
             h2 { class: "page-title", "{texts.verify_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Carregar Perfil (Opcional)" }
+                label { class: "label-text", "📋 Load Profile (Optional)" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Selecione um perfil",
-                        value: "{profile_path.read().to_string_lossy()}",
+                        placeholder: "Select a profile",
+                        value: "{profile_label}",
                         readonly: true
                     }
                     button {
@@ -286,7 +244,7 @@ pub fn VerifyScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "Carrega o caminho de backup do perfil" }
+                p { class: "hint", "Verifies the profile's repository (local or S3), like `rsb verify <profile>`." }
             }
 
             div { class: "form-group",
@@ -297,13 +255,17 @@ pub fn VerifyScreen() -> Element {
                         r#type: "text",
                         placeholder: "{texts.backup_folder_simple_label}",
                         value: "{backup_path.read().to_string_lossy()}",
-                        oninput: move |evt| backup_path.set(PathBuf::from(evt.value()))
+                        oninput: move |evt| {
+                            profile.set(None);
+                            backup_path.set(PathBuf::from(evt.value()));
+                        }
                     }
                     button {
                         class: "btn-icon",
                         onclick: move |_| {
                             spawn(async move {
                                 if let Some(h) = rfd::AsyncFileDialog::new().pick_folder().await {
+                                    profile.set(None);
                                     backup_path.set(h.path().to_path_buf());
                                 }
                             });
@@ -311,6 +273,19 @@ pub fn VerifyScreen() -> Element {
                         "📂"
                     }
                 }
+                p { class: "hint", "The repository folder (`rsb verify --backup <dir>`). Empty: the S3 bucket configured in Settings." }
+            }
+
+            div { class: "form-group",
+                label { class: "label-text", "{texts.snapshot_label}" }
+                input {
+                    class: "input-field",
+                    r#type: "text",
+                    placeholder: "{texts.snapshot_label}",
+                    value: "{snapshot_id}",
+                    oninput: move |evt| snapshot_id.set(evt.value())
+                }
+                p { class: "hint", "Optional; default: the latest snapshot" }
             }
 
             div { class: "form-group",
@@ -322,40 +297,34 @@ pub fn VerifyScreen() -> Element {
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
                 }
+                p { class: "hint", "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used." }
             }
 
-            div { class: "form-group",
-                div { class: "flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800",
+            div { class: "form-group space-y-2",
+                label { class: "label-text flex items-center gap-2",
                     input {
                         r#type: "checkbox",
-                        id: "fast_verify_check",
-                        class: "w-4 h-4 rounded",
-                        checked: "{fast_verify}",
-                        oninput: move |evt| fast_verify.set(evt.value() == "true")
+                        checked: fast_verify(),
+                        disabled: repair(),
+                        onchange: move |_| fast_verify.toggle()
                     }
-                    label {
-                        class: "label-text mb-0 cursor-pointer",
-                        r#for: "fast_verify_check",
-                        "⚡ Verificação Rápida (Lite)"
-                    }
+                    "⚡ Quick verification (--fast: presence, size and stored hash, no decryption)"
                 }
-                p { class: "hint mt-2", "Verifica apenas a integridade do ficheiro armazenado sem desencriptar." }
-            }
-
-            div { class: "form-group",
-                div { class: "flex items-center gap-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800",
+                label { class: "label-text flex items-center gap-2",
                     input {
                         r#type: "checkbox",
-                        id: "gen_report_verify",
-                        class: "w-4 h-4 rounded",
-                        checked: "{generate_report}",
-                        oninput: move |evt| generate_report.set(evt.value() == "true")
+                        checked: repair(),
+                        onchange: move |_| repair.toggle()
                     }
-                    label {
-                        class: "label-text mb-0 cursor-pointer",
-                        r#for: "gen_report_verify",
-                        "{texts.generate_report_label}"
+                    "🔧 Repair (--repair): delete objects proven corrupt, so the next backup uploads them again (always a full check)"
+                }
+                label { class: "label-text flex items-center gap-2",
+                    input {
+                        r#type: "checkbox",
+                        checked: generate_report(),
+                        onchange: move |_| generate_report.toggle()
                     }
+                    "{texts.generate_report_label}"
                 }
             }
 
@@ -364,7 +333,7 @@ pub fn VerifyScreen() -> Element {
                     button {
                         class: "flex-1 px-4 py-3 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_cancel,
-                        "⏹️ Cancelar Verificação"
+                        "⏹️ Cancel Verification"
                     }
                 }
             } else {
@@ -386,14 +355,47 @@ pub fn VerifyScreen() -> Element {
                     onclick: move |_| {
                         let _ = open::that(&path);
                     },
-                    "📄 Abrir Relatório"
+                    "📄 Open Report"
                 }
             }
 
             div { class: "status-box mt-6",
                 p { class: "font-semibold mb-2", "Status:" }
-                p { "{status_msg}" }
+                p { class: "whitespace-pre-wrap", "{status_msg}" }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn problems_are_a_failure_with_the_errors_listed() {
+        let ok = ReportData {
+            status: "Success".into(),
+            total_files: 4,
+            ..Default::default()
+        };
+        assert!(verify_outcome(&ok).unwrap().contains("4 file(s) checked"));
+
+        let bad = ReportData {
+            status: "Failure with errors".into(),
+            total_files: 4,
+            files_with_errors: 1,
+            errors: vec!["data/enc/ab: missing".into()],
+            ..Default::default()
+        };
+        let msg = verify_outcome(&bad).unwrap_err();
+        assert!(msg.contains("data/enc/ab: missing"));
+
+        // Errors without a per-file count (e.g. an unreadable manifest)
+        // are a failure too.
+        let bad = ReportData {
+            errors: vec!["manifest".into()],
+            ..Default::default()
+        };
+        assert!(verify_outcome(&bad).is_err());
     }
 }
