@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+- `rsb snapshots delete` now also deletes the data objects no other
+  snapshot uses (like `rsb prune`), so it requires `--confirm`, exactly like
+  `rsb prune`; without it (or `--dry-run`) it refuses and exits with a
+  non-zero status.
+
+### Added
+- `rsb_sdk::snapshot`: snapshot listing, details, diff and delete with
+  structured results (id, date, encrypted flag, file count, original and
+  stored size, per-snapshot read errors), used by both the CLI and the
+  desktop app so they show the same data. `rsb_sdk::core::prune_with_stats`
+  returns what a prune deleted.
+- `rsb snapshots list --json` and `rsb snapshots show --json`.
+- `rsb snapshots delete --dry-run`: shows the snapshot and the number of
+  data objects that would be deleted, without deleting anything
+  (`rsb_sdk::snapshot::preview_delete_snapshot`,
+  `rsb_sdk::core::preview_prune`).
+
+### Fixed
+- Desktop: the Snapshots tab listed nothing (loading, details, compare and
+  delete were placeholders). It now lists the snapshots of a profile (local
+  destination or S3 bucket), a backup folder or the app's S3 bucket, newest
+  first, with date, file count, size and an encrypted marker; shows a
+  snapshot's files; compares two snapshots; deletes a snapshot after
+  confirmation; shows errors instead of an empty list; runs off the UI
+  thread; and reloads the remembered repository when the tab is opened
+  again (e.g. after a backup or a prune).
+- `rsb snapshots` worked only on local repositories: a profile with an S3
+  bucket was refused, or its local `destination_path` was read instead of
+  the bucket. The profile is now opened like `backup`/`restore` do (S3
+  credentials from the environment, the encrypted credentials file or a
+  prompt), and `~`/`$VAR` in `destination_path` are expanded.
+- `rsb snapshots list` sorted ids as plain strings, so `…Z-2` came before
+  `…Z-10` and second-resolution ids before millisecond ones of the same
+  second; it now sorts by the time in the id like restore and prune.
+- `rsb snapshots list` showed every unreadable manifest as
+  `[Encrypted/Invalid]`: encrypted snapshots without a key are now marked
+  as such (their id and date are still listed) and corrupt ones show the
+  reason. A plaintext snapshot in a repository that is now encrypted is no
+  longer reported as unreadable when the key is given.
+- `rsb snapshots list/show/diff` ignored the profile's keyring key; they
+  now use `RSB_ENCRYPTION_KEY`, the keyring, then a prompt in a terminal.
+- `rsb snapshots show/diff` did not validate snapshot ids before using
+  them as storage keys.
+- `rsb snapshots delete` removed the manifest file directly: local only,
+  without the repository lock (it could race a running backup or prune) and
+  leaving the snapshot's data behind. It now runs the prune machinery on the
+  snapshot: exclusive lock, dedup-index epoch bump, and deletion of the data
+  objects no other snapshot references; an encrypted repository needs the
+  key.
+- Prune reads every manifest it keeps before deleting anything, so a
+  missing key or an unreadable manifest aborts it with the repository
+  untouched (previously the selected manifests were already deleted).
+
+### Removed
+- `rsb_sdk::snapshot::{repository::SnapshotRepository, model::Snapshot,
+  model::SnapshotFile}`: unused, and they read `snapshots/*.json` files no
+  version ever wrote. Use `rsb_sdk::snapshot`.
+
 ## [0.1.0-alpha.9] - 2026-10-12
 
 Read the [migration guide](docs/MIGRATION.md) before upgrading: once this

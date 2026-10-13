@@ -430,7 +430,21 @@ Notes:
 
 ### Snapshot Management
 
-Manage backup snapshots and versions.
+Manage backup snapshots and versions. The snapshots commands work on local
+and S3 repositories. `--config <PROFILE>` (or the only profile in the
+current directory) uses the profile's repository like `backup` and
+`restore` do: its S3 bucket when it has one (credentials from
+`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, the encrypted
+`~/.rs-shield/s3_credentials.enc`, or a prompt), else its
+`destination_path`. `--backup <DIR>` opens a local repository directory
+directly (portable mode); `--config` and `--backup` cannot be combined.
+
+The key of an encrypted repository comes from `RSB_ENCRYPTION_KEY`, the
+profile's keyring entry, or a prompt in a terminal (`--key` still works but
+is visible in `ps`). Snapshot ids and dates never need the key; without it,
+`list` shows encrypted snapshots as `🔒 encrypted (key needed)` instead of
+their file count and size. The desktop app's **Snapshots** tab uses the same
+code and shows the same data.
 
 #### List Snapshots
 
@@ -438,15 +452,21 @@ Manage backup snapshots and versions.
 rsb snapshots list [OPTIONS]
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml (optional if .toml in current dir)
-  -b, --backup <BACKUP>         Path to backup directory (portable mode)
-  -k, --key <KEY>               Decryption key for encrypted manifests
+  -c, --config <CONFIG>         Profile .toml (optional if exactly one is in the current dir)
+  -b, --backup <BACKUP>         Repository directory (portable mode)
+  -k, --key <KEY>               Decryption key (deprecated; prefer RSB_ENCRYPTION_KEY)
+      --json                    Print JSON instead of a table
 ```
+
+Snapshots are listed newest first (by the time in their id, collision
+suffixes such as `-1` after the snapshot they follow) with their date (UTC),
+file count and size. A manifest that cannot be read is listed with
+`⚠️ unreadable: <reason>`; it is not hidden.
 
 **Examples:**
 
 ```bash
-# List snapshots from config
+# List snapshots of a profile (local or S3)
 rsb snapshots list --config mybackup.toml
 
 # List snapshots from backup path
@@ -465,10 +485,14 @@ ARGUMENTS:
   <ID>                          Snapshot identifier
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml
-  -b, --backup <BACKUP>         Path to backup directory
-  -k, --key <KEY>               Decryption key
+  -c, --config <CONFIG>         Profile .toml
+  -b, --backup <BACKUP>         Repository directory
+  -k, --key <KEY>               Decryption key (deprecated; prefer RSB_ENCRYPTION_KEY)
+      --json                    Print JSON instead of text
 ```
+
+Prints the date, whether the snapshot is encrypted, the file count, the
+original and stored sizes, and every file with its size.
 
 **Examples:**
 
@@ -480,7 +504,7 @@ rsb snapshots show 2026-05-25T103000.000Z --config mybackup.toml
 rsb snapshots show 2026-05-25T103000.000Z --backup /backup/docs
 ```
 
-#### Compare Snapshots (NEW)
+#### Compare Snapshots
 
 Compare two snapshots to see what changed.
 
@@ -492,9 +516,9 @@ ARGUMENTS:
   <TO>                          Second snapshot ID
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml
-  -b, --backup <BACKUP>         Path to backup directory (portable mode)
-  -k, --key <KEY>               Decryption key
+  -c, --config <CONFIG>         Profile .toml
+  -b, --backup <BACKUP>         Repository directory (portable mode)
+  -k, --key <KEY>               Decryption key (deprecated; prefer RSB_ENCRYPTION_KEY)
 ```
 
 **Examples:**
@@ -508,7 +532,7 @@ rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /backu
 
 # Output shows:
 # ✅ Added (N files)
-# ❌ Removed (N files)  
+# ❌ Removed (N files)
 # 🔄 Modified (N files)
 ```
 
@@ -521,19 +545,36 @@ ARGUMENTS:
   <ID>                          Snapshot identifier
 
 OPTIONS:
-  -c, --config <CONFIG>         Path to config.toml
-  -b, --backup <BACKUP>         Path to backup directory
+  -c, --config <CONFIG>         Profile .toml
+  -b, --backup <BACKUP>         Repository directory
+  -d, --dry-run                 Show what would be deleted, delete nothing
+      --confirm                 Confirm destructive deletion (required unless --dry-run)
 ```
+
+Like `rsb prune`, it refuses to run without `--confirm` (or `--dry-run`).
+`--dry-run` runs the same checks and prints the snapshot and the number of
+data objects that would be removed, without deleting anything or taking the
+lock (a backup running meanwhile can change that number).
+
+Deletes the snapshot and the data objects that no other snapshot uses (the
+same garbage collection as `rsb prune`), holding the exclusive repository
+lock: it is refused while a backup, prune or verify is running. The
+remaining snapshots are read before anything is deleted, so an encrypted
+repository needs its key and an unreadable snapshot stops the delete with
+the repository untouched. Deleting the last snapshot keeps its data
+objects.
 
 **Examples:**
 
 ```bash
-# Delete a snapshot (needs a session from `rsb login`)
-rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml
+# Preview, then delete a snapshot (needs a session from `rsb login`)
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --dry-run
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --confirm
 ```
 
 Snapshot ids are the names printed by `rsb snapshots list` (UTC, for example
-`2026-05-25T103000.000Z`).
+`2026-05-25T103000.000Z`, with a `-1`, `-2`, ... suffix when two backups
+finished in the same millisecond).
 
 ### Maintenance
 
