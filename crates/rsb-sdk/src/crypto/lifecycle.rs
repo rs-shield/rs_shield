@@ -411,6 +411,79 @@ pub async fn legacy_summary(storage: &dyn Storage) -> Result<LegacySummary, RsbE
     Ok(s)
 }
 
+/// State of a repository's key and encrypted data, for showing what a key
+/// operation (`rsb key init/migrate/rotate`) will do before it runs. No
+/// password needed: only the key file and blob headers are read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeyStatus {
+    /// `keys/repo.key` exists.
+    pub key_file: bool,
+    /// Key id of the active data key (hex), if the key file has one.
+    pub key_id: Option<String>,
+    /// An interrupted rotation is in progress (running rotate resumes it).
+    pub rotating: bool,
+    /// The key file still stores the legacy (v1/v2) password (migrate
+    /// removes it).
+    pub legacy_secret: bool,
+    /// v1/v2 objects and manifests (what migrate re-encrypts).
+    pub legacy: LegacySummary,
+    /// Encrypted data objects of any format (what rotate re-encrypts).
+    pub encrypted_objects: usize,
+    /// Their total stored size in bytes.
+    pub encrypted_bytes: u64,
+    /// Encrypted snapshot manifests of any format.
+    pub encrypted_manifests: usize,
+}
+
+impl KeyStatus {
+    /// `rsb key init` applies (it refuses when the key file exists).
+    pub fn can_init(&self) -> bool {
+        !self.key_file
+    }
+
+    /// `rsb key migrate` has work to do: v1/v2 blobs remain or the key file
+    /// still holds the legacy password.
+    pub fn needs_migration(&self) -> bool {
+        self.key_file && (!self.legacy.is_empty() || self.legacy_secret)
+    }
+
+    /// `rsb key rotate` applies (it needs the key file).
+    pub fn can_rotate(&self) -> bool {
+        self.key_file
+    }
+}
+
+/// Reads [`KeyStatus`] (key file, plus one header read per encrypted blob).
+pub async fn key_status(storage: &dyn Storage) -> Result<KeyStatus, RsbError> {
+    let mut s = KeyStatus::default();
+    if let Some(file) = keyfile::read_key_file(storage).await? {
+        s.key_file = true;
+        s.key_id = file.key_id().map(str::to_string);
+        s.rotating = file.is_rotating();
+        s.legacy_secret = file.has_legacy_secret();
+    }
+    for o in object_entries(storage).await? {
+        let size = storage.size(&o.path).await?.unwrap_or(0);
+        s.encrypted_objects += 1;
+        s.encrypted_bytes += size;
+        if blob_kind(storage, &o.path).await? == BlobKind::Legacy {
+            s.legacy.objects += 1;
+            s.legacy.bytes += size;
+        }
+    }
+    for snap in snapshot_paths(storage).await? {
+        match manifest_kind(&storage.read(&snap).await?) {
+            ManifestKind::Clear => {}
+            ManifestKind::Legacy => {
+                s.encrypted_manifests += 1;
+                s.legacy.manifests += 1;
+            }
+            ManifestKind::V3(_) => s.encrypted_manifests += 1,
+        }
+    }
+    Ok(s)
+}
+
 /// Number of v1/v2 blobs that still need the legacy password: legacy
 /// manifests, referenced legacy objects, and unreferenced legacy objects
 /// that decrypt (a later backup could deduplicate against them).

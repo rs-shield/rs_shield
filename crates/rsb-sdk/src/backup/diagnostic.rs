@@ -25,6 +25,17 @@ pub struct DiagnosticDetails {
     pub total_size_mb: f64,
 }
 
+/// Directories of the repository structure (`snapshots/`, `data/`) that
+/// are missing: what `rsb diagnose --repair` creates. Nothing else is
+/// changed by that repair.
+pub fn missing_directories(backup_path: &Path) -> Vec<PathBuf> {
+    ["snapshots", "data"]
+        .iter()
+        .map(|d| backup_path.join(d))
+        .filter(|p| !p.exists())
+        .collect()
+}
+
 pub async fn run_backup_diagnostics(
     backup_path: &Path,
     key: Option<&str>,
@@ -269,4 +280,29 @@ pub async fn sync_changed_files(src: &PathBuf, dst: &Path) -> Result<usize, Stri
     }
 
     Ok(copied_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn repair_creates_exactly_the_missing_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join("data")).unwrap();
+        assert_eq!(missing_directories(&repo), vec![repo.join("snapshots")]);
+
+        // Without repair nothing is created.
+        let d = run_backup_diagnostics(&repo, None, false, false)
+            .await
+            .unwrap();
+        assert!(!d.details.structure_valid);
+        assert_eq!(missing_directories(&repo).len(), 1);
+
+        run_backup_diagnostics(&repo, None, false, true)
+            .await
+            .unwrap();
+        assert!(missing_directories(&repo).is_empty());
+    }
 }

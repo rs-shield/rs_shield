@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rsb_sdk::core::NotificationEvent;
+use rsb_sdk::integrity::{VerifyRun, perform_verify_detailed};
 use rsb_sdk::operation::operations_helpers::record_verify_operation;
 use rsb_sdk::report::ReportData;
 use rsb_sdk::{CancellationToken, VerifyOptions, perform_verify};
@@ -16,7 +17,7 @@ use crate::ui::{
     profile_loader::{
         LoadedProfile, load_profile, repository_config, repository_label, resolve_key_blocking,
     },
-    shared::ProgressBar,
+    shared::{ProgressBar, progress_reporter},
 };
 
 /// Judges a verification like `rsb verify` (whose exit code fails on any
@@ -48,10 +49,58 @@ pub fn verify_outcome(t: &Translations, report: &ReportData) -> Result<String, S
     Err(msg)
 }
 
+/// What `verify --repair` would delete, from a verification run without
+/// repair: the text to confirm and the number of objects to delete.
+pub fn repair_preview(run: &VerifyRun, t: &Translations) -> (String, usize) {
+    const SHOWN: usize = 20;
+    let candidates = run.repair_candidates();
+    let mut lines = Vec::new();
+    if candidates.is_empty() {
+        lines.push(t.kl_repair_none.to_string());
+    } else {
+        lines.push(tr(
+            t.kl_repair_will_delete,
+            &[&candidates.len().to_string()],
+        ));
+        for c in candidates.iter().take(SHOWN) {
+            let mut files: Vec<String> = c
+                .files
+                .iter()
+                .take(3)
+                .map(|f| f.display().to_string())
+                .collect();
+            if c.files.len() > 3 {
+                files.push("…".to_string());
+            }
+            lines.push(format!(
+                "  • {} — {} ({} {})",
+                c.path,
+                c.reason,
+                t.kl_repair_used_by,
+                files.join(", ")
+            ));
+        }
+        if candidates.len() > SHOWN {
+            lines.push(tr(
+                t.kl_repair_more,
+                &[&(candidates.len() - SHOWN).to_string()],
+            ));
+        }
+    }
+    if !run.objects.missing.is_empty() {
+        lines.push(tr(
+            t.kl_repair_missing,
+            &[&run.objects.missing.len().to_string()],
+        ));
+    }
+    (lines.join("\n"), candidates.len())
+}
+
 #[component]
 pub fn VerifyScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
+    let kt = get_texts(app_config.language());
     let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut backup_path = use_signal(PathBuf::new);
     let mut key = use_signal(String::new);
@@ -64,6 +113,8 @@ pub fn VerifyScreen() -> Element {
     let mut last_report_path = use_signal(|| Option::<PathBuf>::None);
     let mut progress = use_signal(|| 0.0);
     let mut cancellation_token = use_signal(CancellationToken::new);
+    // Confirmation of a repair: (what it deletes, number of objects).
+    let mut repair_pending = use_signal(|| Option::<(String, usize)>::None);
 
     let handle_load_profile = move |_| {
         spawn(async move {
@@ -84,10 +135,68 @@ pub fn VerifyScreen() -> Element {
         });
     };
 
-    let handle_verify = move |_| {
+    // Repair, step 1: a full verification that changes nothing, listing
+    // the objects a repair would delete.
+    let mut handle_repair_preview = move || {
         if is_running() {
             return;
         }
+        is_running.set(true);
+        repair_pending.set(None);
+        let token = CancellationToken::new();
+        cancellation_token.set(token.clone());
+        progress.set(0.0);
+        status_msg.set(kt.kl_repair_checking.to_string());
+        last_report_path.set(None);
+
+        let loaded = profile();
+        let bkp = backup_path();
+        let typed_key = key();
+        let snapshot = Some(snapshot_id().trim().to_string()).filter(|s| !s.is_empty());
+        let s3 = S3Settings::from_app(&app_config);
+        let progress_cb = progress_reporter(progress, status_msg, is_running);
+
+        spawn(async move {
+            let res = async {
+                let cfg = repository_config(loaded.as_ref(), &bkp, &s3, texts)?;
+                let key = resolve_key_blocking(typed_key, loaded.clone()).await;
+                perform_verify_detailed(
+                    &cfg,
+                    VerifyOptions {
+                        snapshot_id: snapshot,
+                        on_progress: Some(progress_cb),
+                        cancellation_token: Some(token),
+                        ..Default::default()
+                    }
+                    .with_encryption_key(key.as_deref()),
+                )
+                .await
+                .map_err(|e| e.to_string())
+            }
+            .await;
+            is_running.set(false);
+            match res {
+                Ok(run) => {
+                    let (preview, count) = repair_preview(&run, kt);
+                    let outcome = match verify_outcome(texts, &run.report) {
+                        Ok(m) | Err(m) => m,
+                    };
+                    status_msg.set(format!("{}\n\n{}", outcome, preview));
+                    if count > 0 {
+                        repair_pending.set(Some((preview, count)));
+                    }
+                    progress.set(1.0);
+                }
+                Err(e) => status_msg.set(format!("{} {}", texts.error_prefix, e)),
+            }
+        });
+    };
+
+    let mut run_verify = move |is_repair: bool| {
+        if is_running() {
+            return;
+        }
+        repair_pending.set(None);
         is_running.set(true);
         let token = CancellationToken::new();
         cancellation_token.set(token.clone());
@@ -99,7 +208,6 @@ pub fn VerifyScreen() -> Element {
         let bkp = backup_path();
         let typed_key = key();
         let snapshot = Some(snapshot_id().trim().to_string()).filter(|s| !s.is_empty());
-        let is_repair = repair();
         // --repair always performs the full check (like the CLI).
         let is_fast = fast_verify() && !is_repair;
         let create_report = generate_report();
@@ -217,6 +325,14 @@ pub fn VerifyScreen() -> Element {
         });
     };
 
+    let handle_verify = move |_| {
+        if repair() {
+            handle_repair_preview();
+        } else {
+            run_verify(false);
+        }
+    };
+
     let handle_cancel = move |_| {
         cancellation_token().cancel();
         status_msg.set(texts.vf_cancelling.to_string());
@@ -324,7 +440,10 @@ pub fn VerifyScreen() -> Element {
                     input {
                         r#type: "checkbox",
                         checked: repair(),
-                        onchange: move |_| repair.toggle()
+                        onchange: move |_| {
+                            repair.toggle();
+                            repair_pending.set(None);
+                        }
                     }
                     "{texts.vf_repair_label}"
                 }
@@ -355,6 +474,26 @@ pub fn VerifyScreen() -> Element {
                 }
             }
 
+            if let Some((preview, count)) = repair_pending() {
+                div { class: "status-box mb-4 border-l-4 border-red-500",
+                    p { class: "font-semibold mb-2", "{kt.kl_confirm_title}" }
+                    p { class: "whitespace-pre-wrap mb-3", "{preview}" }
+                    div { class: "flex gap-3",
+                        button {
+                            class: "flex-1 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
+                            disabled: is_running(),
+                            onclick: move |_| run_verify(true),
+                            {tr(kt.kl_repair_confirm_button, &[&count.to_string()])}
+                        }
+                        button {
+                            class: "flex-1 btn-secondary",
+                            onclick: move |_| repair_pending.set(None),
+                            "{kt.kl_cancel_button}"
+                        }
+                    }
+                }
+            }
+
             if is_running() || progress() > 0.0 {
                 ProgressBar { progress: progress() }
             }
@@ -381,6 +520,47 @@ pub fn VerifyScreen() -> Element {
 mod tests {
     use super::*;
     use crate::ui::i18n::Language;
+
+    #[test]
+    fn repair_preview_lists_what_is_deleted() {
+        use crate::ui::i18n::EN_STRINGS;
+        use rsb_sdk::integrity::{CorruptObject, VerifyObjectsOutcome};
+        let clean = VerifyRun {
+            report: ReportData::default(),
+            objects: VerifyObjectsOutcome::default(),
+        };
+        let (text, n) = repair_preview(&clean, &EN_STRINGS);
+        assert_eq!(n, 0);
+        assert_eq!(text, EN_STRINGS.kl_repair_none);
+
+        let corrupt: Vec<CorruptObject> = (0..25)
+            .map(|i| CorruptObject {
+                path: format!("data/enc/{:064}", i),
+                reason: "content hash mismatch".into(),
+                files: vec![std::path::PathBuf::from(format!("f{}.txt", i))],
+            })
+            .collect();
+        let run = VerifyRun {
+            report: ReportData::default(),
+            objects: VerifyObjectsOutcome {
+                corrupt,
+                missing: vec!["data/enc/x".into()],
+                ..Default::default()
+            },
+        };
+        let (text, n) = repair_preview(&run, &EN_STRINGS);
+        assert_eq!(n, 25);
+        assert!(text.contains("DELETE 25 object(s)"), "{text}");
+        assert!(
+            text.contains("f0.txt") && !text.contains("f24.txt"),
+            "{text}"
+        );
+        assert!(text.contains("5 more"), "{text}");
+        assert!(
+            text.contains("1 referenced object(s) are missing"),
+            "{text}"
+        );
+    }
 
     #[test]
     fn problems_are_a_failure_with_the_errors_listed() {
