@@ -95,6 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   off the UI thread.
 
 ### Added
+- Desktop FIDO2 tab (was a placeholder): lists the registered security
+  keys and generates new recovery codes for the signed-in user, like
+  `rsb fido2 list` / `generate-codes`.
 - Desktop "Repository key" screen: export `keys/repo.key` (JSON or paper
   form, 0600, never overwriting), import an exported key file (`--force`
   keeps a backup of the replaced one) and change the repository password —
