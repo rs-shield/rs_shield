@@ -12,8 +12,21 @@ pub struct SystemMetrics {
     pub disk_free_gb: f64,
 }
 
+/// Process-wide `System`: CPU usage is the difference between two
+/// refreshes, so a `System` created for each call always reported 0%
+/// (and `System::new_all()` also scanned every process each time).
+static SYSTEM: std::sync::OnceLock<std::sync::Mutex<System>> = std::sync::OnceLock::new();
+
+/// Current CPU, memory and disk usage. Blocking (reads system tables):
+/// call it off a UI thread. The CPU usage is measured since the previous
+/// call (0 on the first one).
 pub fn get_system_metrics() -> SystemMetrics {
-    let system = System::new_all();
+    let mut system = SYSTEM
+        .get_or_init(|| std::sync::Mutex::new(System::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    system.refresh_cpu_usage();
+    system.refresh_memory();
 
     let cpu_usage = system.global_cpu_usage();
 
@@ -96,4 +109,20 @@ pub fn format_percentage_bg(percentage: f32) -> &'static str {
 
 pub fn format_bytes_gb(bytes: f64) -> String {
     format!("{:.2} GB", bytes)
+}
+
+#[cfg(test)]
+mod system_metrics_tests {
+    use super::*;
+
+    #[test]
+    fn metrics_reuse_one_system_and_stay_in_range() {
+        for _ in 0..2 {
+            let m = get_system_metrics();
+            assert!(m.memory_total_gb > 0.0);
+            assert!((0.0..=100.0).contains(&m.memory_usage));
+            assert!(m.cpu_usage >= 0.0);
+        }
+        assert!(SYSTEM.get().is_some());
+    }
 }

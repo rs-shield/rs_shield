@@ -128,26 +128,41 @@ pub fn App() -> Element {
         disk_free_gb: 0.0,
     });
 
+    // Metrics and the activity counters are read off the UI thread (they
+    // block on system tables / the history file) and refreshed
+    // periodically, so operations done in this session show up.
     use_effect(move || {
         spawn(async move {
-            let _ = rsb_sdk::operation::operations::ensure_history_directory();
-            let manager = OperationsManager::new();
-            let history = manager.get_history();
-
-            backup_count.set(history.get_operations_count("Backup"));
-            restore_count.set(history.get_operations_count("Restore"));
-            verify_count.set(history.get_operations_count("Verify"));
-            prune_count.set(history.get_operations_count("Prune"));
-            total_operations.set(history.get_total_operations());
-            last_operation_time.set(history.get_last_operation_time(None));
-        });
-    });
-
-    use_effect(move || {
-        spawn(async move {
+            let mut tick = 0u32;
             loop {
-                let metrics = get_system_metrics();
-                system_metrics.set(metrics);
+                if let Ok(metrics) = tokio::task::spawn_blocking(get_system_metrics).await {
+                    system_metrics.set(metrics);
+                }
+                if tick.is_multiple_of(5) {
+                    let counts = tokio::task::spawn_blocking(|| {
+                        let _ = rsb_sdk::operation::operations::ensure_history_directory();
+                        let manager = OperationsManager::new();
+                        let history = manager.get_history();
+                        (
+                            history.get_operations_count("Backup"),
+                            history.get_operations_count("Restore"),
+                            history.get_operations_count("Verify"),
+                            history.get_operations_count("Prune"),
+                            history.get_total_operations(),
+                            history.get_last_operation_time(None),
+                        )
+                    })
+                    .await;
+                    if let Ok((b, r, v, p, total, last)) = counts {
+                        backup_count.set(b);
+                        restore_count.set(r);
+                        verify_count.set(v);
+                        prune_count.set(p);
+                        total_operations.set(total);
+                        last_operation_time.set(last);
+                    }
+                }
+                tick = tick.wrapping_add(1);
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             }
         });

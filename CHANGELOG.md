@@ -88,6 +88,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never polled). Stopping lets a running backup finish and reports changes
   that are still pending; a profile can be used like `rsb watch <profile>`.
   Battery health is computed against the design capacity.
+- Desktop dashboard: CPU usage always showed 0% (a new `System` was
+  created for each sample) and the metrics were read on the UI thread
+  every 2 s; the activity counters were read once at start-up and never
+  showed the operations of the running session. Both are now refreshed
+  off the UI thread.
 
 ### Added
 - Desktop create profile: encryption (`--encrypt`), with the password
