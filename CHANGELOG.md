@@ -79,6 +79,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the UI thread.
 - `rsb diagnose` counts only snapshot manifests (not temp files of
   interrupted writes); its result fields are public in the SDK.
+- Desktop real-time sync now uses the engine of `rsb watch` (shared as
+  `rsb_sdk::realtime::mirror_and_backup_sync`). It used to copy every file
+  of the source every 2 seconds, start a backup only when the number of
+  copied files grew (modified or deleted files never triggered one), drop
+  the backup error text, ignore the ignore-pattern editor, abort folders
+  that took over 30 s to copy, and never send the webhook (its future was
+  never polled). Stopping lets a running backup finish and reports changes
+  that are still pending; a profile can be used like `rsb watch <profile>`.
+  Battery health is computed against the design capacity.
 
 ### Added
 - Desktop create profile: encryption (`--encrypt`), with the password

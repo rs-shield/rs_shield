@@ -8,7 +8,7 @@ use rsb_cli::helpers::{
     profile_uses_relative_paths, render_schedule, resolve_command_profile, resolve_profile_path,
     warn_secret_arg,
 };
-use rsb_sdk::backup::diagnostic::{print_diagnostics, run_backup_diagnostics, sync_changed_files};
+use rsb_sdk::backup::diagnostic::{print_diagnostics, run_backup_diagnostics};
 use rsb_sdk::backup::perform_backup;
 use rsb_sdk::integrity::perform_verify;
 use rsb_sdk::server;
@@ -785,15 +785,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("Failed to watch {}: {}", source.display(), e))?;
             // Back up once at startup so the repository reflects the current
             // state before we only react to changes.
-            rt.queue
-                .add_change(rsb_sdk::realtime::FileChange {
-                    path: source.clone(),
-                    change_type: rsb_sdk::realtime::ChangeType::Modified,
-                    timestamp: chrono::Utc::now(),
-                    size: 0,
-                    hash: None,
-                })
-                .await;
+            rt.queue_full_backup(&source).await;
             let loop_handle = rt.clone().spawn_processing_loop();
 
             tokio::signal::ctrl_c().await?;
@@ -1064,49 +1056,33 @@ fn save_auth_token(token: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(auth_file)
 }
 
-/// Builds the realtime synchronizer used by `rsb watch`: each debounced
-/// batch mirrors new/modified files to `sync_dst`, then runs an encrypted
-/// incremental backup of the profile. The key comes from `cfg.encryption_key`
-/// (already resolved by the caller) and is never printed.
+/// Builds the realtime synchronizer used by `rsb watch` (shared with the
+/// desktop app, see [`rsb_sdk::realtime::mirror_and_backup_sync`]): each
+/// debounced batch mirrors new/modified files to `sync_dst`, then runs an
+/// encrypted incremental backup of the profile. The key comes from
+/// `cfg.encryption_key` (already resolved by the caller) and is never
+/// printed.
 fn build_watch_sync(
     cfg: &config::Config,
     sync_dst: PathBuf,
     interval: u64,
 ) -> rsb_sdk::realtime::RealtimeSync {
-    use rsb_sdk::realtime::{BackupRunner, RealtimeSync, SyncStrategy, profile_backup_runner};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    let source = rsb_sdk::utils::expand_path(&cfg.source_path);
-    let backup_dst = rsb_sdk::utils::expand_path(&cfg.destination_path);
-    let backup = profile_backup_runner(cfg.clone(), cfg.encryption_key.clone());
-    let backups = Arc::new(AtomicUsize::new(0));
-    let mirror_dst = sync_dst.clone();
-    let runner: BackupRunner = Arc::new(move || {
-        let backup = backup.clone();
-        let backups = backups.clone();
-        let src = source.clone();
-        let dst = mirror_dst.clone();
-        Box::pin(async move {
-            let copied = sync_changed_files(&src, &dst)
-                .await
-                .map_err(|e| format!("sync to {} failed: {}", dst.display(), e))?;
-            if copied > 0 {
-                println!("✅ Sync: {} new/modified files synchronized.", copied);
-            }
-            let summary = backup().await?;
-            let n = backups.fetch_add(1, Ordering::SeqCst) + 1;
-            println!("💾 Backup #{}: {}", n, summary);
-            Ok(summary)
-        })
-    });
-
+    use rsb_sdk::realtime::{SyncStrategy, WatchEvent, mirror_and_backup_sync};
     let strategy = SyncStrategy {
         batch_interval: interval,
         ..SyncStrategy::default()
     };
-    // Neither the mirror nor the repository may feed changes back into the
-    // watcher (they could live inside the source tree).
-    RealtimeSync::with_backup_runner(strategy, runner)
-        .exclude_root(sync_dst)
-        .exclude_root(backup_dst)
+    mirror_and_backup_sync(
+        cfg,
+        sync_dst,
+        strategy,
+        Some(Arc::new(|event| match event {
+            WatchEvent::Mirrored { files } => {
+                println!("✅ Sync: {} new/modified files synchronized.", files)
+            }
+            WatchEvent::BackedUp { number, summary } => {
+                println!("💾 Backup #{}: {}", number, summary)
+            }
+        })),
+    )
 }
