@@ -60,8 +60,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crontab/unit, `--storage` matches the profile and the profile must load.
   The "Schedule Now" button, which reported success without scheduling
   anything, was removed.
+- Desktop create profile: profiles are written like `rsb create-profile`
+  (SDK `Config`, mode 0600 via `write_config_secure`, same defaults — the
+  CPU pause threshold was 20%); an existing profile is no longer silently
+  overwritten; names with path separators (`../x`) are rejected instead of
+  writing outside `~/.rsb-desktop`; an S3 profile no longer needs a local
+  destination (`s3://<bucket>`); a failure to save the S3 credentials is
+  reported instead of only logged (the screen also claimed they were
+  "saved in config").
 
 ### Added
+- Desktop create profile: encryption (`--encrypt`), with the password
+  stored in the OS keyring under the profile name, where backup, restore,
+  verify and prune (desktop and CLI) find it.
 - Desktop prune: "Keep the last N snapshots" (`rsb prune -l N`) besides the
   age-based retention, and a Preview button (`--dry-run`).
 - Desktop verify: snapshot selection and `--repair`.
