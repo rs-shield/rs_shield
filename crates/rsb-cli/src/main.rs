@@ -723,9 +723,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 None
             };
             let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("rsb"));
-            let env_file = dirs::home_dir()
-                .map(|h| h.join(".rs-shield").join("rsb-backup.env"))
-                .unwrap_or_else(|| PathBuf::from("rsb-backup.env"));
+            let env_file = rsb_sdk::schedule::default_env_file();
             print!(
                 "{}",
                 render_schedule(

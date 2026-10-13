@@ -17,6 +17,7 @@ pub mod portable_restore;
 pub mod realtime;
 pub mod report;
 pub mod s3_check;
+pub mod schedule;
 pub mod server;
 pub mod snapshot;
 pub mod storage;

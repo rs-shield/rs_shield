@@ -54,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the verification: with the key in the OS keyring or
   `RSB_ENCRYPTION_KEY` (not in the TOML), verifying an encrypted backup
   failed.
+- Desktop schedule: the generated job is the one `rsb schedule` prints
+  (shared code in `rsb_sdk::schedule`): the encryption key is read from a
+  0600 env file instead of being written as `--key "<key>"` into the
+  crontab/unit, `--storage` matches the profile and the profile must load.
+  The "Schedule Now" button, which reported success without scheduling
+  anything, was removed.
 
 ### Added
 - Desktop prune: "Keep the last N snapshots" (`rsb prune -l N`) besides the
