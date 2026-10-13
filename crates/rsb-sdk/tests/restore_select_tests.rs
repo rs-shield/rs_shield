@@ -303,3 +303,58 @@ async fn date_and_files_combine() {
     assert!(matches!(err, RsbError::NotFound(_)), "{err:?}");
     assert!(err.to_string().contains(names[1]), "{err}");
 }
+
+/// `--files` typed in one Unicode normalization form selects a file stored
+/// in the other (NFC on Linux/Windows, NFD from macOS), and the file is
+/// restored under the name stored in the manifest.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn include_matches_across_unicode_normalization_forms() {
+    use unicode_normalization::UnicodeNormalization;
+    const NFC: &str = "fotos/ver\u{e3}o/caf\u{e9}.txt";
+    const NFD: &str = "fotos/vera\u{303}o/cafe\u{301}.txt";
+    assert_ne!(NFC, NFD);
+
+    for written in [NFC, NFD] {
+        let src = tempfile::tempdir().unwrap();
+        write(src.path(), written, b"cafe");
+        write(src.path(), "other.txt", b"x");
+        // The name as the file system reports it (what the manifest stores).
+        let stored: Vec<String> = files_under(src.path())
+            .into_iter()
+            .filter(|f| f != "other.txt")
+            .collect();
+        assert_eq!(stored.len(), 1);
+        let stored = &stored[0];
+        let cfg = config(src.path());
+        let storage: Arc<dyn Storage> = Arc::new(MemoryStorage::new());
+        backup(&cfg, &storage, None).await;
+
+        // Patterns in the *other* form than the stored name.
+        let is_nfc = stored.nfc().collect::<String>() == *stored;
+        let other = |s: &str| -> String {
+            if is_nfc {
+                s.nfd().collect()
+            } else {
+                s.nfc().collect()
+            }
+        };
+        for pattern in [
+            other(stored),
+            other("fotos/ver\u{e3}o"),
+            other("fotos/ver\u{e3}o/*.txt"),
+            other("**/caf\u{e9}.txt"),
+        ] {
+            assert_ne!(&pattern, stored, "pattern must differ in bytes");
+            let out = tempfile::tempdir().unwrap();
+            let report = restore(&cfg, &storage, out.path(), None, |o| {
+                o.include = vec![pattern.clone()];
+            })
+            .await
+            .unwrap_or_else(|e| panic!("{pattern:?} must match {stored:?}: {e}"));
+            assert_eq!(report.files_processed, 1, "{pattern:?}");
+            // Written under the stored name, byte for byte.
+            assert_eq!(files_under(out.path()), vec![stored.clone()], "{pattern:?}");
+            assert_eq!(std::fs::read(out.path().join(stored)).unwrap(), b"cafe");
+        }
+    }
+}

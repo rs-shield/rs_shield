@@ -149,8 +149,9 @@ pub enum Commands {
 
         /// Restore only matching files: exact path (docs/a.txt), directory
         /// (docs or docs/) or glob (docs/*.pdf, '**/*.jpg'), relative to the
-        /// backup source with '/' separators. Repeatable; quote globs. Fails
-        /// if nothing matches
+        /// backup source with '/' separators. Repeatable; quote globs.
+        /// Unicode NFC/NFD spellings match each other. Fails if nothing
+        /// matches
         #[arg(short = 'i', long, value_name = "PATTERN", num_args = 1.., action = clap::ArgAction::Append)]
         files: Vec<String>,
 

@@ -50,6 +50,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 walkdir = "2"
 glob = "0.3"
 ignore = "0.4"
+unicode-normalization = "0.1"
 notify = "8.2"
 memmap2 = "0.9"
 

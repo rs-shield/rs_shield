@@ -41,6 +41,7 @@ uuid = { workspace = true }
 walkdir = { workspace = true }
 glob = { workspace = true }
 ignore = { workspace = true }
+unicode-normalization = { workspace = true }
 memmap2 = { workspace = true }
 notify = { workspace = true }
 pathdiff = "0.2.3"

@@ -284,7 +284,10 @@ relative paths under `--target`.
 * Globs use the `glob` crate syntax (`*`, `?`, `[...]`, `**`) and are anchored
   at the backup root; a glob that matches a folder restores the whole folder.
   Quote globs so the shell does not expand them.
-* Matching is case sensitive and does not normalize Unicode.
+* Matching is case sensitive. Unicode is normalized (NFC) on both sides
+  before comparing, so a name typed as `café` matches the same name stored
+  in decomposed form (NFD, as macOS reports it) and vice versa. The file is
+  restored under the exact name stored in the backup.
 * Absolute paths (`/etc`, `C:\...`) and `..` components are rejected.
 * `--files` takes several values (`--files a b`) and can be repeated. Put the
   config path before `--files` (or use `--backup`), otherwise it is read as a

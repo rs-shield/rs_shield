@@ -64,3 +64,27 @@ fn date_is_accepted_and_conflicts_with_snapshot() {
     .expect("--date and --snapshot must conflict");
     assert_eq!(err.kind(), clap::error::ErrorKind::ArgumentConflict);
 }
+
+/// `--files` arrives byte for byte (no normalization by the parser), and the
+/// selector built from it matches the other Unicode normalization form:
+/// typed NFC selects a macOS (NFD) manifest path and vice versa.
+#[test]
+fn files_match_across_unicode_normalization_forms() {
+    const NFC: &str = "fotos/ver\u{e3}o/caf\u{e9}.txt";
+    const NFD: &str = "fotos/vera\u{303}o/cafe\u{301}.txt";
+    for (typed, stored) in [(NFC, NFD), (NFD, NFC)] {
+        let (files, _, _) =
+            restore_fields(parse(&["cfg.toml", "-t", "out", "--files", typed]).unwrap());
+        assert_eq!(files, [typed]);
+        let selector = rsb_sdk::core::FileSelector::new(&files).unwrap();
+        assert!(selector.matches(stored), "{typed:?} must select {stored:?}");
+        let picked = selector
+            .select(vec![(std::path::PathBuf::from(stored), ())], "snap")
+            .unwrap();
+        assert_eq!(
+            picked[0].0,
+            std::path::PathBuf::from(stored),
+            "stored name kept"
+        );
+    }
+}

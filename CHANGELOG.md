@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).
 
 ### Fixed
+- `rsb restore --files` (and the desktop/SDK `include` patterns) compare
+  paths after normalizing both the pattern and the stored path to Unicode
+  NFC, so `café` typed in NFC selects a file backed up on macOS (stored in
+  NFD) and vice versa. The file is still restored under its stored name.
 - Desktop: the Snapshots tab listed nothing (loading, details, compare and
   delete were placeholders). It now lists the snapshots of a profile (local
   destination or S3 bucket), a backup folder or the app's S3 bucket, newest
