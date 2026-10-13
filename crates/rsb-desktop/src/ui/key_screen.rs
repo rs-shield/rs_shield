@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    i18n::{fill, get_key_texts},
+    i18n::{Translations, get_texts, tr},
     key_lifecycle::{
         check_new_password, init_key, migrate, migrate_preview, off_ui_thread, rotate,
         rotate_preview, status_text,
@@ -31,7 +31,7 @@ pub const MAX_IMPORT_SIZE: u64 = 64 * 1024;
 
 /// Creates `path` (it must not exist) readable only by the owner and writes
 /// `data` (as `rsb key export -o`).
-pub fn write_private_file(path: &Path, data: &[u8]) -> Result<(), String> {
+pub fn write_private_file(t: &Translations, path: &Path, data: &[u8]) -> Result<(), String> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -41,28 +41,28 @@ pub fn write_private_file(path: &Path, data: &[u8]) -> Result<(), String> {
     }
     let mut f = opts
         .open(path)
-        .map_err(|e| format!("Cannot create {}: {}", path.display(), e))?;
+        .map_err(|e| tr(t.cp_cannot_create, &[&path.display(), &e]))?;
     f.write_all(data)
         .and_then(|_| f.sync_all())
-        .map_err(|e| format!("Cannot write {}: {}", path.display(), e))
+        .map_err(|e| tr(t.cp_cannot_write, &[&path.display(), &e]))
 }
 
 /// Reads an exported key file, in JSON or paper form (as `rsb key import`).
-pub fn read_import_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
+pub fn read_import_file(t: &Translations, path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
     let len = std::fs::metadata(path)
-        .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?
+        .map_err(|e| tr(t.rk_cannot_read, &[&path.display(), &e]))?
         .len();
     if len > MAX_IMPORT_SIZE {
-        return Err(format!("{} is too large for a key file", path.display()));
+        return Err(tr(t.rk_too_large, &[&path.display()]));
     }
     let content = Zeroizing::new(
-        std::fs::read(path).map_err(|e| format!("Cannot read {}: {}", path.display(), e))?,
+        std::fs::read(path).map_err(|e| tr(t.rk_cannot_read, &[&path.display(), &e]))?,
     );
     if paper::is_paper(&content) {
         let text = std::str::from_utf8(&content).map_err(|e| e.to_string())?;
         paper::decode(text)
             .map(Zeroizing::new)
-            .map_err(|e| format!("Paper key: {}", e))
+            .map_err(|e| tr(t.rk_paper_key_error, &[&e]))
     } else {
         Ok(content)
     }
@@ -71,6 +71,7 @@ pub fn read_import_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
 /// Exports the key file to `out` (JSON, or the printable paper form) after
 /// checking that `password` opens it.
 pub async fn export_key(
+    t: &Translations,
     storage: &dyn Storage,
     password: &str,
     out: &Path,
@@ -86,59 +87,50 @@ pub async fn export_key(
     } else {
         raw
     };
-    write_private_file(out, &data)?;
-    Ok(format!(
-        "✅ Key file exported to {} (mode 0600). Together with the password it decrypts every backup: store it safely.",
-        out.display()
-    ))
+    write_private_file(t, out, &data)?;
+    Ok(tr(t.rk_exported, &[&out.display()]))
 }
 
 /// Installs an exported key file (see `rsb key import`).
 pub async fn import_key(
+    t: &Translations,
     storage: Arc<dyn Storage>,
     file: &Path,
     password: &str,
     force: bool,
 ) -> Result<String, String> {
-    let raw = read_import_file(file)?;
+    let raw = read_import_file(t, file)?;
     let out = lifecycle::import_key_file(storage, &raw, password.as_bytes(), force)
         .await
         .map_err(|e| e.to_string())?;
     if out.unchanged {
-        return Ok(format!(
-            "ℹ️ {} already holds this key file; nothing changed.",
-            REPO_KEY_PATH
-        ));
+        return Ok(tr(t.rk_import_unchanged, &[&REPO_KEY_PATH]));
     }
-    let mut msg = format!("✅ Imported {} ({}).", REPO_KEY_PATH, out.matched_by);
+    let mut msg = tr(t.rk_imported, &[&REPO_KEY_PATH, &out.matched_by]);
     if let Some(b) = out.replaced_backup {
-        msg.push_str(&format!(" The previous key file was kept at {}.", b));
+        msg.push_str(&tr(t.rk_previous_kept, &[&b]));
     }
     Ok(msg)
 }
 
 /// Changes the repository password (rewraps the key; no data rewritten).
 pub async fn change_password(
+    t: &Translations,
     storage: Arc<dyn Storage>,
     old: &str,
     new: &str,
     confirm: &str,
 ) -> Result<String, String> {
     if new.is_empty() {
-        return Err("The new password must not be empty".to_string());
+        return Err(t.rk_new_password_empty.to_string());
     }
     if new != confirm {
-        return Err("The new passwords do not match".to_string());
+        return Err(t.rk_new_passwords_mismatch.to_string());
     }
     let current = keyfile::read_key_file(&*storage)
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| {
-            format!(
-                "{} not found: run an encrypted backup (or `rsb key init`) first",
-                REPO_KEY_PATH
-            )
-        })?;
+        .ok_or_else(|| tr(t.rk_key_not_found, &[&REPO_KEY_PATH]))?;
     keyfile::change_password(
         storage,
         old.as_bytes(),
@@ -147,7 +139,7 @@ pub async fn change_password(
     )
     .await
     .map_err(|e| e.to_string())?;
-    Ok("✅ Repository password changed. Existing backups are unchanged. Update RSB_ENCRYPTION_KEY / the OS keyring entry used by scheduled backups.".to_string())
+    Ok(t.rk_password_changed.to_string())
 }
 
 /// A key operation waiting for the user's confirmation, with the text that
@@ -161,7 +153,7 @@ enum Pending {
 #[component]
 pub fn KeyScreen() -> Element {
     let app_config = use_context::<AppConfig>();
-    let t = get_key_texts(app_config.language());
+    let t = get_texts(app_config.language());
     let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut repo_path = use_signal(PathBuf::new);
     // Passwords live only in these signals (memory) and are cleared after
@@ -186,7 +178,7 @@ pub fn KeyScreen() -> Element {
     // S3 bucket of Settings) through the SDK storage abstraction.
     let open_storage = move || {
         let s3 = S3Settings::from_app(&app_config);
-        let cfg = repository_config(profile().as_ref(), &repo_path(), &s3);
+        let cfg = repository_config(profile().as_ref(), &repo_path(), &s3, t);
         async move {
             let cfg = cfg?;
             rsb_sdk::core::storage_backend::get_storage(&cfg)
@@ -221,13 +213,10 @@ pub fn KeyScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), t) {
                     Ok(p) => {
                         repo_path.set(PathBuf::from(repository_label(&p.config)));
-                        status.set(fill(
-                            t.profile_loaded,
-                            &[("path", &p.path.display().to_string())],
-                        ));
+                        status.set(tr(t.rk_profile_loaded, &[&p.path.display().to_string()]));
                         profile.set(Some(p));
                         forget_repo_state();
                     }
@@ -240,7 +229,7 @@ pub fn KeyScreen() -> Element {
     let handle_check = move |_| {
         busy.set(true);
         pending.set(None);
-        status.set(t.checking.to_string());
+        status.set(t.kl_checking.to_string());
         let fut = fetch_status();
         spawn(async move {
             match fut.await {
@@ -258,12 +247,12 @@ pub fn KeyScreen() -> Element {
     let mut prepare = move |rotate_op: bool| {
         busy.set(true);
         pending.set(None);
-        status.set(t.checking.to_string());
+        status.set(t.kl_checking.to_string());
         let fut = fetch_status();
         spawn(async move {
             match fut.await {
                 Ok(s) if !s.key_file => {
-                    status.set(format!("❌ {}", t.status_no_key));
+                    status.set(format!("❌ {}", t.kl_status_no_key));
                     key_status.set(Some(s));
                 }
                 Ok(s) => {
@@ -289,7 +278,7 @@ pub fn KeyScreen() -> Element {
         };
         let pw = Zeroizing::new(password());
         if pw.is_empty() {
-            status.set(format!("❌ {}", t.need_password));
+            status.set(format!("❌ {}", t.kl_need_password));
             return;
         }
         pending.set(None);
@@ -300,9 +289,9 @@ pub fn KeyScreen() -> Element {
         running.set(true);
         status.set(
             if is_rotate {
-                t.rotate_running
+                t.kl_rotate_running
             } else {
-                t.migrate_running
+                t.kl_migrate_running
             }
             .to_string(),
         );
@@ -337,7 +326,7 @@ pub fn KeyScreen() -> Element {
 
     let handle_stop = move |_| {
         token().cancel();
-        status.set(t.stopping.to_string());
+        status.set(t.kl_stopping.to_string());
     };
 
     let handle_init = move |_| {
@@ -349,7 +338,7 @@ pub fn KeyScreen() -> Element {
         }
         busy.set(true);
         pending.set(None);
-        status.set(t.working.to_string());
+        status.set(t.rk_working.to_string());
         let storage = open_storage();
         spawn(async move {
             let res = async {
@@ -394,7 +383,7 @@ pub fn KeyScreen() -> Element {
             busy.set(true);
             let res = async {
                 let storage = storage.await?;
-                export_key(&*storage, &pw, h.path(), paper_mode).await
+                export_key(t, &*storage, &pw, h.path(), paper_mode).await
             }
             .await;
             status.set(res.unwrap_or_else(|e| format!("❌ {}", e)));
@@ -413,7 +402,7 @@ pub fn KeyScreen() -> Element {
             busy.set(true);
             let res = async {
                 let storage = storage.await?;
-                import_key(storage, h.path(), &pw, force_mode).await
+                import_key(t, storage, h.path(), &pw, force_mode).await
             }
             .await;
             status.set(res.unwrap_or_else(|e| format!("❌ {}", e)));
@@ -431,7 +420,7 @@ pub fn KeyScreen() -> Element {
         spawn(async move {
             let res = async {
                 let storage = storage.await?;
-                change_password(storage, &old, &new, &confirm).await
+                change_password(t, storage, &old, &new, &confirm).await
             }
             .await;
             if res.is_ok() {
@@ -456,20 +445,20 @@ pub fn KeyScreen() -> Element {
         LoadingOverlay {
             is_visible: busy(),
             style: LoadingStyle::Spinner,
-            message: t.working.to_string(),
+            message: t.rk_working.to_string(),
         }
 
         div { class: "card",
-            h2 { class: "page-title", "{t.title}" }
-            p { class: "hint mb-4", "{t.intro}" }
+            h2 { class: "page-title", "{t.rk_title}" }
+            p { class: "hint mb-4", "{t.rk_intro}" }
 
             div { class: "form-group",
-                label { class: "label-text", "{t.profile_label}" }
+                label { class: "label-text", "{t.rk_profile_optional}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "{t.profile_placeholder}",
+                        placeholder: "{t.rk_select_profile}",
                         value: "{profile_label}",
                         readonly: true
                     }
@@ -478,12 +467,12 @@ pub fn KeyScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "{t.repo_label}" }
+                label { class: "label-text", "{t.rk_repo_folder}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "{t.repo_placeholder}",
+                        placeholder: "{t.rk_repo_folder_placeholder}",
                         value: "{repo_path.read().to_string_lossy()}",
                         disabled: locked,
                         oninput: move |evt| {
@@ -510,7 +499,7 @@ pub fn KeyScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "{t.password_label}" }
+                label { class: "label-text", "{t.rk_current_password}" }
                 input {
                     class: "input-field",
                     r#type: "password",
@@ -520,22 +509,22 @@ pub fn KeyScreen() -> Element {
                 }
             }
 
-            h3 { class: "section-title", "{t.status_section}" }
+            h3 { class: "section-title", "{t.kl_status_section}" }
             button {
                 class: "w-full btn-secondary mb-4",
                 disabled: locked,
                 onclick: handle_check,
-                "{t.check_button}"
+                "{t.kl_check_button}"
             }
 
-            h3 { class: "section-title", "{t.init_section}" }
+            h3 { class: "section-title", "{t.kl_init_section}" }
             div { class: "form-group",
-                p { class: "hint", "{t.init_hint}" }
+                p { class: "hint", "{t.kl_init_hint}" }
                 input {
                     class: "input-field mb-2",
                     r#type: "password",
                     autocomplete: "off",
-                    placeholder: "{t.new_password}",
+                    placeholder: "{t.rk_new_password}",
                     value: "{init_password}",
                     oninput: move |evt| init_password.set(evt.value())
                 }
@@ -543,7 +532,7 @@ pub fn KeyScreen() -> Element {
                     class: "input-field",
                     r#type: "password",
                     autocomplete: "off",
-                    placeholder: "{t.confirm_password}",
+                    placeholder: "{t.rk_confirm_new_password}",
                     value: "{init_confirm}",
                     oninput: move |evt| init_confirm.set(evt.value())
                 }
@@ -552,49 +541,49 @@ pub fn KeyScreen() -> Element {
                 class: "w-full btn-primary mb-4",
                 disabled: init_disabled || init_password().is_empty(),
                 onclick: handle_init,
-                "{t.init_button}"
+                "{t.kl_init_button}"
             }
 
-            h3 { class: "section-title", "{t.migrate_section}" }
-            p { class: "hint", "{t.migrate_hint}" }
+            h3 { class: "section-title", "{t.kl_migrate_section}" }
+            p { class: "hint", "{t.kl_migrate_hint}" }
             button {
                 class: "w-full btn-secondary mb-4",
                 disabled: key_ops_disabled,
                 onclick: move |_| prepare(false),
-                "{t.migrate_button}"
+                "{t.kl_migrate_button}"
             }
 
-            h3 { class: "section-title", "{t.rotate_section}" }
-            p { class: "hint", "{t.rotate_hint}" }
+            h3 { class: "section-title", "{t.kl_rotate_section}" }
+            p { class: "hint", "{t.kl_rotate_hint}" }
             button {
                 class: "w-full btn-warning mb-4",
                 disabled: key_ops_disabled,
                 onclick: move |_| prepare(true),
-                "{t.rotate_button}"
+                "{t.kl_rotate_button}"
             }
 
             if let Some(op) = pending() {
                 div { class: "status-box mb-4 border-l-4 border-amber-500",
-                    p { class: "font-semibold mb-2", "{t.confirm_title}" }
+                    p { class: "font-semibold mb-2", "{t.kl_confirm_title}" }
                     p { class: "whitespace-pre-wrap mb-3",
                         match &op {
                             Pending::Migrate(text) | Pending::Rotate(text) => text.clone(),
                         }
                     }
                     if no_password {
-                        p { class: "hint mb-2", "{t.need_password}" }
+                        p { class: "hint mb-2", "{t.kl_need_password}" }
                     }
                     div { class: "flex gap-3",
                         button {
                             class: "flex-1 btn-warning",
                             disabled: locked || no_password,
                             onclick: handle_confirm,
-                            "{t.confirm_button}"
+                            "{t.kl_confirm_button}"
                         }
                         button {
                             class: "flex-1 btn-secondary",
                             onclick: move |_| pending.set(None),
-                            "{t.cancel_button}"
+                            "{t.kl_cancel_button}"
                         }
                     }
                 }
@@ -606,20 +595,20 @@ pub fn KeyScreen() -> Element {
                     button {
                         class: "w-full mt-2 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_stop,
-                        "{t.stop_button}"
+                        "{t.kl_stop_button}"
                     }
                 }
             }
 
-            h3 { class: "section-title", "{t.export_section}" }
+            h3 { class: "section-title", "{t.rk_export_import}" }
             div { class: "form-group space-y-2",
                 label { class: "label-text flex items-center gap-2",
                     input { r#type: "checkbox", checked: paper_form(), onchange: move |_| paper_form.toggle() }
-                    "{t.paper_form}"
+                    "{t.rk_paper_checkbox}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input { r#type: "checkbox", checked: force(), onchange: move |_| force.toggle() }
-                    "{t.import_force}"
+                    "{t.rk_force_checkbox}"
                 }
             }
             div { class: "flex gap-3 mb-4",
@@ -627,23 +616,23 @@ pub fn KeyScreen() -> Element {
                     class: "flex-1 btn-primary",
                     disabled: locked || no_password,
                     onclick: handle_export,
-                    "{t.export_button}"
+                    "{t.rk_export_button}"
                 }
                 button {
                     class: "flex-1 btn-secondary",
                     disabled: locked || no_password,
                     onclick: handle_import,
-                    "{t.import_button}"
+                    "{t.rk_import_button}"
                 }
             }
 
-            h3 { class: "section-title", "{t.change_section}" }
+            h3 { class: "section-title", "{t.rk_change_password_title}" }
             div { class: "form-group",
                 input {
                     class: "input-field mb-2",
                     r#type: "password",
                     autocomplete: "off",
-                    placeholder: "{t.new_password}",
+                    placeholder: "{t.rk_new_password}",
                     value: "{new_password}",
                     oninput: move |evt| new_password.set(evt.value())
                 }
@@ -651,17 +640,17 @@ pub fn KeyScreen() -> Element {
                     class: "input-field",
                     r#type: "password",
                     autocomplete: "off",
-                    placeholder: "{t.confirm_password}",
+                    placeholder: "{t.rk_confirm_new_password}",
                     value: "{confirm_password}",
                     oninput: move |evt| confirm_password.set(evt.value())
                 }
-                p { class: "hint", "{t.change_hint}" }
+                p { class: "hint", "{t.rk_change_password_hint}" }
             }
             button {
                 class: "w-full btn-warning mb-4",
                 disabled: locked || no_password || new_password().is_empty(),
                 onclick: handle_change,
-                "{t.change_button}"
+                "{t.rk_change_password_button}"
             }
 
             if !status().is_empty() {
@@ -676,21 +665,26 @@ pub fn KeyScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
     use rsb_sdk::crypto::keyfile::KdfParams;
+
+    fn t() -> &'static Translations {
+        get_texts(Language::En)
+    }
     use rsb_sdk::storage::LocalStorage;
 
     #[test]
     fn export_file_is_private_and_never_overwritten() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("repo.key");
-        write_private_file(&p, b"{}").unwrap();
+        write_private_file(t(), &p, b"{}").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&p).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
-        assert!(write_private_file(&p, b"x").is_err());
+        assert!(write_private_file(t(), &p, b"x").is_err());
         assert_eq!(std::fs::read(&p).unwrap(), b"{}");
     }
 
@@ -699,7 +693,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("big");
         std::fs::write(&p, vec![b'a'; MAX_IMPORT_SIZE as usize + 1]).unwrap();
-        assert!(read_import_file(&p).unwrap_err().contains("too large"));
+        assert!(read_import_file(t(), &p).unwrap_err().contains("too large"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -714,20 +708,26 @@ mod tests {
 
         // Wrong password: nothing exported.
         let out = dir.path().join("export.key");
-        assert!(export_key(&*storage, "nope", &out, false).await.is_err());
+        assert!(
+            export_key(t(), &*storage, "nope", &out, false)
+                .await
+                .is_err()
+        );
         assert!(!out.exists());
-        export_key(&*storage, "old-pw", &out, false).await.unwrap();
+        export_key(t(), &*storage, "old-pw", &out, false)
+            .await
+            .unwrap();
         let paper_out = dir.path().join("paper.txt");
-        export_key(&*storage, "old-pw", &paper_out, true)
+        export_key(t(), &*storage, "old-pw", &paper_out, true)
             .await
             .unwrap();
 
         assert!(
-            change_password(storage.clone(), "old-pw", "new-pw", "typo")
+            change_password(t(), storage.clone(), "old-pw", "new-pw", "typo")
                 .await
                 .is_err()
         );
-        change_password(storage.clone(), "old-pw", "new-pw", "new-pw")
+        change_password(t(), storage.clone(), "old-pw", "new-pw", "new-pw")
             .await
             .unwrap();
         assert!(
@@ -737,7 +737,7 @@ mod tests {
         );
 
         // The paper export (old password) restores the original key file.
-        let msg = import_key(storage.clone(), &paper_out, "old-pw", true)
+        let msg = import_key(t(), storage.clone(), &paper_out, "old-pw", true)
             .await
             .unwrap();
         assert!(msg.contains("Imported"), "{msg}");

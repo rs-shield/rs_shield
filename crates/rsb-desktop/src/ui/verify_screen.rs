@@ -11,7 +11,7 @@ use rsb_sdk::{CancellationToken, VerifyOptions, perform_verify};
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    i18n::{KeyTexts, fill, get_key_texts, get_texts},
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
     ops,
     profile_loader::{
@@ -23,37 +23,44 @@ use crate::ui::{
 /// Judges a verification like `rsb verify` (whose exit code fails on any
 /// problem): `Err` with the problems listed when files had errors, so a
 /// failed verification is never shown as a plain status.
-pub fn verify_outcome(report: &ReportData) -> Result<String, String> {
-    let summary = format!(
-        "{}: {} file(s) checked, {} with errors",
-        report.status, report.total_files, report.files_with_errors
+pub fn verify_outcome(t: &Translations, report: &ReportData) -> Result<String, String> {
+    let summary = tr(
+        t.vf_summary,
+        &[
+            &report.status,
+            &report.total_files,
+            &report.files_with_errors,
+        ],
     );
     if report.files_with_errors == 0 && report.errors.is_empty() {
         return Ok(format!("✅ {}", summary));
     }
-    let mut msg = format!("❌ Verification found problems — {}", summary);
+    let mut msg = tr(t.vf_problems, &[&summary]);
     for e in report.errors.iter().take(10) {
         msg.push_str("\n  ❌ ");
         msg.push_str(e);
     }
     if report.errors.len() > 10 {
-        msg.push_str(&format!("\n  … {} more", report.errors.len() - 10));
+        msg.push_str(&format!(
+            "\n  {}",
+            tr(t.vf_more_errors, &[&(report.errors.len() - 10)])
+        ));
     }
     Err(msg)
 }
 
 /// What `verify --repair` would delete, from a verification run without
 /// repair: the text to confirm and the number of objects to delete.
-pub fn repair_preview(run: &VerifyRun, t: &KeyTexts) -> (String, usize) {
+pub fn repair_preview(run: &VerifyRun, t: &Translations) -> (String, usize) {
     const SHOWN: usize = 20;
     let candidates = run.repair_candidates();
     let mut lines = Vec::new();
     if candidates.is_empty() {
-        lines.push(t.repair_none.to_string());
+        lines.push(t.kl_repair_none.to_string());
     } else {
-        lines.push(fill(
-            t.repair_will_delete,
-            &[("count", &candidates.len().to_string())],
+        lines.push(tr(
+            t.kl_repair_will_delete,
+            &[&candidates.len().to_string()],
         ));
         for c in candidates.iter().take(SHOWN) {
             let mut files: Vec<String> = c
@@ -69,21 +76,21 @@ pub fn repair_preview(run: &VerifyRun, t: &KeyTexts) -> (String, usize) {
                 "  • {} — {} ({} {})",
                 c.path,
                 c.reason,
-                t.repair_used_by,
+                t.kl_repair_used_by,
                 files.join(", ")
             ));
         }
         if candidates.len() > SHOWN {
-            lines.push(fill(
-                t.repair_more,
-                &[("count", &(candidates.len() - SHOWN).to_string())],
+            lines.push(tr(
+                t.kl_repair_more,
+                &[&(candidates.len() - SHOWN).to_string()],
             ));
         }
     }
     if !run.objects.missing.is_empty() {
-        lines.push(fill(
-            t.repair_missing,
-            &[("count", &run.objects.missing.len().to_string())],
+        lines.push(tr(
+            t.kl_repair_missing,
+            &[&run.objects.missing.len().to_string()],
         ));
     }
     (lines.join("\n"), candidates.len())
@@ -93,7 +100,7 @@ pub fn repair_preview(run: &VerifyRun, t: &KeyTexts) -> (String, usize) {
 pub fn VerifyScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
-    let kt = get_key_texts(app_config.language());
+    let kt = get_texts(app_config.language());
     let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut backup_path = use_signal(PathBuf::new);
     let mut key = use_signal(String::new);
@@ -116,10 +123,10 @@ pub fn VerifyScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), texts) {
                     Ok(p) => {
                         backup_path.set(PathBuf::from(repository_label(&p.config)));
-                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status_msg.set(tr(texts.vf_profile_loaded, &[&p.path.display()]));
                         profile.set(Some(p));
                     }
                     Err(e) => status_msg.set(format!("❌ {}", e)),
@@ -139,7 +146,7 @@ pub fn VerifyScreen() -> Element {
         let token = CancellationToken::new();
         cancellation_token.set(token.clone());
         progress.set(0.0);
-        status_msg.set(kt.repair_checking.to_string());
+        status_msg.set(kt.kl_repair_checking.to_string());
         last_report_path.set(None);
 
         let loaded = profile();
@@ -151,7 +158,7 @@ pub fn VerifyScreen() -> Element {
 
         spawn(async move {
             let res = async {
-                let cfg = repository_config(loaded.as_ref(), &bkp, &s3)?;
+                let cfg = repository_config(loaded.as_ref(), &bkp, &s3, texts)?;
                 let key = resolve_key_blocking(typed_key, loaded.clone()).await;
                 perform_verify_detailed(
                     &cfg,
@@ -171,7 +178,7 @@ pub fn VerifyScreen() -> Element {
             match res {
                 Ok(run) => {
                     let (preview, count) = repair_preview(&run, kt);
-                    let outcome = match verify_outcome(&run.report) {
+                    let outcome = match verify_outcome(texts, &run.report) {
                         Ok(m) | Err(m) => m,
                     };
                     status_msg.set(format!("{}\n\n{}", outcome, preview));
@@ -224,7 +231,7 @@ pub fn VerifyScreen() -> Element {
                 }
             });
 
-            let cfg = repository_config(loaded.as_ref(), &bkp, &s3);
+            let cfg = repository_config(loaded.as_ref(), &bkp, &s3, texts);
             let repo_label = cfg.as_ref().map(repository_label).unwrap_or_default();
 
             let res = async {
@@ -256,7 +263,7 @@ pub fn VerifyScreen() -> Element {
                         report.duration.as_secs(),
                         repo_label.clone(),
                     );
-                    let outcome = verify_outcome(&report);
+                    let outcome = verify_outcome(texts, &report);
                     ops::notify(
                         if outcome.is_ok() {
                             NotificationEvent::VerificationCompleted
@@ -288,7 +295,10 @@ pub fn VerifyScreen() -> Element {
                             .unwrap_or_else(|| format!("Backup: {}", repo_label));
                         match ops::write_report("verify", &report) {
                             Ok(path) => {
-                                msg.push_str(&format!("\n📄 Report: {}", path.display()));
+                                msg.push_str(&format!(
+                                    "\n{}",
+                                    tr(texts.vf_report_path, &[&path.display()])
+                                ));
                                 last_report_path.set(Some(path));
                             }
                             Err(e) => msg.push_str(&format!("\n❌ {}", e)),
@@ -325,7 +335,7 @@ pub fn VerifyScreen() -> Element {
 
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️ Cancelling — waiting for the objects in progress...".to_string());
+        status_msg.set(texts.vf_cancelling.to_string());
     };
 
     let profile_label = profile()
@@ -344,12 +354,12 @@ pub fn VerifyScreen() -> Element {
             h2 { class: "page-title", "{texts.verify_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Load Profile (Optional)" }
+                label { class: "label-text", "{texts.vf_load_profile_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select a profile",
+                        placeholder: "{texts.vf_select_profile}",
                         value: "{profile_label}",
                         readonly: true
                     }
@@ -360,7 +370,7 @@ pub fn VerifyScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "Verifies the profile's repository (local or S3), like `rsb verify <profile>`." }
+                p { class: "hint", "{texts.vf_profile_hint}" }
             }
 
             div { class: "form-group",
@@ -389,7 +399,7 @@ pub fn VerifyScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "The repository folder (`rsb verify --backup <dir>`). Empty: the S3 bucket configured in Settings." }
+                p { class: "hint", "{texts.vf_backup_hint}" }
             }
 
             div { class: "form-group",
@@ -401,7 +411,7 @@ pub fn VerifyScreen() -> Element {
                     value: "{snapshot_id}",
                     oninput: move |evt| snapshot_id.set(evt.value())
                 }
-                p { class: "hint", "Optional; default: the latest snapshot" }
+                p { class: "hint", "{texts.vf_snapshot_hint}" }
             }
 
             div { class: "form-group",
@@ -413,7 +423,7 @@ pub fn VerifyScreen() -> Element {
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
                 }
-                p { class: "hint", "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used." }
+                p { class: "hint", "{texts.vf_key_hint}" }
             }
 
             div { class: "form-group space-y-2",
@@ -424,7 +434,7 @@ pub fn VerifyScreen() -> Element {
                         disabled: repair(),
                         onchange: move |_| fast_verify.toggle()
                     }
-                    "⚡ Quick verification (--fast: presence, size and stored hash, no decryption)"
+                    "{texts.vf_fast_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -435,7 +445,7 @@ pub fn VerifyScreen() -> Element {
                             repair_pending.set(None);
                         }
                     }
-                    "{kt.repair_option}"
+                    "{texts.vf_repair_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -452,7 +462,7 @@ pub fn VerifyScreen() -> Element {
                     button {
                         class: "flex-1 px-4 py-3 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_cancel,
-                        "⏹️ Cancel Verification"
+                        "{texts.vf_cancel_button}"
                     }
                 }
             } else {
@@ -466,19 +476,19 @@ pub fn VerifyScreen() -> Element {
 
             if let Some((preview, count)) = repair_pending() {
                 div { class: "status-box mb-4 border-l-4 border-red-500",
-                    p { class: "font-semibold mb-2", "{kt.confirm_title}" }
+                    p { class: "font-semibold mb-2", "{kt.kl_confirm_title}" }
                     p { class: "whitespace-pre-wrap mb-3", "{preview}" }
                     div { class: "flex gap-3",
                         button {
                             class: "flex-1 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                             disabled: is_running(),
                             onclick: move |_| run_verify(true),
-                            {fill(kt.repair_confirm_button, &[("count", &count.to_string())])}
+                            {tr(kt.kl_repair_confirm_button, &[&count.to_string()])}
                         }
                         button {
                             class: "flex-1 btn-secondary",
                             onclick: move |_| repair_pending.set(None),
-                            "{kt.cancel_button}"
+                            "{kt.kl_cancel_button}"
                         }
                     }
                 }
@@ -494,12 +504,12 @@ pub fn VerifyScreen() -> Element {
                     onclick: move |_| {
                         let _ = open::that(&path);
                     },
-                    "📄 Open Report"
+                    "{texts.vf_open_report}"
                 }
             }
 
             div { class: "status-box mt-6",
-                p { class: "font-semibold mb-2", "Status:" }
+                p { class: "font-semibold mb-2", "{texts.status_label}" }
                 p { class: "whitespace-pre-wrap", "{status_msg}" }
             }
         }
@@ -509,18 +519,19 @@ pub fn VerifyScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
 
     #[test]
     fn repair_preview_lists_what_is_deleted() {
-        use crate::ui::i18n::EN_KEY_TEXTS;
+        use crate::ui::i18n::EN_STRINGS;
         use rsb_sdk::integrity::{CorruptObject, VerifyObjectsOutcome};
         let clean = VerifyRun {
             report: ReportData::default(),
             objects: VerifyObjectsOutcome::default(),
         };
-        let (text, n) = repair_preview(&clean, &EN_KEY_TEXTS);
+        let (text, n) = repair_preview(&clean, &EN_STRINGS);
         assert_eq!(n, 0);
-        assert_eq!(text, EN_KEY_TEXTS.repair_none);
+        assert_eq!(text, EN_STRINGS.kl_repair_none);
 
         let corrupt: Vec<CorruptObject> = (0..25)
             .map(|i| CorruptObject {
@@ -537,7 +548,7 @@ mod tests {
                 ..Default::default()
             },
         };
-        let (text, n) = repair_preview(&run, &EN_KEY_TEXTS);
+        let (text, n) = repair_preview(&run, &EN_STRINGS);
         assert_eq!(n, 25);
         assert!(text.contains("DELETE 25 object(s)"), "{text}");
         assert!(
@@ -553,12 +564,17 @@ mod tests {
 
     #[test]
     fn problems_are_a_failure_with_the_errors_listed() {
+        let t = get_texts(Language::En);
         let ok = ReportData {
             status: "Success".into(),
             total_files: 4,
             ..Default::default()
         };
-        assert!(verify_outcome(&ok).unwrap().contains("4 file(s) checked"));
+        assert!(
+            verify_outcome(t, &ok)
+                .unwrap()
+                .contains("4 file(s) checked")
+        );
 
         let bad = ReportData {
             status: "Failure with errors".into(),
@@ -567,7 +583,7 @@ mod tests {
             errors: vec!["data/enc/ab: missing".into()],
             ..Default::default()
         };
-        let msg = verify_outcome(&bad).unwrap_err();
+        let msg = verify_outcome(t, &bad).unwrap_err();
         assert!(msg.contains("data/enc/ab: missing"));
 
         // Errors without a per-file count (e.g. an unreadable manifest)
@@ -576,6 +592,6 @@ mod tests {
             errors: vec!["manifest".into()],
             ..Default::default()
         };
-        assert!(verify_outcome(&bad).is_err());
+        assert!(verify_outcome(t, &bad).is_err());
     }
 }

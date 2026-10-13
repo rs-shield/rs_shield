@@ -2,7 +2,7 @@
 //! generate-codes`), through the same SDK calls as the CLI.
 
 use crate::ui::app::AppConfig;
-use crate::ui::i18n::{KeyTexts, fill, get_key_texts};
+use crate::ui::i18n::{Translations, get_texts, tr};
 use axum::response::Html;
 use dioxus::prelude::*;
 use rsb_sdk::CancellationToken;
@@ -23,7 +23,7 @@ pub struct CredentialRow {
 }
 
 /// Rows of the registered credentials, sorted by user.
-pub fn credential_rows(mgr: &Fido2Manager) -> Vec<CredentialRow> {
+pub fn credential_rows(t: &Translations, mgr: &Fido2Manager) -> Vec<CredentialRow> {
     let mut rows: Vec<CredentialRow> = mgr
         .list_credentials()
         .into_iter()
@@ -31,7 +31,7 @@ pub fn credential_rows(mgr: &Fido2Manager) -> Vec<CredentialRow> {
             user_id: c.user_id,
             display_name: c.display_name,
             created_at: c.created_at,
-            last_used: c.last_used.unwrap_or_else(|| "never".to_string()),
+            last_used: c.last_used.unwrap_or_else(|| t.fido_never.to_string()),
         })
         .collect();
     rows.sort_by(|a, b| a.user_id.cmp(&b.user_id));
@@ -42,24 +42,21 @@ pub fn credential_rows(mgr: &Fido2Manager) -> Vec<CredentialRow> {
 /// `rsb auth generate-codes`): reloaded from disk first so nothing newer
 /// is overwritten, and refused for unknown users.
 pub fn regenerate_codes(
+    t: &Translations,
     mgr: &mut Fido2Manager,
     path: &std::path::Path,
     user: &str,
 ) -> Result<Vec<String>, String> {
     mgr.load_from_file(path)
-        .map_err(|e| format!("Failed to load credentials: {}", e))?;
+        .map_err(|e| tr(t.fido_load_failed, &[&e]))?;
     if !mgr.has_credential(user) {
-        return Err(format!("Unknown user: {}", user));
+        return Err(tr(t.fido_unknown_user, &[&user]));
     }
     let codes = mgr
         .generate_backup_codes(user)
-        .map_err(|e| format!("Failed to generate codes: {}", e))?;
-    mgr.save_to_file(path).map_err(|e| {
-        format!(
-            "Failed to save credentials (the new codes are NOT active): {}",
-            e
-        )
-    })?;
+        .map_err(|e| tr(t.fido_generate_failed, &[&e]))?;
+    mgr.save_to_file(path)
+        .map_err(|e| tr(t.fido_save_failed, &[&e]))?;
     Ok(codes)
 }
 
@@ -71,16 +68,16 @@ pub fn delete_own_keys(
     path: &std::path::Path,
     me: &str,
     typed: &str,
-    t: &KeyTexts,
+    t: &Translations,
 ) -> Result<String, String> {
     if me.is_empty() || typed.trim() != me {
-        return Err(t.fido2_delete_mismatch.to_string());
+        return Err(t.kl_fido2_delete_mismatch.to_string());
     }
     mgr.revoke_user_persisted(path, me).map_err(|e| match e {
-        Fido2Error::CredentialNotFound => fill(t.fido2_delete_unknown, &[("user", me)]),
+        Fido2Error::CredentialNotFound => tr(t.kl_fido2_delete_unknown, &[&me]),
         e => e.to_string(),
     })?;
-    Ok(fill(t.fido2_delete_done, &[("user", me)]))
+    Ok(tr(t.kl_fido2_delete_done, &[&me]))
 }
 
 /// Resolves once `token` is cancelled.
@@ -110,9 +107,11 @@ pub async fn register_key(
 
 #[component]
 pub fn Fido2ManagerView() -> Element {
+    let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
     let manager = use_context::<Arc<Mutex<Fido2Manager>>>();
     let app_config = use_context::<AppConfig>();
-    let t = get_key_texts(app_config.language());
+    let t = get_texts(app_config.language());
     let mut user = use_context::<Signal<Option<String>>>();
     let mut rows = use_signal(Vec::<CredentialRow>::new);
     let mut codes = use_signal(Vec::<String>::new);
@@ -131,9 +130,9 @@ pub fn Fido2ManagerView() -> Element {
                 && path.exists()
                 && let Err(e) = m.load_from_file(&path)
             {
-                status.set(format!("❌ Could not load credentials: {}", e));
+                status.set(tr(texts.fido_could_not_load, &[&e]));
             }
-            rows.set(credential_rows(&m));
+            rows.set(credential_rows(texts, &m));
         });
     });
     use_hook(move || refresh.call(()));
@@ -147,14 +146,11 @@ pub fn Fido2ManagerView() -> Element {
         spawn(async move {
             let mut m = mgr.lock().await;
             let res = Fido2Manager::default_storage_path()
-                .and_then(|path| regenerate_codes(&mut m, &path, &me));
+                .and_then(|path| regenerate_codes(texts, &mut m, &path, &me));
             match res {
                 Ok(c) => {
                     codes.set(c);
-                    status.set(
-                        "✅ New recovery codes generated; the old ones no longer work. Write them down now: they are shown only once."
-                            .to_string(),
-                    );
+                    status.set(texts.fido_codes_generated.to_string());
                 }
                 Err(e) => status.set(format!("❌ {}", e)),
             }
@@ -167,13 +163,13 @@ pub fn Fido2ManagerView() -> Element {
         let token = CancellationToken::new();
         register_token.set(token.clone());
         registering.set(true);
-        status.set(t.fido2_register_waiting.to_string());
+        status.set(t.kl_fido2_register_waiting.to_string());
         spawn(async move {
             let res = register_key(mgr, token).await;
             registering.set(false);
             status.set(match res {
-                Ok(true) => t.fido2_register_done.to_string(),
-                Ok(false) => t.fido2_register_cancelled.to_string(),
+                Ok(true) => t.kl_fido2_register_done.to_string(),
+                Ok(false) => t.kl_fido2_register_cancelled.to_string(),
                 Err(e) => format!("❌ {}", e),
             });
             refresh.call(());
@@ -212,21 +208,21 @@ pub fn Fido2ManagerView() -> Element {
 
     rsx! {
         div { class: "card",
-            h2 { class: "page-title", "🔑 FIDO2 Security Keys" }
+            h2 { class: "page-title", "{texts.fido_title}" }
             p { class: "hint mb-4",
-                "Keys registered on this computer (rsb auth list)."
+                "{texts.fido_hint}"
             }
 
             if rows().is_empty() {
-                p { class: "text-sm", "No FIDO2 key registered." }
+                p { class: "text-sm", "{texts.fido_none}" }
             } else {
                 table { class: "w-full text-sm",
                     thead {
                         tr {
-                            th { class: "text-left", "User" }
-                            th { class: "text-left", "Name" }
-                            th { class: "text-left", "Registered" }
-                            th { class: "text-left", "Last used" }
+                            th { class: "text-left", "{texts.fido_col_user}" }
+                            th { class: "text-left", "{texts.fido_col_name}" }
+                            th { class: "text-left", "{texts.fido_col_registered}" }
+                            th { class: "text-left", "{texts.fido_col_last_used}" }
                         }
                     }
                     tbody {
@@ -243,12 +239,12 @@ pub fn Fido2ManagerView() -> Element {
             }
 
             div { class: "flex gap-3 mt-4",
-                button { class: "btn-secondary flex-1", onclick: move |_| refresh.call(()), "🔄 Refresh" }
+                button { class: "btn-secondary flex-1", onclick: move |_| refresh.call(()), "{texts.snapshots_refresh}" }
                 button {
                     class: "btn-warning flex-1",
                     disabled: me.is_empty(),
                     onclick: handle_codes,
-                    "♻️ New recovery codes for {me}"
+                    {tr(texts.fido_new_codes_for, &[&me])}
                 }
             }
 
@@ -257,13 +253,13 @@ pub fn Fido2ManagerView() -> Element {
                     button {
                         class: "btn-secondary flex-1",
                         onclick: move |_| register_token().cancel(),
-                        "{t.cancel_button}"
+                        "{t.kl_cancel_button}"
                     }
                 } else {
                     button {
                         class: "btn-primary flex-1",
                         onclick: handle_register,
-                        "{t.fido2_register_button}"
+                        "{t.kl_fido2_register_button}"
                     }
                 }
                 button {
@@ -273,15 +269,15 @@ pub fn Fido2ManagerView() -> Element {
                         typed_id.set(String::new());
                         confirm_delete.toggle();
                     },
-                    "{t.fido2_delete_button}"
+                    "{t.kl_fido2_delete_button}"
                 }
             }
-            p { class: "hint mt-2", "{t.fido2_register_hint}" }
+            p { class: "hint mt-2", "{t.kl_fido2_register_hint}" }
 
             if confirm_delete() && !me.is_empty() {
                 div { class: "status-box mt-4 border-l-4 border-red-500",
-                    p { class: "font-semibold mb-2", "{t.confirm_title}" }
-                    p { class: "whitespace-pre-wrap mb-2", {fill(t.fido2_delete_confirm, &[("user", &me)])} }
+                    p { class: "font-semibold mb-2", "{t.kl_confirm_title}" }
+                    p { class: "whitespace-pre-wrap mb-2", {tr(t.kl_fido2_delete_confirm, &[&me])} }
                     input {
                         class: "input-field mb-2",
                         r#type: "text",
@@ -294,12 +290,12 @@ pub fn Fido2ManagerView() -> Element {
                             class: "flex-1 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                             disabled: typed_id().trim() != me,
                             onclick: handle_delete,
-                            "{t.fido2_delete_action}"
+                            "{t.kl_fido2_delete_action}"
                         }
                         button {
                             class: "flex-1 btn-secondary",
                             onclick: move |_| confirm_delete.set(false),
-                            "{t.cancel_button}"
+                            "{t.kl_cancel_button}"
                         }
                     }
                 }
@@ -325,19 +321,19 @@ mod tests {
 
     #[test]
     fn delete_needs_the_typed_identifier_and_a_known_user() {
-        use crate::ui::i18n::EN_KEY_TEXTS;
+        use crate::ui::i18n::EN_STRINGS;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("fido2.json");
         let mut mgr = Fido2Manager::new("http://localhost:3000", "localhost", "test").unwrap();
         // Typed identifier does not match: refused before anything is read.
         assert_eq!(
-            delete_own_keys(&mut mgr, &path, "alice", "alic", &EN_KEY_TEXTS).unwrap_err(),
-            EN_KEY_TEXTS.fido2_delete_mismatch
+            delete_own_keys(&mut mgr, &path, "alice", "alic", &EN_STRINGS).unwrap_err(),
+            EN_STRINGS.kl_fido2_delete_mismatch
         );
-        assert!(delete_own_keys(&mut mgr, &path, "", "", &EN_KEY_TEXTS).is_err());
+        assert!(delete_own_keys(&mut mgr, &path, "", "", &EN_STRINGS).is_err());
         // No credentials file and no such user: refused, nothing written
         // (and the OS keyring is never touched).
-        let e = delete_own_keys(&mut mgr, &path, "alice", "alice", &EN_KEY_TEXTS).unwrap_err();
+        let e = delete_own_keys(&mut mgr, &path, "alice", "alice", &EN_STRINGS).unwrap_err();
         assert!(e.contains("Unknown user: alice"), "{e}");
         assert!(!path.exists());
     }
@@ -359,9 +355,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("fido2.json");
         let mut mgr = Fido2Manager::new("http://localhost:3000", "localhost", "test").unwrap();
-        assert!(credential_rows(&mgr).is_empty());
+        let t = get_texts(crate::ui::i18n::Language::En);
+        assert!(credential_rows(t, &mgr).is_empty());
         // No credentials registered: refused, and nothing is written.
-        assert!(regenerate_codes(&mut mgr, &path, "alice").is_err());
+        assert!(regenerate_codes(t, &mut mgr, &path, "alice").is_err());
         assert!(!path.exists());
     }
 }

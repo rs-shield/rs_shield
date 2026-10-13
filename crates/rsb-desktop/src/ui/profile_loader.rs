@@ -8,6 +8,7 @@
 //! --encrypt` and the desktop "Create profile" screen) → the legacy
 //! `encryption_key` in the TOML.
 
+use crate::ui::i18n::{Translations, tr};
 use crate::ui::s3_settings::S3Settings;
 use rsb_sdk::config::{self, Config};
 use std::path::{Path, PathBuf};
@@ -33,9 +34,9 @@ impl LoadedProfile {
 }
 
 /// Loads a profile with the SDK loader used by the CLI.
-pub fn load_profile(path: &Path) -> Result<LoadedProfile, String> {
+pub fn load_profile(path: &Path, t: &Translations) -> Result<LoadedProfile, String> {
     let config = config::load_config(path)
-        .map_err(|e| format!("Cannot load profile {}: {}", path.display(), e))?;
+        .map_err(|e| tr(t.pl_cannot_load_profile, &[&path.display(), &e]))?;
     if let Some(level) = config.compression_level {
         config::validate_compression_level(level).map_err(|e| e.to_string())?;
     }
@@ -76,19 +77,17 @@ pub fn repository_config(
     profile: Option<&LoadedProfile>,
     repo_dir: &Path,
     s3: &S3Settings,
+    t: &Translations,
 ) -> Result<Config, String> {
     if let Some(p) = profile {
         return Ok(p.config.clone());
     }
     if !repo_dir.as_os_str().is_empty() {
         if repo_dir.is_file() {
-            return Err(format!(
-                "{} is a file: select the backup (repository) folder, or load it as a profile",
-                repo_dir.display()
-            ));
+            return Err(tr(t.pl_path_is_file, &[&repo_dir.display()]));
         }
         return rsb_sdk::config_from_backup_path(repo_dir, None)
-            .map_err(|e| format!("Not a backup repository: {}", e));
+            .map_err(|e| tr(t.pl_not_a_repository, &[&e]));
     }
     if let Some(bucket) = &s3.bucket {
         return rsb_sdk::portable_restore::config_for_s3_restore(
@@ -98,7 +97,7 @@ pub fn repository_config(
         )
         .map_err(|e| e.to_string());
     }
-    Err("Select a profile or a backup folder, or configure an S3 bucket in Settings.".to_string())
+    Err(t.pl_select_repository.to_string())
 }
 
 /// `None` for an empty (or blank) text field.
@@ -131,20 +130,18 @@ pub async fn resolve_key_blocking(typed: String, profile: Option<LoadedProfile>)
         .flatten()
 }
 
-/// Message shown when a profile requires encryption but no key was found
-/// (same rule as `rsb backup`: never back up such a profile unencrypted).
-pub const MISSING_KEY_MESSAGE: &str = "This profile has encryption enabled but no key is available. \
-     Type the key, set RSB_ENCRYPTION_KEY, or store it in the OS keyring \
-     (Create profile with encryption, or `rsb create-profile --encrypt`). \
-     Refusing to back up unencrypted.";
-
 /// Checks the key for a backup of `cfg`: a profile with `encrypt_patterns`
 /// must not be backed up without a key, since the files would silently be
-/// stored unencrypted.
-pub fn check_backup_key(cfg: &Config, key: Option<String>) -> Result<Option<String>, String> {
+/// stored unencrypted (same rule as `rsb backup`; the refusal message is
+/// `pl_missing_key`).
+pub fn check_backup_key(
+    cfg: &Config,
+    key: Option<String>,
+    t: &Translations,
+) -> Result<Option<String>, String> {
     match key {
         Some(k) => Ok(Some(k)),
-        None if cfg.encryption_required() => Err(MISSING_KEY_MESSAGE.to_string()),
+        None if cfg.encryption_required() => Err(t.pl_missing_key.to_string()),
         None => Ok(None),
     }
 }
@@ -152,6 +149,23 @@ pub fn check_backup_key(cfg: &Config, key: Option<String>) -> Result<Option<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::{Language, get_texts};
+
+    fn t() -> &'static Translations {
+        get_texts(Language::En)
+    }
+
+    fn load_profile(path: &Path) -> Result<LoadedProfile, String> {
+        super::load_profile(path, t())
+    }
+
+    fn repository_config(
+        profile: Option<&LoadedProfile>,
+        repo_dir: &Path,
+        s3: &S3Settings,
+    ) -> Result<Config, String> {
+        super::repository_config(profile, repo_dir, s3, t())
+    }
 
     fn write(dir: &Path, name: &str, body: &str) -> PathBuf {
         let p = dir.join(name);
@@ -202,14 +216,14 @@ mod tests {
     #[test]
     fn encrypted_profile_without_key_is_refused() {
         let mut cfg = Config::new("/s", "/d");
-        assert_eq!(check_backup_key(&cfg, None), Ok(None));
+        assert_eq!(check_backup_key(&cfg, None, t()), Ok(None));
         cfg.encrypt_patterns = Some(vec!["*".into()]);
         assert_eq!(
-            check_backup_key(&cfg, None),
-            Err(MISSING_KEY_MESSAGE.into())
+            check_backup_key(&cfg, None, t()),
+            Err(t().pl_missing_key.into())
         );
         assert_eq!(
-            check_backup_key(&cfg, Some("k".into())),
+            check_backup_key(&cfg, Some("k".into()), t()),
             Ok(Some("k".to_string()))
         );
     }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    i18n::get_texts,
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
     ops,
     profile_loader::{
@@ -43,36 +43,37 @@ fn lines(text: &str) -> Vec<String> {
 }
 
 /// Optional number field: blank = not set, anything else must parse.
-fn optional_u8(text: &str, what: &str, max: u8) -> Result<Option<u8>, String> {
-    let t = text.trim();
-    if t.is_empty() {
+fn optional_u8(text: &str, what: &str, max: u8, t: &Translations) -> Result<Option<u8>, String> {
+    let value = text.trim();
+    if value.is_empty() {
         return Ok(None);
     }
-    match t.parse::<u8>() {
+    match value.parse::<u8>() {
         Ok(v) if v <= max => Ok(Some(v)),
-        _ => Err(format!("Invalid {}: '{}' (allowed: 0-{})", what, t, max)),
+        _ => Err(tr(t.bk_invalid_number, &[&what, &text.trim(), &max])),
     }
 }
 
 /// Builds the backup configuration of a backup without a profile.
-pub fn adhoc_backup_config(a: &AdHocBackup) -> Result<Config, String> {
+pub fn adhoc_backup_config(a: &AdHocBackup, t: &Translations) -> Result<Config, String> {
     if a.source.as_os_str().is_empty() {
-        return Err("Select the source folder.".to_string());
+        return Err(t.bk_select_source.to_string());
     }
     if a.destination.as_os_str().is_empty() && !a.s3.is_enabled() {
-        return Err("Select the destination folder (or configure an S3 bucket).".to_string());
+        return Err(t.bk_select_destination.to_string());
     }
     let mut cfg = Config {
         source_path: a.source.to_string_lossy().into_owned(),
         destination_path: a.destination.to_string_lossy().into_owned(),
         exclude_patterns: lines(&a.exclude_patterns),
         encrypt_patterns: Some(lines(&a.encrypt_patterns)).filter(|p| !p.is_empty()),
-        pause_on_low_battery: optional_u8(&a.pause_on_low_battery, "battery threshold", 100)?,
-        pause_on_high_cpu: optional_u8(&a.pause_on_high_cpu, "CPU threshold", 100)?,
+        pause_on_low_battery: optional_u8(&a.pause_on_low_battery, t.bk_battery_threshold, 100, t)?,
+        pause_on_high_cpu: optional_u8(&a.pause_on_high_cpu, t.bk_cpu_threshold, 100, t)?,
         compression_level: optional_u8(
             &a.compression_level,
-            "compression level",
+            t.bk_compression_level,
             config::MAX_COMPRESSION_LEVEL,
+            t,
         )?,
         ..Default::default()
     };
@@ -84,29 +85,36 @@ pub fn adhoc_backup_config(a: &AdHocBackup) -> Result<Config, String> {
 }
 
 /// Status line of a finished backup (with the errors, if any).
-pub fn backup_summary(report: &rsb_sdk::report::ReportData, dry_run: bool) -> String {
-    let mut msg = format!(
-        "{}{}: {} file(s) processed, {} unchanged, {} with errors ({} s)",
-        if report.files_with_errors > 0 {
-            "⚠️ "
-        } else {
-            "✅ "
-        },
-        report.status,
-        report.files_processed,
-        report.files_skipped,
-        report.files_with_errors,
-        report.duration.as_secs()
+pub fn backup_summary(
+    report: &rsb_sdk::report::ReportData,
+    dry_run: bool,
+    t: &Translations,
+) -> String {
+    let mut msg = tr(
+        t.bk_summary,
+        &[
+            &if report.files_with_errors > 0 {
+                "⚠️ "
+            } else {
+                "✅ "
+            },
+            &report.status,
+            &report.files_processed,
+            &report.files_skipped,
+            &report.files_with_errors,
+            &report.duration.as_secs(),
+        ],
     );
     if dry_run {
-        msg.push_str(" — dry run, nothing was written");
+        msg.push_str(t.bk_summary_dry_run);
     }
     for e in report.errors.iter().take(5) {
         msg.push_str("\n  ❌ ");
         msg.push_str(e);
     }
     if report.errors.len() > 5 {
-        msg.push_str(&format!("\n  … {} more", report.errors.len() - 5));
+        msg.push_str("\n  ");
+        msg.push_str(&tr(t.bk_summary_more, &[&(report.errors.len() - 5)]));
     }
     msg
 }
@@ -136,14 +144,14 @@ pub fn BackupScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), texts) {
                     Ok(p) => {
                         // The profile is used as is (like `rsb backup
                         // profile.toml`); the app-wide settings are not
                         // overwritten by it.
                         source_path.set(PathBuf::from(&p.config.source_path));
                         dest_path.set(PathBuf::from(repository_label(&p.config)));
-                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status_msg.set(tr(texts.bk_profile_loaded, &[&p.path.display()]));
                         profile.set(Some(p));
                     }
                     Err(e) => status_msg.set(format!("❌ {}", e)),
@@ -199,7 +207,7 @@ pub fn BackupScreen() -> Element {
 
             let cfg = match &loaded {
                 Some(p) => Ok(p.config.clone()),
-                None => adhoc_backup_config(&adhoc),
+                None => adhoc_backup_config(&adhoc, texts),
             };
             let src_label = cfg
                 .as_ref()
@@ -215,7 +223,7 @@ pub fn BackupScreen() -> Element {
                 // Without a profile the Settings' encrypt patterns only
                 // choose what a typed key encrypts.
                 let key = if loaded.is_some() {
-                    check_backup_key(&cfg, key)?
+                    check_backup_key(&cfg, key, texts)?
                 } else {
                     key
                 };
@@ -236,21 +244,23 @@ pub fn BackupScreen() -> Element {
                 .map_err(|e| e.to_string())?;
 
                 let verified = if verify_mode {
-                    status_msg.set("🔍 Verifying backup integrity...".to_string());
+                    status_msg.set(texts.bk_verifying.to_string());
                     let v = perform_verify(
                         &cfg,
                         VerifyOptions::default().with_encryption_key(key.as_deref()),
                     )
                     .await
-                    .map_err(|e| format!("Backup verification failed: {}", e))?;
+                    .map_err(|e| tr(texts.bk_verify_failed, &[&e]))?;
                     if v.files_with_errors > 0 || !v.errors.is_empty() {
-                        return Err(format!(
-                            "Backup verification found problems ({} file(s) with errors): {}",
-                            v.files_with_errors,
-                            v.errors.first().cloned().unwrap_or_default()
+                        return Err(tr(
+                            texts.bk_verify_problems,
+                            &[
+                                &v.files_with_errors,
+                                &v.errors.first().cloned().unwrap_or_default(),
+                            ],
                         ));
                     }
-                    Some(format!("🔍 Verification passed: {} files", v.total_files))
+                    Some(tr(texts.bk_verify_passed, &[&v.total_files]))
                 } else {
                     None
                 };
@@ -299,7 +309,7 @@ pub fn BackupScreen() -> Element {
                         .await;
                     }
 
-                    let mut msg = backup_summary(&report, dry_run_mode);
+                    let mut msg = backup_summary(&report, dry_run_mode, texts);
                     if let Some(v) = verified {
                         msg.push('\n');
                         msg.push_str(&v);
@@ -311,7 +321,8 @@ pub fn BackupScreen() -> Element {
                             .unwrap_or_else(|| "Desktop UI".to_string());
                         match ops::write_report("backup", &report) {
                             Ok(path) => {
-                                msg.push_str(&format!("\n📄 Report: {}", path.display()));
+                                msg.push('\n');
+                                msg.push_str(&tr(texts.bk_report_path, &[&path.display()]));
                                 last_report_path.set(Some(path));
                             }
                             Err(e) => msg.push_str(&format!("\n❌ {}", e)),
@@ -350,7 +361,7 @@ pub fn BackupScreen() -> Element {
     // backup cannot be started on top of it.
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️ Cancelling — waiting for the files in progress...".to_string());
+        status_msg.set(texts.bk_cancelling.to_string());
     };
 
     let profile_label = profile()
@@ -369,12 +380,12 @@ pub fn BackupScreen() -> Element {
             h2 { class: "page-title", "{texts.backup_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Load Profile (Optional)" }
+                label { class: "label-text", "{texts.bk_load_profile_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select a profile",
+                        placeholder: "{texts.bk_select_profile}",
                         value: "{profile_label}",
                         readonly: true
                     }
@@ -386,7 +397,7 @@ pub fn BackupScreen() -> Element {
                     }
                 }
                 p { class: "hint",
-                    "The profile's source, destination (local or S3), patterns and key are used as in `rsb backup <profile>`. Editing a path below switches to a backup without profile."
+                    "{texts.bk_profile_hint}"
                 }
             }
 
@@ -456,7 +467,7 @@ pub fn BackupScreen() -> Element {
                     oninput: move |evt| key.set(evt.value())
                 }
                 p { class: "hint",
-                    "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used. A profile with encryption is never backed up without a key; a backup without profile and without key is unencrypted (refused if the repository is already encrypted)."
+                    "{texts.bk_key_hint}"
                 }
             }
 
@@ -466,11 +477,11 @@ pub fn BackupScreen() -> Element {
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "S3 Bucket (Optional)",
+                        placeholder: "{texts.bk_s3_bucket_placeholder}",
                         value: "{app_config.s3_bucket}",
                         readonly: true
                     }
-                    p { class: "hint", "Configured in Settings; when set, the backup goes to this bucket." }
+                    p { class: "hint", "{texts.bk_s3_hint}" }
                 }
             }
 
@@ -503,7 +514,7 @@ pub fn BackupScreen() -> Element {
                     label {
                         class: "label-text mb-0 cursor-pointer",
                         r#for: "verify_after",
-                        "🔍 Verify the backup afterwards (like rsb backup --verify)"
+                        "{texts.bk_verify_after_label}"
                     }
                 }
             }
@@ -520,7 +531,7 @@ pub fn BackupScreen() -> Element {
                     label {
                         class: "label-text mb-0 cursor-pointer",
                         r#for: "dry_run_mode",
-                        "🧪 Dry-Run Mode - Simulates backup without writing files"
+                        "{texts.bk_dry_run_label}"
                     }
                 }
             }
@@ -530,7 +541,7 @@ pub fn BackupScreen() -> Element {
                     button {
                         class: "flex-1 px-4 py-3 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_cancel,
-                         "⏹️ Cancel Backup"
+                         "{texts.bk_cancel_button}"
                     }
                 }
             } else {
@@ -552,12 +563,12 @@ pub fn BackupScreen() -> Element {
                     onclick: move |_| {
                         let _ = open::that(&path);
                     },
-                    "📄 Open Report"
+                    "{texts.bk_open_report}"
                 }
             }
 
             div { class: "status-box mt-6",
-                p { class: "font-semibold mb-2", "Status:" }
+                p { class: "font-semibold mb-2", "{texts.status_label}" }
                 p { class: "whitespace-pre-wrap", "{status_msg}" }
             }
         }
@@ -567,6 +578,11 @@ pub fn BackupScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
+
+    fn t() -> &'static Translations {
+        get_texts(Language::En)
+    }
 
     fn adhoc() -> AdHocBackup {
         AdHocBackup {
@@ -582,7 +598,7 @@ mod tests {
 
     #[test]
     fn adhoc_config_from_fields() {
-        let cfg = adhoc_backup_config(&adhoc()).unwrap();
+        let cfg = adhoc_backup_config(&adhoc(), t()).unwrap();
         assert_eq!(cfg.exclude_patterns, ["*.tmp", "node_modules"]);
         assert_eq!(cfg.compression_level, Some(5));
         assert_eq!(cfg.backup_mode, "full");
@@ -594,16 +610,16 @@ mod tests {
     fn adhoc_config_rejects_bad_input() {
         let mut a = adhoc();
         a.compression_level = "23".into();
-        assert!(adhoc_backup_config(&a).is_err());
+        assert!(adhoc_backup_config(&a, t()).is_err());
         let mut a = adhoc();
         a.pause_on_high_cpu = "abc".into();
-        assert!(adhoc_backup_config(&a).is_err());
+        assert!(adhoc_backup_config(&a, t()).is_err());
         let mut a = adhoc();
         a.destination = PathBuf::new();
-        assert!(adhoc_backup_config(&a).is_err());
+        assert!(adhoc_backup_config(&a, t()).is_err());
         // ...unless the backup goes to S3.
         a.s3 = S3Settings::from_values("bucket".into(), String::new(), String::new());
-        let cfg = adhoc_backup_config(&a).unwrap();
+        let cfg = adhoc_backup_config(&a, t()).unwrap();
         assert_eq!(cfg.s3_bucket.as_deref(), Some("bucket"));
     }
 
@@ -616,9 +632,9 @@ mod tests {
             errors: vec!["a.txt: permission denied".into()],
             ..Default::default()
         };
-        let s = backup_summary(&report, false);
+        let s = backup_summary(&report, false, t());
         assert!(s.starts_with("⚠️"));
         assert!(s.contains("a.txt: permission denied"));
-        assert!(backup_summary(&report, true).contains("dry run"));
+        assert!(backup_summary(&report, true, t()).contains("dry run"));
     }
 }

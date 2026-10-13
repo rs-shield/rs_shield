@@ -1,7 +1,11 @@
 use dioxus::prelude::*;
 use std::path::{Path, PathBuf};
 
-use crate::ui::{app::AppConfig, i18n::get_texts, profile_loader::load_profile};
+use crate::ui::{
+    app::AppConfig,
+    i18n::{Translations, get_texts, tr},
+    profile_loader::load_profile,
+};
 
 /// The CLI the scheduled job runs: `rsb-cli` installed next to the desktop
 /// app if present, otherwise `rsb-cli` from the PATH.
@@ -17,10 +21,15 @@ pub fn cli_executable() -> PathBuf {
 /// The job for `profile`, generated exactly like `rsb schedule`: the
 /// profile must load, the key is read from a 0600 env file (never put on
 /// the command line), and `--storage` matches the profile.
-pub fn schedule_text(profile: &Path, format: &str, exe: &Path) -> Result<String, String> {
-    let loaded = load_profile(profile)?;
+pub fn schedule_text(
+    t: &Translations,
+    profile: &Path,
+    format: &str,
+    exe: &Path,
+) -> Result<String, String> {
+    let loaded = load_profile(profile, t)?;
     let abs = std::fs::canonicalize(profile)
-        .map_err(|e| format!("Cannot resolve {}: {}", profile.display(), e))?;
+        .map_err(|e| tr(t.sch_cannot_resolve, &[&profile.display(), &e]))?;
     // Relative (portable) paths: run from the profile's folder (cron and
     // systemd do not start in any particular directory).
     let workdir = rsb_sdk::schedule::profile_uses_relative_paths(&loaded.config)
@@ -53,13 +62,10 @@ pub fn ScheduleScreen() -> Element {
             status_message.set(texts.please_select_config_file.to_string());
             return;
         }
-        match schedule_text(&cfg_path, &format(), &cli_executable()) {
+        match schedule_text(texts, &cfg_path, &format(), &cli_executable()) {
             Ok(text) => {
                 output_command.set(text);
-                status_message.set(
-                    "✅ Job generated. Install it as described below (nothing is scheduled automatically)."
-                        .to_string(),
-                );
+                status_message.set(texts.sch_job_generated.to_string());
             }
             Err(e) => {
                 output_command.set(String::new());
@@ -111,11 +117,11 @@ pub fn ScheduleScreen() -> Element {
                         format.set(evt.value());
                         output_command.set(String::new());
                     },
-                    option { value: "cron", "⏰ Cron (Linux/macOS)" }
-                    option { value: "systemd", "🐧 Systemd Service (Linux)" }
+                    option { value: "cron", "{texts.sch_cron_option}" }
+                    option { value: "systemd", "{texts.sch_systemd_option}" }
                 }
                 p { class: "hint",
-                    "Same output as `rsb schedule <profile> --format <cron|systemd>`. The encryption key is read from ~/.rs-shield/rsb-backup.env (mode 0600), never written into the job."
+                    "{texts.sch_format_hint}"
                 }
             }
 
@@ -132,12 +138,12 @@ pub fn ScheduleScreen() -> Element {
                     class: "btn-primary flex-1",
                     onclick: handle_generate,
                     disabled: config_path().as_os_str().is_empty(),
-                    "🔧 Generate Job"
+                    "{texts.sch_generate_button}"
                 }
             }
 
             div { class: "form-group",
-                label { class: "label-text", "📝 Scheduled Job" }
+                label { class: "label-text", "{texts.sch_output_label}" }
                 textarea {
                     class: "textarea-field",
                     readonly: true,
@@ -147,16 +153,16 @@ pub fn ScheduleScreen() -> Element {
             }
 
             div { class: "info-box",
-                h4 { class: "font-semibold mb-2", if format() == "cron" { "Cron Instructions:" } else { "Systemd Instructions:" }}
+                h4 { class: "font-semibold mb-2", if format() == "cron" { "{texts.sch_cron_instructions}" } else { "{texts.sch_systemd_instructions}" }}
                 if format() == "cron" {
-                    p { class: "text-xs mb-2", "1. Create the key file as shown in the first comment line" }
-                    p { class: "text-xs mb-2", "2. Open your crontab: crontab -e" }
-                    p { class: "text-xs", "3. Paste the last line and save" }
+                    p { class: "text-xs mb-2", "{texts.sch_cron_step1}" }
+                    p { class: "text-xs mb-2", "{texts.sch_cron_step2}" }
+                    p { class: "text-xs", "{texts.sch_cron_step3}" }
                 } else {
-                    p { class: "text-xs mb-2", "1. Create the key file as shown in the comment" }
-                    p { class: "text-xs mb-2", "2. Save the service as ~/.config/systemd/user/rsb-backup.service (or /etc/systemd/system/)" }
-                    p { class: "text-xs mb-2", "3. Add an rsb-backup.timer with OnCalendar=daily" }
-                    p { class: "text-xs", "4. Run: systemctl --user enable --now rsb-backup.timer" }
+                    p { class: "text-xs mb-2", "{texts.sch_systemd_step1}" }
+                    p { class: "text-xs mb-2", "{texts.sch_systemd_step2}" }
+                    p { class: "text-xs mb-2", "{texts.sch_systemd_step3}" }
+                    p { class: "text-xs", "{texts.sch_systemd_step4}" }
                 }
                 p { class: "text-xs mt-3 text-slate-600 dark:text-slate-400",
                     "ℹ️ {texts.schedule_hint}"
@@ -169,9 +175,11 @@ pub fn ScheduleScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
 
     #[test]
     fn job_matches_the_cli_and_never_contains_a_key() {
+        let t = get_texts(Language::En);
         let dir = tempfile::tempdir().unwrap();
         let profile = dir.path().join("docs.toml");
         // Absolute on every platform ("/src" has no drive letter on
@@ -188,23 +196,24 @@ mod tests {
         )
         .unwrap();
         let exe = Path::new("/opt/rsb/rsb-cli");
-        let cron = schedule_text(&profile, "cron", exe).unwrap();
+        let cron = schedule_text(t, &profile, "cron", exe).unwrap();
         assert!(cron.contains("--storage local"));
         assert!(cron.contains("\"/opt/rsb/rsb-cli\" backup"));
         assert!(cron.contains("RSB_ENCRYPTION_KEY"));
         assert!(!cron.contains("--key"));
         assert!(!cron.contains("cd \""), "absolute profile: no workdir");
-        let unit = schedule_text(&profile, "systemd", exe).unwrap();
+        let unit = schedule_text(t, &profile, "systemd", exe).unwrap();
         assert!(unit.contains("EnvironmentFile="));
-        assert!(schedule_text(&profile, "launchd", exe).is_err());
+        assert!(schedule_text(t, &profile, "launchd", exe).is_err());
     }
 
     #[test]
     fn invalid_or_portable_profiles() {
+        let t = get_texts(Language::En);
         let dir = tempfile::tempdir().unwrap();
         let bad = dir.path().join("bad.toml");
         std::fs::write(&bad, "nope").unwrap();
-        assert!(schedule_text(&bad, "cron", Path::new("rsb-cli")).is_err());
+        assert!(schedule_text(t, &bad, "cron", Path::new("rsb-cli")).is_err());
 
         let portable = dir.path().join("p.toml");
         std::fs::write(
@@ -212,7 +221,7 @@ mod tests {
             "source_path = \"src\"\ndestination_path = \"s3://b\"\n[s3]\nbucket = \"b\"\n",
         )
         .unwrap();
-        let cron = schedule_text(&portable, "cron", Path::new("rsb-cli")).unwrap();
+        let cron = schedule_text(t, &portable, "cron", Path::new("rsb-cli")).unwrap();
         assert!(cron.contains("--storage s3"));
         assert!(cron.contains("cd \""), "relative paths need the workdir");
     }
