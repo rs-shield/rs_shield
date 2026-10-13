@@ -69,13 +69,13 @@ rsb backup mybackup.toml --verify
 rsb snapshots list --config mybackup.toml
 
 # Show snapshot details
-rsb snapshots show 2026-05-25T10:30:00 --config mybackup.toml
+rsb snapshots show 2026-05-25T103000.000Z --config mybackup.toml
 
 # Compare two snapshots (NEW!)
 rsb snapshots diff snap1 snap2 --config mybackup.toml
 
 # Delete a snapshot
-rsb snapshots delete 2026-05-25T10:30:00 --config mybackup.toml
+rsb snapshots delete 2026-05-25T103000.000Z --config mybackup.toml --confirm
 ```
 
 ### Maintenance

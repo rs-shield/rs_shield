@@ -439,12 +439,21 @@ RS Shield automatically creates snapshots of each backup state, allowing you to 
 #### Viewing Snapshots
 
 **Desktop App:**
-1. **Select Backup** from the sidebar
-2. **Click "Snapshots" Tab**
-3. **View Timeline:**
-   - Date and time of each snapshot
-   - File count at that time
-   - Data size for that snapshot
+1. **Click the "Snapshots" Tab**
+2. **Choose the repository:** a profile (its local destination or S3
+   bucket), a backup folder, or neither to use the S3 bucket configured in
+   the app. Enter the encryption key for an encrypted backup (or leave it
+   empty to use `RSB_ENCRYPTION_KEY` or the profile's saved key).
+3. **View the list**, newest first:
+   - Date and time (UTC) of each snapshot
+   - File count and size
+   - 🔒 for encrypted snapshots; without the key only their id and date
+     are shown
+4. **Click "View"** for the file list of a snapshot
+
+The tab remembers the repository while the app runs and reloads it when you
+come back, e.g. after a backup or a prune. Errors (wrong key, missing
+credentials, not a backup folder) are shown above the list.
 
 **Command Line:**
 ```bash
@@ -487,11 +496,9 @@ rsb snapshots diff 2026-05-20T100000.000Z 2026-05-25T100000.000Z --backup /backu
 Restore from a specific snapshot:
 
 **Desktop App:**
-1. **Click Snapshots Tab**
-2. **Select desired snapshot date**
-3. **Click "Restore from this snapshot"**
-4. **Choose restore location**
-5. **Confirm restoration**
+1. **Find the snapshot id** in the Snapshots tab
+2. **Open the Restore tab** and enter it as the snapshot ID (or give a date)
+3. **Choose restore location** and start the restore
 
 **Command Line:**
 ```bash
@@ -506,14 +513,20 @@ rsb restore --backup /backup/docs --snapshot 2026-05-25T103000.000Z --target ~/r
 
 #### Deleting Snapshots
 
-Remove specific snapshots to free space:
+Remove specific snapshots to free space. The data that only the deleted
+snapshot used is deleted too (the same clean-up as prune); deleting the last
+snapshot keeps its data. In the desktop app, use **Delete** in the
+Snapshots tab and confirm.
 
 ```bash
+# Preview what would be deleted
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --dry-run
+
 # Delete a snapshot
-rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --confirm
 
 # Or using backup path
-rsb snapshots delete 2026-05-20T100000.000Z --backup /backup/docs
+rsb snapshots delete 2026-05-20T100000.000Z --backup /backup/docs --confirm
 ```
 
 ### Scheduled Backups

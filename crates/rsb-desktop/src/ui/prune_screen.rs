@@ -10,7 +10,7 @@ use crate::ui::{
 use rsb_sdk::operation::operations_helpers::record_prune_operation;
 
 use dioxus::prelude::*;
-use rsb_sdk::core;
+use rsb_sdk::core::{self, PruneStats};
 use std::path::PathBuf;
 
 /// What prune keeps.
@@ -38,20 +38,30 @@ pub fn parse_retention(mode: &str, value: &str) -> Result<Retention, String> {
     }
 }
 
-/// Text of a prune plan / result.
-pub fn describe_plan(doomed: &[String], dry_run: bool) -> String {
+/// Text of a prune plan / result. `stats` (from the SDK's `preview_prune`
+/// or `prune_with_stats`) adds the data objects; it is `None` for a
+/// preview of an encrypted repository without its key, whose manifests
+/// cannot be read.
+pub fn describe_plan(doomed: &[String], stats: Option<&PruneStats>, dry_run: bool) -> String {
     if doomed.is_empty() {
         return "✅ Nothing to prune: no snapshot matches the retention.".to_string();
     }
+    let objects = match stats {
+        Some(s) if s.gc_ran => format!("{} unreferenced data object(s)", s.objects_deleted),
+        Some(_) => "no data objects (no snapshot would remain)".to_string(),
+        None => "data objects: unknown without the encryption key".to_string(),
+    };
     let mut msg = if dry_run {
         format!(
-            "🧪 Preview: {} snapshot(s) would be deleted (nothing was deleted):",
-            doomed.len()
+            "🧪 Preview: {} snapshot(s) and {} would be deleted (nothing was deleted):",
+            doomed.len(),
+            objects
         )
     } else {
         format!(
-            "✅ Pruned {} snapshot(s) and their unreferenced data:",
-            doomed.len()
+            "✅ Pruned {} snapshot(s) and {}:",
+            stats.map_or(doomed.len(), |s| s.snapshots_deleted),
+            objects
         )
     };
     for s in doomed.iter().take(20) {
@@ -64,12 +74,14 @@ pub fn describe_plan(doomed: &[String], dry_run: bool) -> String {
     msg
 }
 
+/// Plans the prune (snapshots to delete for `retention`), then previews it
+/// with the SDK's `preview_prune` (dry run) or runs `prune_with_stats`.
 async fn run_prune(
     cfg: rsb_sdk::config::Config,
     key: Option<String>,
     retention: Retention,
     dry_run: bool,
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, Option<PruneStats>), String> {
     let storage = core::storage_backend::get_storage(&cfg)
         .await
         .map_err(|e| e.to_string())?;
@@ -78,25 +90,31 @@ async fn run_prune(
         Retention::Days(d) => core::plan_prune_by_age_with_storage(&*storage, d).await,
     }
     .map_err(|e| e.to_string())?;
-    if dry_run || doomed.is_empty() {
-        return Ok(doomed);
+    if doomed.is_empty() {
+        return Ok((doomed, None));
     }
     // Same refusal as `rsb prune`: an encrypted repository cannot be
-    // garbage-collected without its key.
+    // garbage-collected (nor its objects counted) without its key.
     let encrypted = rsb_sdk::crypto::keyfile::repo_key_exists(&*storage)
         .await
         .map_err(|e| e.to_string())?
         || cfg.encryption_required();
     if encrypted && key.is_none() {
+        if dry_run {
+            return Ok((doomed, None));
+        }
         return Err(format!(
             "The repository is encrypted and no key is available: type the key, set {} or store it in the OS keyring.",
             rsb_sdk::config::ENCRYPTION_KEY_ENV
         ));
     }
-    core::prune_with_storage(storage, key.as_deref(), &doomed)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(doomed)
+    let stats = if dry_run {
+        core::preview_prune(&*storage, key.as_deref(), &doomed).await
+    } else {
+        core::prune_with_stats(storage, key.as_deref(), &doomed).await
+    }
+    .map_err(|e| e.to_string())?;
+    Ok((doomed, Some(stats)))
 }
 
 #[component]
@@ -171,12 +189,12 @@ pub fn PruneScreen() -> Element {
             .await;
 
             match result {
-                Ok(doomed) => {
-                    status_msg.set(describe_plan(&doomed, dry_run));
+                Ok((doomed, stats)) => {
+                    status_msg.set(describe_plan(&doomed, stats.as_ref(), dry_run));
                     if !dry_run {
                         let _ = record_prune_operation(
                             "Success".to_string(),
-                            doomed.len(),
+                            stats.map_or(0, |s| s.snapshots_deleted),
                             started.elapsed().as_secs(),
                             "N/A".to_string(),
                             label,
@@ -347,11 +365,18 @@ mod tests {
 
     #[test]
     fn plan_text() {
-        assert!(describe_plan(&[], true).contains("Nothing to prune"));
+        assert!(describe_plan(&[], None, true).contains("Nothing to prune"));
         let doomed = vec!["snapshots/2026-01-01T000000Z.toml".to_string()];
-        let preview = describe_plan(&doomed, true);
+        let stats = PruneStats {
+            snapshots_deleted: 1,
+            objects_deleted: 3,
+            gc_ran: true,
+        };
+        let preview = describe_plan(&doomed, Some(&stats), true);
         assert!(preview.contains("would be deleted") && preview.contains("2026-01-01T000000Z"));
-        assert!(describe_plan(&doomed, false).contains("Pruned 1"));
+        assert!(preview.contains("3 unreferenced"));
+        assert!(describe_plan(&doomed, None, true).contains("unknown without the encryption key"));
+        assert!(describe_plan(&doomed, Some(&stats), false).contains("Pruned 1"));
     }
 
     #[tokio::test]
@@ -370,15 +395,57 @@ mod tests {
         let cfg = rsb_sdk::config_from_backup_path(repo, None).unwrap();
 
         // Preview works without a key...
-        let plan = run_prune(cfg.clone(), None, Retention::KeepLast(1), true)
+        let (plan, stats) = run_prune(cfg.clone(), None, Retention::KeepLast(1), true)
             .await
             .unwrap();
         assert_eq!(plan.len(), 1);
+        assert!(stats.is_none());
         // ...but deleting is refused before anything is touched.
         let err = run_prune(cfg, None, Retention::KeepLast(1), false)
             .await
             .unwrap_err();
         assert!(err.contains("encrypted"));
         assert!(repo.join("snapshots/2026-01-01T000000Z.toml").exists());
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn preview_counts_with_the_sdk_and_deletes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join("snapshots")).unwrap();
+        std::fs::create_dir_all(repo.join("data/clear")).unwrap();
+        let keep = "a".repeat(64);
+        std::fs::write(repo.join("snapshots/2026-01-01T000000Z.toml"), "").unwrap();
+        std::fs::write(repo.join("snapshots/2026-01-02T000000Z.toml"), {
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                std::path::PathBuf::from("f"),
+                rsb_sdk::core::types::FileMetadata::new(keep.clone(), false, false),
+            );
+            toml::to_string(&m).unwrap()
+        })
+        .unwrap();
+        std::fs::write(repo.join("data/clear").join(&keep), "k").unwrap();
+        std::fs::write(repo.join("data/clear").join("b".repeat(64)), "d").unwrap();
+        let cfg = rsb_sdk::config_from_backup_path(repo, None).unwrap();
+
+        let (plan, stats) = run_prune(cfg.clone(), None, Retention::KeepLast(1), true)
+            .await
+            .unwrap();
+        assert_eq!(plan.len(), 1);
+        assert_eq!(stats.map(|s| s.objects_deleted), Some(1));
+        assert!(repo.join("snapshots/2026-01-01T000000Z.toml").exists());
+
+        let (_, stats) = run_prune(cfg, None, Retention::KeepLast(1), false)
+            .await
+            .unwrap();
+        assert_eq!(stats.map(|s| s.snapshots_deleted), Some(1));
+        assert!(!repo.join("snapshots/2026-01-01T000000Z.toml").exists());
+        assert!(repo.join("data/clear").join(&keep).exists());
     }
 }

@@ -285,7 +285,7 @@ pub async fn read_manifest_cached(
 /// Classification is by type, never by message text: AEAD tag mismatch →
 /// `AuthenticationFailed`, malformed blob → `Corrupt`, v3 blob without a
 /// repository key → `Other`.
-fn manifest_decrypt_error(
+pub(crate) fn manifest_decrypt_error(
     path: &str,
     raw: &[u8],
     cache: &KeyCache,
