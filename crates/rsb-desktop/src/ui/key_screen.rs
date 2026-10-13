@@ -13,6 +13,7 @@ use zeroize::Zeroizing;
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
     profile_loader::{LoadedProfile, load_profile, repository_config, repository_label},
 };
@@ -22,7 +23,7 @@ pub const MAX_IMPORT_SIZE: u64 = 64 * 1024;
 
 /// Creates `path` (it must not exist) readable only by the owner and writes
 /// `data` (as `rsb key export -o`).
-pub fn write_private_file(path: &Path, data: &[u8]) -> Result<(), String> {
+pub fn write_private_file(t: &Translations, path: &Path, data: &[u8]) -> Result<(), String> {
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -32,28 +33,28 @@ pub fn write_private_file(path: &Path, data: &[u8]) -> Result<(), String> {
     }
     let mut f = opts
         .open(path)
-        .map_err(|e| format!("Cannot create {}: {}", path.display(), e))?;
+        .map_err(|e| tr(t.cp_cannot_create, &[&path.display(), &e]))?;
     f.write_all(data)
         .and_then(|_| f.sync_all())
-        .map_err(|e| format!("Cannot write {}: {}", path.display(), e))
+        .map_err(|e| tr(t.cp_cannot_write, &[&path.display(), &e]))
 }
 
 /// Reads an exported key file, in JSON or paper form (as `rsb key import`).
-pub fn read_import_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
+pub fn read_import_file(t: &Translations, path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
     let len = std::fs::metadata(path)
-        .map_err(|e| format!("Cannot read {}: {}", path.display(), e))?
+        .map_err(|e| tr(t.rk_cannot_read, &[&path.display(), &e]))?
         .len();
     if len > MAX_IMPORT_SIZE {
-        return Err(format!("{} is too large for a key file", path.display()));
+        return Err(tr(t.rk_too_large, &[&path.display()]));
     }
     let content = Zeroizing::new(
-        std::fs::read(path).map_err(|e| format!("Cannot read {}: {}", path.display(), e))?,
+        std::fs::read(path).map_err(|e| tr(t.rk_cannot_read, &[&path.display(), &e]))?,
     );
     if paper::is_paper(&content) {
         let text = std::str::from_utf8(&content).map_err(|e| e.to_string())?;
         paper::decode(text)
             .map(Zeroizing::new)
-            .map_err(|e| format!("Paper key: {}", e))
+            .map_err(|e| tr(t.rk_paper_key_error, &[&e]))
     } else {
         Ok(content)
     }
@@ -62,6 +63,7 @@ pub fn read_import_file(path: &Path) -> Result<Zeroizing<Vec<u8>>, String> {
 /// Exports the key file to `out` (JSON, or the printable paper form) after
 /// checking that `password` opens it.
 pub async fn export_key(
+    t: &Translations,
     storage: &dyn Storage,
     password: &str,
     out: &Path,
@@ -77,59 +79,50 @@ pub async fn export_key(
     } else {
         raw
     };
-    write_private_file(out, &data)?;
-    Ok(format!(
-        "✅ Key file exported to {} (mode 0600). Together with the password it decrypts every backup: store it safely.",
-        out.display()
-    ))
+    write_private_file(t, out, &data)?;
+    Ok(tr(t.rk_exported, &[&out.display()]))
 }
 
 /// Installs an exported key file (see `rsb key import`).
 pub async fn import_key(
+    t: &Translations,
     storage: Arc<dyn Storage>,
     file: &Path,
     password: &str,
     force: bool,
 ) -> Result<String, String> {
-    let raw = read_import_file(file)?;
+    let raw = read_import_file(t, file)?;
     let out = lifecycle::import_key_file(storage, &raw, password.as_bytes(), force)
         .await
         .map_err(|e| e.to_string())?;
     if out.unchanged {
-        return Ok(format!(
-            "ℹ️ {} already holds this key file; nothing changed.",
-            REPO_KEY_PATH
-        ));
+        return Ok(tr(t.rk_import_unchanged, &[&REPO_KEY_PATH]));
     }
-    let mut msg = format!("✅ Imported {} ({}).", REPO_KEY_PATH, out.matched_by);
+    let mut msg = tr(t.rk_imported, &[&REPO_KEY_PATH, &out.matched_by]);
     if let Some(b) = out.replaced_backup {
-        msg.push_str(&format!(" The previous key file was kept at {}.", b));
+        msg.push_str(&tr(t.rk_previous_kept, &[&b]));
     }
     Ok(msg)
 }
 
 /// Changes the repository password (rewraps the key; no data rewritten).
 pub async fn change_password(
+    t: &Translations,
     storage: Arc<dyn Storage>,
     old: &str,
     new: &str,
     confirm: &str,
 ) -> Result<String, String> {
     if new.is_empty() {
-        return Err("The new password must not be empty".to_string());
+        return Err(t.rk_new_password_empty.to_string());
     }
     if new != confirm {
-        return Err("The new passwords do not match".to_string());
+        return Err(t.rk_new_passwords_mismatch.to_string());
     }
     let current = keyfile::read_key_file(&*storage)
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| {
-            format!(
-                "{} not found: run an encrypted backup (or `rsb key init`) first",
-                REPO_KEY_PATH
-            )
-        })?;
+        .ok_or_else(|| tr(t.rk_key_not_found, &[&REPO_KEY_PATH]))?;
     keyfile::change_password(
         storage,
         old.as_bytes(),
@@ -138,12 +131,13 @@ pub async fn change_password(
     )
     .await
     .map_err(|e| e.to_string())?;
-    Ok("✅ Repository password changed. Existing backups are unchanged. Update RSB_ENCRYPTION_KEY / the OS keyring entry used by scheduled backups.".to_string())
+    Ok(t.rk_password_changed.to_string())
 }
 
 #[component]
 pub fn KeyScreen() -> Element {
     let app_config = use_context::<AppConfig>();
+    let texts = get_texts(app_config.language());
     let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut repo_path = use_signal(PathBuf::new);
     let mut password = use_signal(String::new);
@@ -158,7 +152,7 @@ pub fn KeyScreen() -> Element {
     // S3 bucket of Settings).
     let open_storage = move || {
         let s3 = S3Settings::from_app(&app_config);
-        let cfg = repository_config(profile().as_ref(), &repo_path(), &s3);
+        let cfg = repository_config(profile().as_ref(), &repo_path(), &s3, texts);
         async move {
             let cfg = cfg?;
             rsb_sdk::core::storage_backend::get_storage(&cfg)
@@ -174,10 +168,10 @@ pub fn KeyScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), texts) {
                     Ok(p) => {
                         repo_path.set(PathBuf::from(repository_label(&p.config)));
-                        status.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status.set(tr(texts.rk_profile_loaded, &[&p.path.display()]));
                         profile.set(Some(p));
                     }
                     Err(e) => status.set(format!("❌ {}", e)),
@@ -206,7 +200,7 @@ pub fn KeyScreen() -> Element {
             busy.set(true);
             let res = async {
                 let storage = storage.await?;
-                export_key(&*storage, &pw, h.path(), paper_mode).await
+                export_key(texts, &*storage, &pw, h.path(), paper_mode).await
             }
             .await;
             status.set(res.unwrap_or_else(|e| format!("❌ {}", e)));
@@ -225,7 +219,7 @@ pub fn KeyScreen() -> Element {
             busy.set(true);
             let res = async {
                 let storage = storage.await?;
-                import_key(storage, h.path(), &pw, force_mode).await
+                import_key(texts, storage, h.path(), &pw, force_mode).await
             }
             .await;
             status.set(res.unwrap_or_else(|e| format!("❌ {}", e)));
@@ -242,7 +236,7 @@ pub fn KeyScreen() -> Element {
         spawn(async move {
             let res = async {
                 let storage = storage.await?;
-                change_password(storage, &old, &new, &confirm).await
+                change_password(texts, storage, &old, &new, &confirm).await
             }
             .await;
             if res.is_ok() {
@@ -262,22 +256,22 @@ pub fn KeyScreen() -> Element {
         LoadingOverlay {
             is_visible: busy(),
             style: LoadingStyle::Spinner,
-            message: "Working on the repository key...".to_string(),
+            message: texts.rk_working.to_string(),
         }
 
         div { class: "card",
-            h2 { class: "page-title", "🔑 Repository Key" }
+            h2 { class: "page-title", "{texts.rk_title}" }
             p { class: "hint mb-4",
-                "keys/repo.key holds the data key of an encrypted repository (format v3), wrapped by your password. Losing it makes every backup unreadable, even with the password: export a copy. Same as `rsb key export/import/change-password`."
+                "{texts.rk_intro}"
             }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Profile (Optional)" }
+                label { class: "label-text", "{texts.rk_profile_optional}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select a profile",
+                        placeholder: texts.rk_select_profile,
                         value: "{profile_label}",
                         readonly: true
                     }
@@ -286,12 +280,12 @@ pub fn KeyScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Repository folder" }
+                label { class: "label-text", "{texts.rk_repo_folder}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Backup (repository) folder; empty: S3 bucket of Settings",
+                        placeholder: texts.rk_repo_folder_placeholder,
                         value: "{repo_path.read().to_string_lossy()}",
                         oninput: move |evt| {
                             profile.set(None);
@@ -315,7 +309,7 @@ pub fn KeyScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Repository password (current)" }
+                label { class: "label-text", "{texts.rk_current_password}" }
                 input {
                     class: "input-field",
                     r#type: "password",
@@ -324,15 +318,15 @@ pub fn KeyScreen() -> Element {
                 }
             }
 
-            h3 { class: "section-title", "Export / Import" }
+            h3 { class: "section-title", "{texts.rk_export_import}" }
             div { class: "form-group space-y-2",
                 label { class: "label-text flex items-center gap-2",
                     input { r#type: "checkbox", checked: paper_form(), onchange: move |_| paper_form.toggle() }
-                    "Export the printable paper form (--paper)"
+                    "{texts.rk_paper_checkbox}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input { r#type: "checkbox", checked: force(), onchange: move |_| force.toggle() }
-                    "Import: replace a different existing key file (--force; the old one is backed up)"
+                    "{texts.rk_force_checkbox}"
                 }
             }
             div { class: "flex gap-3 mb-4",
@@ -340,39 +334,39 @@ pub fn KeyScreen() -> Element {
                     class: "flex-1 btn-primary",
                     disabled: busy() || password().is_empty(),
                     onclick: handle_export,
-                    "📤 Export key file"
+                    "{texts.rk_export_button}"
                 }
                 button {
                     class: "flex-1 btn-secondary",
                     disabled: busy() || password().is_empty(),
                     onclick: handle_import,
-                    "📥 Import key file"
+                    "{texts.rk_import_button}"
                 }
             }
 
-            h3 { class: "section-title", "Change password" }
+            h3 { class: "section-title", "{texts.rk_change_password_title}" }
             div { class: "form-group",
                 input {
                     class: "input-field mb-2",
                     r#type: "password",
-                    placeholder: "New password",
+                    placeholder: texts.rk_new_password,
                     value: "{new_password}",
                     oninput: move |evt| new_password.set(evt.value())
                 }
                 input {
                     class: "input-field",
                     r#type: "password",
-                    placeholder: "Confirm new password",
+                    placeholder: texts.rk_confirm_new_password,
                     value: "{confirm_password}",
                     oninput: move |evt| confirm_password.set(evt.value())
                 }
-                p { class: "hint", "Only the key file is rewritten; the data stays as it is." }
+                p { class: "hint", "{texts.rk_change_password_hint}" }
             }
             button {
                 class: "w-full btn-warning mb-4",
                 disabled: busy() || password().is_empty() || new_password().is_empty(),
                 onclick: handle_change,
-                "🔁 Change password"
+                "{texts.rk_change_password_button}"
             }
 
             if !status().is_empty() {
@@ -387,21 +381,26 @@ pub fn KeyScreen() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
     use rsb_sdk::crypto::keyfile::KdfParams;
+
+    fn t() -> &'static Translations {
+        get_texts(Language::En)
+    }
     use rsb_sdk::storage::LocalStorage;
 
     #[test]
     fn export_file_is_private_and_never_overwritten() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("repo.key");
-        write_private_file(&p, b"{}").unwrap();
+        write_private_file(t(), &p, b"{}").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&p).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
-        assert!(write_private_file(&p, b"x").is_err());
+        assert!(write_private_file(t(), &p, b"x").is_err());
         assert_eq!(std::fs::read(&p).unwrap(), b"{}");
     }
 
@@ -410,7 +409,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("big");
         std::fs::write(&p, vec![b'a'; MAX_IMPORT_SIZE as usize + 1]).unwrap();
-        assert!(read_import_file(&p).unwrap_err().contains("too large"));
+        assert!(read_import_file(t(), &p).unwrap_err().contains("too large"));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -425,20 +424,26 @@ mod tests {
 
         // Wrong password: nothing exported.
         let out = dir.path().join("export.key");
-        assert!(export_key(&*storage, "nope", &out, false).await.is_err());
+        assert!(
+            export_key(t(), &*storage, "nope", &out, false)
+                .await
+                .is_err()
+        );
         assert!(!out.exists());
-        export_key(&*storage, "old-pw", &out, false).await.unwrap();
+        export_key(t(), &*storage, "old-pw", &out, false)
+            .await
+            .unwrap();
         let paper_out = dir.path().join("paper.txt");
-        export_key(&*storage, "old-pw", &paper_out, true)
+        export_key(t(), &*storage, "old-pw", &paper_out, true)
             .await
             .unwrap();
 
         assert!(
-            change_password(storage.clone(), "old-pw", "new-pw", "typo")
+            change_password(t(), storage.clone(), "old-pw", "new-pw", "typo")
                 .await
                 .is_err()
         );
-        change_password(storage.clone(), "old-pw", "new-pw", "new-pw")
+        change_password(t(), storage.clone(), "old-pw", "new-pw", "new-pw")
             .await
             .unwrap();
         assert!(
@@ -448,7 +453,7 @@ mod tests {
         );
 
         // The paper export (old password) restores the original key file.
-        let msg = import_key(storage.clone(), &paper_out, "old-pw", true)
+        let msg = import_key(t(), storage.clone(), &paper_out, "old-pw", true)
             .await
             .unwrap();
         assert!(msg.contains("Imported"), "{msg}");

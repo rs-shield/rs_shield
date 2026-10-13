@@ -9,7 +9,7 @@
 use crate::ui::s3_settings::{S3Settings, apply_session_credentials};
 use crate::ui::{
     app::AppConfig,
-    i18n::get_texts,
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
 };
 use dioxus::prelude::*;
@@ -40,6 +40,7 @@ impl RepoSelection {
         profile: &Path,
         directory: &Path,
         s3: &S3Settings,
+        t: &Translations,
     ) -> Result<Self, String> {
         if !profile.as_os_str().is_empty() {
             Ok(Self::Profile(profile.to_path_buf()))
@@ -48,14 +49,14 @@ impl RepoSelection {
         } else if s3.is_enabled() {
             Ok(Self::S3(s3.clone()))
         } else {
-            Err("Choose a profile, a backup folder, or configure an S3 bucket.".to_string())
+            Err(t.snap_no_repository.to_string())
         }
     }
 
     /// Short description for the screen.
-    pub(crate) fn label(&self) -> String {
+    pub(crate) fn label(&self, t: &Translations) -> String {
         match self {
-            Self::Profile(p) => format!("profile {}", p.display()),
+            Self::Profile(p) => tr(t.snap_profile_label_fmt, &[&p.display()]),
             Self::Directory(d) => d.display().to_string(),
             Self::S3(s) => format!("s3://{}", s.bucket.as_deref().unwrap_or_default()),
         }
@@ -63,12 +64,12 @@ impl RepoSelection {
 
     /// Repository config: like `rsb snapshots` (profile → its storage,
     /// folder → that folder, bucket → that bucket).
-    pub(crate) fn config(&self) -> Result<Config, String> {
+    pub(crate) fn config(&self, t: &Translations) -> Result<Config, String> {
         match self {
             Self::Profile(p) => rsb_sdk::config::load_config(p)
-                .map_err(|e| format!("Cannot load profile {}: {}", p.display(), e)),
+                .map_err(|e| tr(t.snap_cannot_load_profile, &[&p.display(), &e])),
             Self::Directory(d) => rsb_sdk::config_from_backup_path(d, None)
-                .map_err(|e| format!("Not a backup repository ({}): {}", d.display(), e)),
+                .map_err(|e| tr(t.snap_not_a_repository, &[&d.display(), &e])),
             Self::S3(s) => {
                 let mut cfg = rsb_sdk::portable_restore::config_for_s3_restore(
                     s.bucket.as_deref().unwrap_or_default(),
@@ -101,13 +102,14 @@ impl RepoSelection {
 async fn with_repository<T, F, Fut>(
     sel: RepoSelection,
     typed_key: String,
+    t: &Translations,
     op: F,
 ) -> Result<T, String>
 where
     F: FnOnce(std::sync::Arc<dyn rsb_sdk::storage::Storage>, Option<String>) -> Fut,
     Fut: std::future::Future<Output = Result<T, rsb_sdk::RsbError>>,
 {
-    let cfg = sel.config()?;
+    let cfg = sel.config(t)?;
     let key = sel.key(&typed_key, &cfg);
     let storage = get_storage(&cfg).await.map_err(|e| e.to_string())?;
     op(storage, key).await.map_err(|e| e.to_string())
@@ -117,8 +119,9 @@ where
 pub(crate) async fn load_snapshots(
     sel: RepoSelection,
     typed_key: String,
+    t: &'static Translations,
 ) -> Result<Vec<SnapshotInfo>, String> {
-    with_repository(sel, typed_key, |storage, key| async move {
+    with_repository(sel, typed_key, t, |storage, key| async move {
         let cache = snapshot::open_key_cache(&*storage, key.as_deref()).await?;
         snapshot::list_snapshots(&*storage, cache.as_ref()).await
     })
@@ -130,8 +133,9 @@ pub(crate) async fn load_details(
     sel: RepoSelection,
     typed_key: String,
     id: String,
+    t: &'static Translations,
 ) -> Result<SnapshotDetails, String> {
-    with_repository(sel, typed_key, |storage, key| async move {
+    with_repository(sel, typed_key, t, |storage, key| async move {
         let cache = snapshot::open_key_cache(&*storage, key.as_deref()).await?;
         snapshot::snapshot_details(&*storage, &id, cache.as_ref()).await
     })
@@ -144,8 +148,9 @@ pub(crate) async fn compare(
     typed_key: String,
     from: String,
     to: String,
+    t: &'static Translations,
 ) -> Result<SnapshotDiff, String> {
-    with_repository(sel, typed_key, |storage, key| async move {
+    with_repository(sel, typed_key, t, |storage, key| async move {
         let cache = snapshot::open_key_cache(&*storage, key.as_deref()).await?;
         snapshot::diff_snapshots(&*storage, &from, &to, cache.as_ref()).await
     })
@@ -157,50 +162,47 @@ pub(crate) async fn delete(
     sel: RepoSelection,
     typed_key: String,
     id: String,
+    t: &'static Translations,
 ) -> Result<SnapshotDeletion, String> {
-    with_repository(sel, typed_key, |storage, key| async move {
+    with_repository(sel, typed_key, t, |storage, key| async move {
         snapshot::delete_snapshot(storage, &id, key.as_deref()).await
     })
     .await
 }
 
 /// (files, size, note) shown for one snapshot of the list.
-pub(crate) fn summary_cells(info: &SnapshotInfo) -> (String, String, String) {
-    let lock = if info.encrypted { "🔒 encrypted" } else { "" };
+pub(crate) fn summary_cells(info: &SnapshotInfo, t: &Translations) -> (String, String, String) {
+    let lock = if info.encrypted { t.snap_encrypted } else { "" };
     match &info.contents {
         SnapshotContents::Readable(s) => (
             s.file_count.to_string(),
             format_bytes(s.display_size()),
             lock.to_string(),
         ),
-        SnapshotContents::Locked => (
-            "?".into(),
-            "?".into(),
-            "🔒 encrypted: enter the key to see its contents".into(),
-        ),
+        SnapshotContents::Locked => ("?".into(), "?".into(), t.snap_locked.into()),
         SnapshotContents::Unreadable { error } => (
             "?".into(),
             "?".into(),
-            format!(
-                "⚠️ unreadable: {}",
-                error
+            tr(
+                t.snap_unreadable,
+                &[&error
                     .lines()
                     .find(|l| !l.trim().is_empty())
                     .unwrap_or("")
-                    .trim()
+                    .trim()],
             ),
         ),
     }
 }
 
 /// Plain-text rendering of a diff for the Compare view.
-pub(crate) fn diff_text(d: &SnapshotDiff) -> String {
+pub(crate) fn diff_text(d: &SnapshotDiff, t: &Translations) -> String {
     if d.is_empty() {
-        return format!("No changes between {} and {}.", d.from, d.to);
+        return tr(t.snap_no_changes, &[&d.from, &d.to]);
     }
     let mut out = format!("{} → {}\n", d.from, d.to);
     if !d.added.is_empty() {
-        out.push_str(&format!("\n✅ Added ({}):\n", d.added.len()));
+        out.push_str(&format!("\n{}\n", tr(t.snap_diff_added, &[&d.added.len()])));
         for f in &d.added {
             out.push_str(&format!(
                 "  + {} ({})\n",
@@ -210,7 +212,10 @@ pub(crate) fn diff_text(d: &SnapshotDiff) -> String {
         }
     }
     if !d.removed.is_empty() {
-        out.push_str(&format!("\n❌ Removed ({}):\n", d.removed.len()));
+        out.push_str(&format!(
+            "\n{}\n",
+            tr(t.snap_diff_removed, &[&d.removed.len()])
+        ));
         for f in &d.removed {
             out.push_str(&format!(
                 "  - {} ({})\n",
@@ -220,7 +225,10 @@ pub(crate) fn diff_text(d: &SnapshotDiff) -> String {
         }
     }
     if !d.modified.is_empty() {
-        out.push_str(&format!("\n🔄 Modified ({}):\n", d.modified.len()));
+        out.push_str(&format!(
+            "\n{}\n",
+            tr(t.snap_diff_modified, &[&d.modified.len()])
+        ));
         for (old, new) in &d.modified {
             out.push_str(&format!(
                 "  ~ {} ({} → {})\n",
@@ -234,17 +242,11 @@ pub(crate) fn diff_text(d: &SnapshotDiff) -> String {
 }
 
 /// Message shown after a delete.
-pub(crate) fn deletion_message(d: &SnapshotDeletion) -> String {
+pub(crate) fn deletion_message(d: &SnapshotDeletion, t: &Translations) -> String {
     if d.gc_ran {
-        format!(
-            "✅ Snapshot {} deleted ({} data object(s) no other snapshot used were removed).",
-            d.id, d.objects_deleted
-        )
+        tr(t.snap_deleted_gc, &[&d.id, &d.objects_deleted])
     } else {
-        format!(
-            "✅ Snapshot {} deleted. It was the last snapshot: its data was kept.",
-            d.id
-        )
+        tr(t.snap_deleted_last, &[&d.id])
     }
 }
 
@@ -314,7 +316,7 @@ pub fn SnapshotsScreen() -> Element {
     let selection = move || -> Result<RepoSelection, String> {
         let s3 = S3Settings::from_app(&app_config);
         apply_session_credentials(&app_config);
-        RepoSelection::choose(&profile_path.read(), &repo_path.read(), &s3)
+        RepoSelection::choose(&profile_path.read(), &repo_path.read(), &s3, texts)
     };
 
     let mut reload = move |announce: Option<String>| {
@@ -334,11 +336,11 @@ pub fn SnapshotsScreen() -> Element {
         };
         remember(profile_path(), repo_path(), key());
         is_loading.set(true);
-        let label = sel.label();
+        let label = sel.label(texts);
         let typed = key();
         spawn(async move {
             // Off the UI thread: S3 round trips and key derivation.
-            let result = tokio::spawn(load_snapshots(sel, typed))
+            let result = tokio::spawn(load_snapshots(sel, typed, texts))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
             match result {
@@ -415,7 +417,7 @@ pub fn SnapshotsScreen() -> Element {
         mode.set(SnapshotMode::Details);
         let typed = key();
         spawn(async move {
-            let r = tokio::spawn(load_details(sel, typed, id))
+            let r = tokio::spawn(load_details(sel, typed, id, texts))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
             details.set(Some(r));
@@ -438,11 +440,11 @@ pub fn SnapshotsScreen() -> Element {
         diff_result.set(Some(texts.snapshots_loading.to_string()));
         let typed = key();
         spawn(async move {
-            let r = tokio::spawn(compare(sel, typed, from, to))
+            let r = tokio::spawn(compare(sel, typed, from, to, texts))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
             match r {
-                Ok(d) => diff_result.set(Some(diff_text(&d))),
+                Ok(d) => diff_result.set(Some(diff_text(&d, texts))),
                 Err(e) => {
                     diff_result.set(None);
                     error_msg.set(Some(e));
@@ -461,16 +463,16 @@ pub fn SnapshotsScreen() -> Element {
             }
         };
         error_msg.set(None);
-        info_msg.set(Some(format!("Deleting snapshot {}…", id)));
+        info_msg.set(Some(tr(texts.snap_deleting, &[&id])));
         is_loading.set(true);
         let typed = key();
         spawn(async move {
-            let r = tokio::spawn(delete(sel, typed, id))
+            let r = tokio::spawn(delete(sel, typed, id, texts))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
             is_loading.set(false);
             match r {
-                Ok(done) => reload(Some(deletion_message(&done))),
+                Ok(done) => reload(Some(deletion_message(&done, texts))),
                 Err(e) => {
                     info_msg.set(None);
                     error_msg.set(Some(e));
@@ -501,12 +503,12 @@ pub fn SnapshotsScreen() -> Element {
             // Repository
             div { class: "card space-y-2",
                 div { class: "form-group",
-                    label { class: "label-text", "📋 Profile" }
+                    label { class: "label-text", "{texts.snap_profile_label}" }
                     div { class: "flex gap-3",
                         input {
                             class: "input-field",
                             r#type: "text",
-                            placeholder: "Select a profile (.toml)",
+                            placeholder: "{texts.snap_profile_placeholder}",
                             value: "{profile_path.read().to_string_lossy()}",
                             readonly: true
                         }
@@ -514,12 +516,12 @@ pub fn SnapshotsScreen() -> Element {
                     }
                 }
                 div { class: "form-group",
-                    label { class: "label-text", "📁 Or a backup folder" }
+                    label { class: "label-text", "{texts.snap_folder_label}" }
                     div { class: "flex gap-3",
                         input {
                             class: "input-field",
                             r#type: "text",
-                            placeholder: "Backup folder (contains snapshots/ and data/)",
+                            placeholder: "{texts.snap_folder_placeholder}",
                             value: "{repo_path.read().to_string_lossy()}",
                             oninput: move |evt| {
                                 repo_path.set(PathBuf::from(evt.value()));
@@ -528,20 +530,20 @@ pub fn SnapshotsScreen() -> Element {
                         }
                         button { class: "btn-icon", onclick: pick_folder, disabled: is_loading(), "📂" }
                     }
-                    p { class: "hint", "With neither, the S3 bucket configured in the app is used." }
+                    p { class: "hint", "{texts.snap_s3_fallback_hint}" }
                 }
                 div { class: "form-group",
-                    label { class: "label-text", "🔑 Encryption key (encrypted backups)" }
+                    label { class: "label-text", "{texts.snap_key_label}" }
                     input {
                         class: "input-field",
                         r#type: "password",
-                        placeholder: "Leave empty to use RSB_ENCRYPTION_KEY or the profile's saved key",
+                        placeholder: "{texts.snap_key_placeholder}",
                         value: "{key}",
                         oninput: move |evt| key.set(evt.value()),
                     }
                 }
                 if let Some(label) = source_label.read().as_ref() {
-                    p { class: "hint", "Repository: {label}" }
+                    p { class: "hint", {tr(texts.snap_repository, &[label])} }
                 }
             }
 
@@ -559,7 +561,7 @@ pub fn SnapshotsScreen() -> Element {
             if let Some(id) = pending_delete.read().clone() {
                 div { class: "p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg text-sm space-y-2",
                     p { class: "text-amber-900 dark:text-amber-100",
-                        "Delete snapshot {id}? The data that only this snapshot uses is deleted too. This cannot be undone."
+                        {tr(texts.snap_confirm_delete, &[&id])}
                     }
                     div { class: "flex gap-2",
                         button {
@@ -570,7 +572,7 @@ pub fn SnapshotsScreen() -> Element {
                         button {
                             class: "btn-secondary text-xs py-1 px-2",
                             onclick: move |_| pending_delete.set(None),
-                            "Cancel"
+                            "{texts.snap_cancel}"
                         }
                     }
                 }
@@ -643,17 +645,17 @@ fn SnapshotsListView(
                 div { class: "text-center py-6 bg-slate-50 dark:bg-slate-800/50 rounded-lg border-2 border-dashed border-slate-200 dark:border-slate-700",
                     span { class: "text-xl mb-2 block", "📂" }
                     p { class: "text-slate-500 dark:text-slate-400",
-                        if loaded { "{texts.snapshots_no_found}" } else { "Choose a repository to list its snapshots." }
+                        if loaded { "{texts.snapshots_no_found}" } else { "{texts.snap_choose_repository}" }
                     }
                 }
             } else {
-                p { class: "text-xs text-slate-500 dark:text-slate-400", "{snapshots.len()} snapshot(s), newest first" }
+                p { class: "text-xs text-slate-500 dark:text-slate-400", {tr(texts.snap_count_newest_first, &[&snapshots.len()])} }
                 div { class: "grid gap-2",
                     for snapshot in snapshots {
                         {
                             let id_for_show = snapshot.id.clone();
                             let id_for_delete = snapshot.id.clone();
-                            let (files, size, note) = summary_cells(&snapshot);
+                            let (files, size, note) = summary_cells(&snapshot, texts);
                             let readable = matches!(snapshot.contents, SnapshotContents::Readable(_));
                             let date = snapshot.date_label();
                             rsx! {
@@ -723,7 +725,7 @@ fn SnapshotsDiffView(
                     select {
                         class: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white",
                         onchange: move |e| on_select_from.call(e.value()),
-                        option { value: "", "Select a snapshot..." }
+                        option { value: "", "{texts.snap_select_snapshot}" }
                         for snapshot in &snapshots {
                             option {
                                 value: snapshot.id.clone(),
@@ -739,7 +741,7 @@ fn SnapshotsDiffView(
                     select {
                         class: "w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white",
                         onchange: move |e| on_select_to.call(e.value()),
-                        option { value: "", "Select a snapshot..." }
+                        option { value: "", "{texts.snap_select_snapshot}" }
                         for snapshot in &snapshots {
                             option {
                                 value: snapshot.id.clone(),
@@ -793,18 +795,18 @@ fn SnapshotsDetailsView(
                 },
                 Some(Ok(d)) => {
                     let date = format_timestamp(d.timestamp);
-                    let encrypted = if d.encrypted { "yes" } else { "no" };
+                    let encrypted = if d.encrypted { texts.snap_yes } else { texts.snap_no };
                     let size = d.summary.original_size.map(format_bytes).unwrap_or_else(|| "-".into());
                     let stored = format_bytes(d.summary.stored_size);
                     rsx! {
                         div { class: "p-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-lg",
                             h3 { class: "font-semibold text-slate-900 dark:text-white mb-4 font-mono", "📸 {d.id}" }
                             div { class: "grid grid-cols-2 gap-2 text-sm text-slate-600 dark:text-slate-400 mb-4",
-                                span { "Date" } span { "{date}" }
-                                span { "Encrypted" } span { "{encrypted}" }
-                                span { "Files" } span { "{d.summary.file_count} ({d.summary.encrypted_files} encrypted)" }
-                                span { "Size" } span { "{size}" }
-                                span { "Stored size" } span { "{stored}" }
+                                span { "{texts.snap_detail_date}" } span { "{date}" }
+                                span { "{texts.snap_detail_encrypted}" } span { "{encrypted}" }
+                                span { "{texts.snap_detail_files}" } span { {tr(texts.snap_detail_files_value, &[&d.summary.file_count, &d.summary.encrypted_files])} }
+                                span { "{texts.snap_detail_size}" } span { "{size}" }
+                                span { "{texts.snap_detail_stored_size}" } span { "{stored}" }
                             }
                             div { class: "text-xs font-mono max-h-96 overflow-auto space-y-0.5",
                                 for f in d.files.iter() {
@@ -825,7 +827,12 @@ fn SnapshotsDetailsView(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
     use rsb_sdk::snapshot::{SnapshotFile, SnapshotSummary};
+
+    fn en() -> &'static Translations {
+        get_texts(Language::En)
+    }
     use std::fs;
 
     fn s3(bucket: &str) -> S3Settings {
@@ -838,19 +845,19 @@ mod tests {
         let d = Path::new("repo");
         let none = Path::new("");
         assert_eq!(
-            RepoSelection::choose(p, d, &s3("b")).unwrap(),
+            RepoSelection::choose(p, d, &s3("b"), en()).unwrap(),
             RepoSelection::Profile(p.into())
         );
         assert_eq!(
-            RepoSelection::choose(none, d, &s3("b")).unwrap(),
+            RepoSelection::choose(none, d, &s3("b"), en()).unwrap(),
             RepoSelection::Directory(d.into())
         );
         assert_eq!(
-            RepoSelection::choose(none, none, &s3("b")).unwrap(),
+            RepoSelection::choose(none, none, &s3("b"), en()).unwrap(),
             RepoSelection::S3(s3("b"))
         );
-        assert!(RepoSelection::choose(none, none, &s3("")).is_err());
-        assert_eq!(RepoSelection::S3(s3("b")).label(), "s3://b");
+        assert!(RepoSelection::choose(none, none, &s3(""), en()).is_err());
+        assert_eq!(RepoSelection::S3(s3("b")).label(en()), "s3://b");
     }
 
     #[test]
@@ -860,7 +867,7 @@ mod tests {
             "auto".into(),
             "https://s3.example.com".into(),
         ))
-        .config()
+        .config(en())
         .unwrap();
         assert_eq!(cfg.s3_bucket.as_deref(), Some("bucket"));
         assert_eq!(cfg.s3_endpoint.as_deref(), Some("https://s3.example.com"));
@@ -903,7 +910,9 @@ mod tests {
         write_manifest(dir.path(), "2026-05-25T100000.000Z-1", &[("a", 1)]);
         let sel = RepoSelection::Directory(dir.path().into());
 
-        let list = load_snapshots(sel.clone(), String::new()).await.unwrap();
+        let list = load_snapshots(sel.clone(), String::new(), en())
+            .await
+            .unwrap();
         let ids: Vec<_> = list.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(
             ids,
@@ -913,12 +922,17 @@ mod tests {
                 "2026-05-24T100000.000Z"
             ]
         );
-        assert_eq!(summary_cells(&list[1]).0, "2");
-        assert_eq!(summary_cells(&list[1]).1, "2.00 KB");
+        assert_eq!(summary_cells(&list[1], en()).0, "2");
+        assert_eq!(summary_cells(&list[1], en()).1, "2.00 KB");
 
-        let d = load_details(sel.clone(), String::new(), "2026-05-25T100000.000Z".into())
-            .await
-            .unwrap();
+        let d = load_details(
+            sel.clone(),
+            String::new(),
+            "2026-05-25T100000.000Z".into(),
+            en(),
+        )
+        .await
+        .unwrap();
         assert_eq!(d.files.len(), 2);
 
         let diff = compare(
@@ -926,24 +940,40 @@ mod tests {
             String::new(),
             "2026-05-24T100000.000Z".into(),
             "2026-05-25T100000.000Z".into(),
+            en(),
         )
         .await
         .unwrap();
-        assert!(diff_text(&diff).contains("+ b (2.00 KB)"));
+        assert!(diff_text(&diff, en()).contains("+ b (2.00 KB)"));
 
-        let done = delete(sel.clone(), String::new(), "2026-05-24T100000.000Z".into())
-            .await
-            .unwrap();
-        assert!(deletion_message(&done).contains("2026-05-24T100000.000Z"));
-        assert_eq!(load_snapshots(sel, String::new()).await.unwrap().len(), 2);
+        let done = delete(
+            sel.clone(),
+            String::new(),
+            "2026-05-24T100000.000Z".into(),
+            en(),
+        )
+        .await
+        .unwrap();
+        assert!(deletion_message(&done, en()).contains("2026-05-24T100000.000Z"));
+        assert_eq!(
+            load_snapshots(sel, String::new(), en())
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[tokio::test]
     async fn errors_are_reported_not_an_empty_list() {
         let dir = tempfile::tempdir().unwrap();
-        let e = load_snapshots(RepoSelection::Directory(dir.path().into()), String::new())
-            .await
-            .unwrap_err();
+        let e = load_snapshots(
+            RepoSelection::Directory(dir.path().into()),
+            String::new(),
+            en(),
+        )
+        .await
+        .unwrap_err();
         assert!(e.contains("Not a backup repository"), "{e}");
 
         let dir = repo_dir();
@@ -952,12 +982,16 @@ mod tests {
             b"\xff\xfe",
         )
         .unwrap();
-        let list = load_snapshots(RepoSelection::Directory(dir.path().into()), String::new())
-            .await
-            .unwrap();
+        let list = load_snapshots(
+            RepoSelection::Directory(dir.path().into()),
+            String::new(),
+            en(),
+        )
+        .await
+        .unwrap();
         // Undecodable without a key: shown as encrypted/locked, not hidden.
         assert_eq!(list.len(), 1);
-        assert!(summary_cells(&list[0]).2.contains("encrypted"));
+        assert!(summary_cells(&list[0], en()).2.contains("encrypted"));
     }
 
     #[test]
@@ -970,7 +1004,7 @@ mod tests {
                 error: "\n bad thing \nmore".into(),
             },
         };
-        assert_eq!(summary_cells(&info).2, "⚠️ unreadable: bad thing");
+        assert_eq!(summary_cells(&info, en()).2, "⚠️ unreadable: bad thing");
         let ok = SnapshotInfo {
             contents: SnapshotContents::Readable(SnapshotSummary {
                 file_count: 1,
@@ -979,7 +1013,7 @@ mod tests {
             encrypted: true,
             ..info
         };
-        assert_eq!(summary_cells(&ok).2, "🔒 encrypted");
+        assert_eq!(summary_cells(&ok, en()).2, "🔒 encrypted");
         let f = SnapshotFile {
             path: "p".into(),
             size: None,
@@ -993,17 +1027,17 @@ mod tests {
             removed: vec![f],
             ..Default::default()
         };
-        assert!(diff_text(&d).contains("- p (3 B)"));
+        assert!(diff_text(&d, en()).contains("- p (3 B)"));
         assert!(
-            diff_text(&SnapshotDiff::default()).starts_with("No changes"),
+            diff_text(&SnapshotDiff::default(), en()).starts_with("No changes"),
             "{}",
-            diff_text(&SnapshotDiff::default())
+            diff_text(&SnapshotDiff::default(), en())
         );
         let last = SnapshotDeletion {
             id: "x".into(),
             objects_deleted: 0,
             gc_ran: false,
         };
-        assert!(deletion_message(&last).contains("last snapshot"));
+        assert!(deletion_message(&last, en()).contains("last snapshot"));
     }
 }

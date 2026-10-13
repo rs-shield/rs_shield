@@ -75,6 +75,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NFD) and vice versa. The file is still restored under its stored name.
 - An age-based prune with a huge number of days no longer panics on date
   overflow (it deletes nothing).
+- Desktop: the interface mixed Portuguese and English — most screens
+  (navigation, profiles, real-time sync, snapshots, integrations, repository
+  key, FIDO2, diagnostics, schedule, prune, verify, backup, restore, login)
+  had hardcoded text that ignored the language setting. Every user-visible
+  text now comes from the Portuguese/English catalogs, so switching the
+  language updates all screens; CLI command names, file names and SDK error
+  details stay as they are. Unit tests check that both catalogs have the
+  same keys, no empty text and the same `{0}` placeholders, and that every
+  key used by the UI exists.
 - Desktop: the Snapshots tab listed nothing (loading, details, compare and
   delete were placeholders). It now lists the snapshots of a profile (local
   destination or S3 bucket), a backup folder or the app's S3 bucket, newest
