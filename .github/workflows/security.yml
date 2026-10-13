@@ -18,9 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       
-      - uses: rustsec/audit-check-action@v1
+      # RustSec advisories, with the reviewed exceptions from deny.toml
+      # (rustsec/audit-check-action does not exist; the job never ran).
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          command: check advisories
 
   outdated:
     name: Outdated Dependencies
