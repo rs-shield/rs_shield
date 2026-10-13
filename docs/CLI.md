@@ -547,7 +547,14 @@ ARGUMENTS:
 OPTIONS:
   -c, --config <CONFIG>         Profile .toml
   -b, --backup <BACKUP>         Repository directory
+  -d, --dry-run                 Show what would be deleted, delete nothing
+      --confirm                 Confirm destructive deletion (required unless --dry-run)
 ```
+
+Like `rsb prune`, it refuses to run without `--confirm` (or `--dry-run`).
+`--dry-run` runs the same checks and prints the snapshot and the number of
+data objects that would be removed, without deleting anything or taking the
+lock (a backup running meanwhile can change that number).
 
 Deletes the snapshot and the data objects that no other snapshot uses (the
 same garbage collection as `rsb prune`), holding the exclusive repository
@@ -560,8 +567,9 @@ objects.
 **Examples:**
 
 ```bash
-# Delete a snapshot (needs a session from `rsb login`)
-rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml
+# Preview, then delete a snapshot (needs a session from `rsb login`)
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --dry-run
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --confirm
 ```
 
 Snapshot ids are the names printed by `rsb snapshots list` (UTC, for example

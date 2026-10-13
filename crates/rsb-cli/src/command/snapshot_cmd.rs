@@ -68,6 +68,12 @@ pub enum SnapshotCommand {
         backup: Option<PathBuf>,
         /// Snapshot ID
         id: String,
+        /// Show what would be deleted (snapshot, data objects) without deleting
+        #[arg(short = 'd', long)]
+        dry_run: bool,
+        /// Confirm destructive deletion (required unless --dry-run)
+        #[arg(long)]
+        confirm: bool,
     },
 
     /// Compare two snapshots
@@ -136,8 +142,13 @@ impl SnapshotCommand {
     }
 
     pub async fn execute(&self) -> Result<()> {
-        if let Self::Delete { .. } = self {
-            // Destructive: needs an authenticated session.
+        if let Self::Delete {
+            dry_run, confirm, ..
+        } = self
+        {
+            check_delete_confirmation(*dry_run, *confirm)?;
+            // Destructive: needs an authenticated session (like prune, also
+            // for a dry run).
             rsb_sdk::server::routes::check_fido2_auth()
                 .await
                 .map_err(|e| anyhow!("{}", e))?;
@@ -173,6 +184,14 @@ impl SnapshotCommand {
                     snapshot::diff_snapshots(&*repo.storage, from, to, cache.as_ref()).await?;
                 print!("{}", format_diff(&diff));
             }
+            Self::Delete {
+                id, dry_run: true, ..
+            } => {
+                let key = repository_key(None, &repo).await?;
+                let plan =
+                    snapshot::preview_delete_snapshot(&*repo.storage, id, key.as_deref()).await?;
+                print!("{}", format_delete_preview(&plan));
+            }
             Self::Delete { id, .. } => {
                 let key = repository_key(None, &repo).await?;
                 let done =
@@ -190,6 +209,38 @@ impl SnapshotCommand {
         }
         Ok(())
     }
+}
+
+/// `snapshots delete` deletes data like `rsb prune`: it needs `--confirm`
+/// unless it is a `--dry-run`.
+pub fn check_delete_confirmation(dry_run: bool, confirm: bool) -> Result<()> {
+    if !dry_run && !confirm {
+        return Err(anyhow!(
+            "Refusing to delete a snapshot without --confirm: it also deletes the data \
+             objects no other snapshot uses (preview with --dry-run). \
+             Re-run with --confirm to proceed."
+        ));
+    }
+    Ok(())
+}
+
+/// Text printed by `rsb snapshots delete --dry-run`.
+pub fn format_delete_preview(plan: &snapshot::SnapshotDeletion) -> String {
+    let mut out = format!("DRY RUN: would delete snapshot {}\n", plan.id);
+    if plan.gc_ran {
+        let _ = writeln!(
+            out,
+            "   and {} data object(s) no other snapshot uses",
+            plan.objects_deleted
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "   It is the last snapshot: its data objects would be kept"
+        );
+    }
+    out.push_str("Nothing was deleted. Re-run with --confirm to delete.\n");
+    out
 }
 
 /// Opens the repository of `source` (S3 or local, see the module docs).
@@ -434,6 +485,26 @@ mod tests {
         assert!(text.contains("- old.txt (2 B)"));
         assert!(text.contains("~ m.txt (1 B → 2.00 KB)"));
         assert!(format_diff(&SnapshotDiff::default()).contains("No changes"));
+    }
+
+    #[test]
+    fn delete_needs_confirm_unless_dry_run() {
+        let e = check_delete_confirmation(false, false).unwrap_err();
+        assert!(e.to_string().contains("--confirm"), "{e}");
+        assert!(check_delete_confirmation(true, false).is_ok());
+        assert!(check_delete_confirmation(false, true).is_ok());
+
+        let mut plan = snapshot::SnapshotDeletion {
+            id: "2026-05-25T103000.000Z".into(),
+            objects_deleted: 4,
+            gc_ran: true,
+        };
+        let text = format_delete_preview(&plan);
+        assert!(text.contains("would delete snapshot 2026-05-25T103000.000Z"));
+        assert!(text.contains("4 data object(s)"));
+        assert!(text.contains("Nothing was deleted"));
+        plan.gc_ran = false;
+        assert!(format_delete_preview(&plan).contains("last snapshot"));
     }
 
     #[test]

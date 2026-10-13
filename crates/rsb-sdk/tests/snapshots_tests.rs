@@ -6,7 +6,7 @@ use rsb_sdk::core::types::{ChunkMetadata, FileMetadata};
 use rsb_sdk::crypto::keyfile::{self, KdfParams};
 use rsb_sdk::snapshot::{
     SnapshotContents, delete_snapshot, diff_snapshots, list_snapshot_ids, list_snapshots,
-    open_key_cache, snapshot_details,
+    open_key_cache, preview_delete_snapshot, snapshot_details,
 };
 use rsb_sdk::storage::{LockKind, MemoryStorage, RepoLock, Storage};
 use rsb_sdk::{CryptoErrorKind, RsbError};
@@ -483,4 +483,39 @@ async fn delete_in_an_encrypted_repository_needs_the_key() {
     assert_eq!(r.objects_deleted, 1);
     assert!(!s.exists(&format!("data/enc/{}", h('a'))).await.unwrap());
     assert!(s.exists(&format!("data/enc/{}", h('b'))).await.unwrap());
+}
+
+#[tokio::test]
+async fn delete_dry_run_reports_without_deleting() {
+    let (s, _, only_old) = two_snapshot_repo().await;
+    let before = s.keys();
+
+    let plan = preview_delete_snapshot(&*s, "2026-05-24T100000.000Z", None)
+        .await
+        .unwrap();
+    assert_eq!(plan.id, "2026-05-24T100000.000Z");
+    assert_eq!(plan.objects_deleted, 1);
+    assert!(plan.gc_ran);
+    assert_eq!(s.keys(), before, "a dry run deletes nothing");
+
+    // Same checks as the real delete.
+    let e = preview_delete_snapshot(&*s, "2026-01-01T000000.000Z", None)
+        .await
+        .unwrap_err();
+    assert!(matches!(e, RsbError::NotFound(_)), "{e:?}");
+    assert!(preview_delete_snapshot(&*s, "../x", None).await.is_err());
+
+    // The real delete removes exactly what the dry run announced.
+    let done = delete_snapshot(s.clone(), "2026-05-24T100000.000Z", None)
+        .await
+        .unwrap();
+    assert_eq!(done, plan);
+    assert!(!s.exists(&format!("data/clear/{only_old}")).await.unwrap());
+
+    // Last snapshot: data would be kept.
+    let plan = preview_delete_snapshot(&*s, "2026-05-25T100000.000Z", None)
+        .await
+        .unwrap();
+    assert!(!plan.gc_ran);
+    assert_eq!(plan.objects_deleted, 0);
 }

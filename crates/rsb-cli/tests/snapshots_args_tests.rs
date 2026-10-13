@@ -71,7 +71,16 @@ fn show_delete_and_diff_take_ids() {
         _ => panic!("expected show"),
     }
     match parse(&["delete", "2026-05-25T103000.000Z"]).unwrap() {
-        SnapshotCommand::Delete { id, .. } => assert_eq!(id, "2026-05-25T103000.000Z"),
+        SnapshotCommand::Delete {
+            id,
+            dry_run,
+            confirm,
+            ..
+        } => {
+            assert_eq!(id, "2026-05-25T103000.000Z");
+            // Parses, but execute() refuses without --confirm/--dry-run.
+            assert!(!dry_run && !confirm);
+        }
         _ => panic!("expected delete"),
     }
     match parse(&["diff", "a", "b", "-c", "p.toml"]).unwrap() {
@@ -84,4 +93,26 @@ fn show_delete_and_diff_take_ids() {
     assert!(parse(&["diff", "a"]).is_err());
     // delete takes no key on the command line (env, keyring or prompt).
     assert!(parse(&["delete", "x", "--key", "k"]).is_err());
+}
+
+#[test]
+fn delete_takes_confirm_and_dry_run_like_prune() {
+    match parse(&["delete", "x", "--confirm"]).unwrap() {
+        SnapshotCommand::Delete {
+            dry_run, confirm, ..
+        } => assert!(confirm && !dry_run),
+        _ => panic!("expected delete"),
+    }
+    for flag in ["--dry-run", "-d"] {
+        match parse(&["delete", "x", flag, "-b", "repo"]).unwrap() {
+            SnapshotCommand::Delete {
+                dry_run, confirm, ..
+            } => assert!(dry_run && !confirm),
+            _ => panic!("expected delete"),
+        }
+    }
+    use rsb_cli::command::snapshot_cmd::check_delete_confirmation;
+    assert!(check_delete_confirmation(false, false).is_err());
+    assert!(check_delete_confirmation(true, false).is_ok());
+    assert!(check_delete_confirmation(false, true).is_ok());
 }

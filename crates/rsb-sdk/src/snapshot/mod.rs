@@ -24,7 +24,7 @@ use crate::core::manifest::{
     manifest_decrypt_error, parse_snapshot_timestamp, sort_snapshots_newest_first,
     validate_snapshot_id,
 };
-use crate::core::prune::prune_with_stats;
+use crate::core::prune::{preview_prune, prune_with_stats};
 use crate::core::types::FileMetadata;
 use crate::crypto::{BLOB_MAGIC_V2, KeyCache, is_v3};
 use crate::error::{CryptoErrorKind, RsbError};
@@ -167,7 +167,8 @@ impl SnapshotDiff {
     }
 }
 
-/// What [`delete_snapshot`] did.
+/// What [`delete_snapshot`] did (or, from [`preview_delete_snapshot`],
+/// would do).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SnapshotDeletion {
     pub id: String,
@@ -345,15 +346,7 @@ pub async fn delete_snapshot(
     id: &str,
     encryption_key: Option<&str>,
 ) -> Result<SnapshotDeletion, RsbError> {
-    let key = snapshot_key(id)?;
-    let id = id_of(&key).to_string();
-    if !storage.exists(&key).await? {
-        return Err(not_found(&id));
-    }
-    let encryption_key = encryption_key.filter(|k| !k.is_empty());
-    if encryption_key.is_none() && crate::crypto::keyfile::repo_key_exists(&*storage).await? {
-        return Err(key_required(&id));
-    }
+    let (key, id, encryption_key) = check_delete(&*storage, id, encryption_key).await?;
     let stats = prune_with_stats(storage, encryption_key, std::slice::from_ref(&key)).await?;
     if stats.snapshots_deleted == 0 {
         // Deleted by someone else between the check and the lock.
@@ -364,6 +357,41 @@ pub async fn delete_snapshot(
         objects_deleted: stats.objects_deleted,
         gc_ran: stats.gc_ran,
     })
+}
+
+/// Dry run of [`delete_snapshot`]: the same checks (id, existence, key,
+/// every remaining manifest readable) and what would be deleted, without
+/// deleting anything or taking the lock.
+pub async fn preview_delete_snapshot(
+    storage: &dyn Storage,
+    id: &str,
+    encryption_key: Option<&str>,
+) -> Result<SnapshotDeletion, RsbError> {
+    let (key, id, encryption_key) = check_delete(storage, id, encryption_key).await?;
+    let stats = preview_prune(storage, encryption_key, std::slice::from_ref(&key)).await?;
+    Ok(SnapshotDeletion {
+        id,
+        objects_deleted: stats.objects_deleted,
+        gc_ran: stats.gc_ran,
+    })
+}
+
+/// Validated (storage key, id, non-empty key) for a delete.
+async fn check_delete<'k>(
+    storage: &dyn Storage,
+    id: &str,
+    encryption_key: Option<&'k str>,
+) -> Result<(String, String, Option<&'k str>), RsbError> {
+    let key = snapshot_key(id)?;
+    let id = id_of(&key).to_string();
+    if !storage.exists(&key).await? {
+        return Err(not_found(&id));
+    }
+    let encryption_key = encryption_key.filter(|k| !k.is_empty());
+    if encryption_key.is_none() && crate::crypto::keyfile::repo_key_exists(storage).await? {
+        return Err(key_required(&id));
+    }
+    Ok((key, id, encryption_key))
 }
 
 fn not_found(id: &str) -> RsbError {

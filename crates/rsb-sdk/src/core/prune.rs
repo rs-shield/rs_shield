@@ -174,14 +174,24 @@ pub async fn prune_with_stats(
     result
 }
 
-async fn prune_locked(
+/// What a prune of given snapshots would delete.
+struct PrunePlan {
+    /// Manifests to delete (valid snapshot keys only).
+    doomed: Vec<String>,
+    /// Data objects no kept snapshot references; `None` when no snapshot
+    /// would remain (garbage collection skipped).
+    unreferenced: Option<Vec<String>>,
+}
+
+/// Reads every manifest that stays (fail-closed: an unreadable one is an
+/// error) and lists the data objects none of them references. Deletes
+/// nothing.
+async fn plan_prune(
     storage: &dyn Storage,
     cache: Option<&KeyCache>,
     delete_snapshots: &[String],
-) -> Result<PruneStats, RsbError> {
-    let mut stats = PruneStats::default();
-
-    let doomed: Vec<&String> = delete_snapshots
+) -> Result<PrunePlan, RsbError> {
+    let doomed: Vec<String> = delete_snapshots
         .iter()
         .filter(|snap| {
             let ok = snap.starts_with("snapshots/") && snap.ends_with(".toml");
@@ -190,17 +200,21 @@ async fn prune_locked(
             }
             ok
         })
+        .cloned()
         .collect();
 
-    // 1) Read every manifest that stays BEFORE deleting anything: an
-    //    unreadable manifest (missing or wrong key, corruption) aborts the
-    //    prune with the repository untouched (fail-closed: we cannot know
-    //    what it references).
     let keep_snapshots: Vec<String> = list_snapshots(storage)
         .await?
         .into_iter()
-        .filter(|s| !doomed.contains(&s))
+        .filter(|s| !doomed.contains(s))
         .collect();
+    if keep_snapshots.is_empty() {
+        return Ok(PrunePlan {
+            doomed,
+            unreferenced: None,
+        });
+    }
+
     let mut keep_hashes = HashSet::new();
     for snap in &keep_snapshots {
         let content = read_manifest_cached(storage, snap, cache)
@@ -218,32 +232,6 @@ async fn prune_locked(
         }
     }
 
-    // Local dedup indexes must not trust what this prune may delete.
-    crate::core::dedup_index::bump_repo_epoch(storage).await?;
-
-    // 2) Delete the snapshot manifests first. If we crash afterwards the
-    //    worst case is unreferenced data (reclaimed by the next prune), never
-    //    a manifest pointing at deleted data.
-    for snap in doomed {
-        info!("Pruning snapshot: {}", snap);
-        match storage.delete(snap).await {
-            Ok(()) => stats.snapshots_deleted += 1,
-            Err(e) if e.kind() == ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-    }
-
-    // 3) Garbage-collect data not referenced by any remaining snapshot.
-    if keep_snapshots.is_empty() {
-        warn!("No snapshots left after prune; skipping data garbage collection.");
-        info!(
-            "Prune completed. Deleted {} snapshot(s).",
-            stats.snapshots_deleted
-        );
-        return Ok(stats);
-    }
-    stats.gc_ran = true;
-
     let mut all_data = Vec::new();
     for prefix in ["data/clear", "data/enc"] {
         match storage.list(prefix).await {
@@ -253,6 +241,7 @@ async fn prune_locked(
         }
     }
 
+    let mut unreferenced = Vec::new();
     for data_file in all_data {
         // Sem unwrap: filename estranho/unicode não deve abortar o prune
         // no meio (deleção parcial = perda de disponibilidade).
@@ -264,12 +253,86 @@ async fn prune_locked(
             }
         };
         if !keep_hashes.contains(&fname) {
-            info!("Pruning data: {}", data_file);
-            match storage.delete(&data_file).await {
-                Ok(()) => stats.objects_deleted += 1,
-                Err(e) if e.kind() == ErrorKind::NotFound => {}
-                Err(e) => return Err(e.into()),
-            }
+            unreferenced.push(data_file);
+        }
+    }
+    Ok(PrunePlan {
+        doomed,
+        unreferenced: Some(unreferenced),
+    })
+}
+
+/// What [`prune_with_stats`] would delete for `delete_snapshots`, without
+/// deleting anything (dry run). Takes no lock: a backup running meanwhile
+/// can make the object count differ from the real prune.
+pub async fn preview_prune(
+    storage: &dyn Storage,
+    encryption_key: Option<&str>,
+    delete_snapshots: &[String],
+) -> Result<PruneStats, RsbError> {
+    let cache = match encryption_key {
+        Some(k) => Some(KeyCache::open(storage, k.as_bytes()).await?),
+        None => None,
+    };
+    let plan = plan_prune(storage, cache.as_ref(), delete_snapshots).await?;
+    let mut snapshots = 0;
+    for snap in &plan.doomed {
+        if storage.exists(snap).await? {
+            snapshots += 1;
+        }
+    }
+    Ok(PruneStats {
+        snapshots_deleted: snapshots,
+        objects_deleted: plan.unreferenced.as_ref().map_or(0, Vec::len),
+        gc_ran: plan.unreferenced.is_some(),
+    })
+}
+
+async fn prune_locked(
+    storage: &dyn Storage,
+    cache: Option<&KeyCache>,
+    delete_snapshots: &[String],
+) -> Result<PruneStats, RsbError> {
+    let mut stats = PruneStats::default();
+
+    // 1) Read every manifest that stays BEFORE deleting anything: an
+    //    unreadable manifest (missing or wrong key, corruption) aborts the
+    //    prune with the repository untouched (fail-closed: we cannot know
+    //    what it references).
+    let plan = plan_prune(storage, cache, delete_snapshots).await?;
+
+    // Local dedup indexes must not trust what this prune may delete.
+    crate::core::dedup_index::bump_repo_epoch(storage).await?;
+
+    // 2) Delete the snapshot manifests first. If we crash afterwards the
+    //    worst case is unreferenced data (reclaimed by the next prune), never
+    //    a manifest pointing at deleted data.
+    for snap in &plan.doomed {
+        info!("Pruning snapshot: {}", snap);
+        match storage.delete(snap).await {
+            Ok(()) => stats.snapshots_deleted += 1,
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    // 3) Garbage-collect data not referenced by any remaining snapshot.
+    let Some(unreferenced) = plan.unreferenced else {
+        warn!("No snapshots left after prune; skipping data garbage collection.");
+        info!(
+            "Prune completed. Deleted {} snapshot(s).",
+            stats.snapshots_deleted
+        );
+        return Ok(stats);
+    };
+    stats.gc_ran = true;
+
+    for data_file in unreferenced {
+        info!("Pruning data: {}", data_file);
+        match storage.delete(&data_file).await {
+            Ok(()) => stats.objects_deleted += 1,
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
         }
     }
 

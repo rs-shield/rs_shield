@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+- `rsb snapshots delete` now also deletes the data objects no other
+  snapshot uses (like `rsb prune`), so it requires `--confirm`, exactly like
+  `rsb prune`; without it (or `--dry-run`) it refuses and exits with a
+  non-zero status.
+
 ### Added
 - `rsb_sdk::snapshot`: snapshot listing, details, diff and delete with
   structured results (id, date, encrypted flag, file count, original and
@@ -14,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   desktop app so they show the same data. `rsb_sdk::core::prune_with_stats`
   returns what a prune deleted.
 - `rsb snapshots list --json` and `rsb snapshots show --json`.
+- `rsb snapshots delete --dry-run`: shows the snapshot and the number of
+  data objects that would be deleted, without deleting anything
+  (`rsb_sdk::snapshot::preview_delete_snapshot`,
+  `rsb_sdk::core::preview_prune`).
 
 ### Fixed
 - Desktop: the Snapshots tab listed nothing (loading, details, compare and

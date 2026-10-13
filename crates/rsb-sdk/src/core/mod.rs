@@ -25,7 +25,7 @@ pub use notifications::{NotificationEvent, NotificationManager, NotificationPayl
 pub use prune::{
     PruneStats, perform_prune, perform_prune_by_age, perform_prune_by_age_with_storage,
     perform_prune_with_storage, plan_prune_by_count, plan_prune_by_count_with_storage,
-    prune_with_stats, prune_with_storage,
+    preview_prune, prune_with_stats, prune_with_storage,
 };
 pub use restore::perform_restore;
 pub use restore_select::{

@@ -488,11 +488,14 @@ snapshot keeps its data. In the desktop app, use **Delete** in the
 Snapshots tab and confirm.
 
 ```bash
+# Preview what would be deleted
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --dry-run
+
 # Delete a snapshot
-rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml
+rsb snapshots delete 2026-05-20T100000.000Z --config mybackup.toml --confirm
 
 # Or using backup path
-rsb snapshots delete 2026-05-20T100000.000Z --backup /backup/docs
+rsb snapshots delete 2026-05-20T100000.000Z --backup /backup/docs --confirm
 ```
 
 ### Scheduled Backups
