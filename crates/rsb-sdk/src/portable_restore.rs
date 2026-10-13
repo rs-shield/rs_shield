@@ -223,7 +223,7 @@ fn is_temp_or_hidden(name: &str) -> bool {
 
 /// True for a snapshot manifest file (`<timestamp>[-n].toml`), ignoring
 /// temp files from atomic writes and unrelated entries.
-fn is_snapshot_manifest_name(name: &str) -> bool {
+pub(crate) fn is_snapshot_manifest_name(name: &str) -> bool {
     !is_temp_or_hidden(name) && name.len() > ".toml".len() && name.ends_with(".toml")
 }
 

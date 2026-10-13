@@ -1,9 +1,16 @@
+use crate::ui::profile_loader::non_empty;
 use crate::ui::{
     app::AppConfig,
     i18n::get_texts,
     loading_state::{LoadingOverlay, LoadingStyle},
 };
 use dioxus::prelude::*;
+use rsb_sdk::backup::diagnostic::{BackupDiagnostics, run_backup_diagnostics};
+use rsb_sdk::credentials::Fido2Manager;
+use rsb_sdk::operation::operations::{Operation, OperationsManager};
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Clone, Debug)]
 struct DiagnosticInfo {
@@ -30,70 +37,188 @@ impl DiagnosticStatus {
     }
 }
 
+/// One line of the report.
+fn info(
+    status: DiagnosticStatus,
+    category: &str,
+    message: String,
+    details: Option<String>,
+) -> DiagnosticInfo {
+    DiagnosticInfo {
+        category: category.to_string(),
+        status,
+        message,
+        details,
+    }
+}
+
+/// Runs `rsb diagnose --backup <dir>` (read-only) off the UI thread.
+pub async fn diagnose_repository(
+    path: PathBuf,
+    key: Option<String>,
+) -> Result<BackupDiagnostics, String> {
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        handle
+            .block_on(run_backup_diagnostics(&path, key.as_deref(), false, false))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Turns the SDK diagnostics of a repository into report lines (real
+/// results; this screen used to show hard-coded "healthy" values).
+fn repository_findings(d: &BackupDiagnostics) -> Vec<DiagnosticInfo> {
+    let mut out = Vec::new();
+    let det = &d.details;
+    out.push(info(
+        if det.structure_valid && det.snapshots_count > 0 {
+            DiagnosticStatus::Healthy
+        } else {
+            DiagnosticStatus::Critical
+        },
+        "Repository",
+        format!("{} — {}", d.backup_path, d.status),
+        Some(format!(
+            "Snapshots: {} | Data objects: {} clear, {} encrypted | {:.2} MB",
+            det.snapshots_count, det.data_files_count, det.encrypted_files_count, det.total_size_mb
+        )),
+    ));
+    for issue in &d.issues {
+        out.push(info(
+            DiagnosticStatus::Critical,
+            "Issue",
+            issue.trim().to_string(),
+            None,
+        ));
+    }
+    for warning in &d.warnings {
+        out.push(info(
+            DiagnosticStatus::Warning,
+            "Warning",
+            warning.trim().to_string(),
+            None,
+        ));
+    }
+    for s in &d.suggestions {
+        out.push(info(
+            DiagnosticStatus::Warning,
+            "Suggestion",
+            s.clone(),
+            None,
+        ));
+    }
+    out
+}
+
+/// FIDO2 status from the credentials actually registered.
+fn fido2_finding(credentials: usize) -> DiagnosticInfo {
+    if credentials == 0 {
+        info(
+            DiagnosticStatus::Warning,
+            "FIDO2",
+            "No FIDO2 security key registered".to_string(),
+            Some("Register one with `rsb-cli fido2 register`".to_string()),
+        )
+    } else {
+        info(
+            DiagnosticStatus::Healthy,
+            "FIDO2",
+            format!("{} security key(s) registered", credentials),
+            None,
+        )
+    }
+}
+
+/// Last backup recorded in the operations history.
+fn last_backup_finding(last: Option<&Operation>) -> DiagnosticInfo {
+    match last {
+        None => info(
+            DiagnosticStatus::Warning,
+            "Last Backup",
+            "No backup recorded on this computer".to_string(),
+            None,
+        ),
+        Some(op) => {
+            let ok = op.status.eq_ignore_ascii_case("success");
+            info(
+                if ok {
+                    DiagnosticStatus::Healthy
+                } else {
+                    DiagnosticStatus::Critical
+                },
+                "Last Backup",
+                format!("{} — {}", op.timestamp, op.status),
+                Some(format!(
+                    "{} file(s) | {} → {}",
+                    op.files_processed,
+                    op.source_path.clone().unwrap_or_default(),
+                    op.destination_path.clone().unwrap_or_default()
+                )),
+            )
+        }
+    }
+}
+
 #[component]
 pub fn DiagnosticsScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
+    let fido2 = use_context::<Arc<Mutex<Fido2Manager>>>();
 
     let mut diagnostics = use_signal(Vec::<DiagnosticInfo>::new);
     let mut is_loading = use_signal(|| false);
     let mut last_run = use_signal(|| Option::<String>::None);
+    let mut repo_path = use_signal(PathBuf::new);
+    let mut key = use_signal(String::new);
 
-    let mut run_diagnostics = move |_| {
+    let run_diagnostics = use_callback(move |_: ()| {
         is_loading.set(true);
+        let fido2 = fido2.clone();
+        let repo = repo_path.peek().clone();
+        let key_val = non_empty(&key.peek());
         spawn(async move {
-            // TODO: Implement actual diagnostics
-            // This should check:
-            // - Backup storage availability
-            // - Configuration validity
-            // - Encryption key status
-            // - FIDO2 device status
-            // - Disk space
-            // - Network connectivity
-            // - Database integrity
-            // - Last backup status
-
-            let diags = vec![
-                DiagnosticInfo {
-                    category: "Storage".to_string(),
-                    status: DiagnosticStatus::Healthy,
-                    message: "Disk space available: 250 GB".to_string(),
-                    details: Some("Backup directory: ~/backups".to_string()),
-                },
-                DiagnosticInfo {
-                    category: "Configuration".to_string(),
-                    status: DiagnosticStatus::Healthy,
-                    message: "Configuration file is valid".to_string(),
-                    details: Some("Default profile loaded successfully".to_string()),
-                },
-                DiagnosticInfo {
-                    category: "Encryption".to_string(),
-                    status: DiagnosticStatus::Healthy,
-                    message: "Encryption key available".to_string(),
-                    details: Some("Algorithm: AES-256-GCM".to_string()),
-                },
-                DiagnosticInfo {
-                    category: "FIDO2".to_string(),
-                    status: DiagnosticStatus::Warning,
-                    message: "No FIDO2 key configured".to_string(),
-                    details: Some("Consider adding a key for biometric authentication".to_string()),
-                },
-                DiagnosticInfo {
-                    category: "Last Backup".to_string(),
-                    status: DiagnosticStatus::Healthy,
-                    message: "Backup completed successfully".to_string(),
-                    details: Some("Time: 2 hours ago | 1,234 files | 12 GB".to_string()),
-                },
-            ];
+            let mut diags = Vec::new();
+            if repo.as_os_str().is_empty() {
+                diags.push(info(
+                    DiagnosticStatus::Warning,
+                    "Repository",
+                    "No backup folder selected".to_string(),
+                    Some(
+                        "Select a backup folder to check it (rsb diagnose --backup <dir>)"
+                            .to_string(),
+                    ),
+                ));
+            } else {
+                match diagnose_repository(repo, key_val).await {
+                    Ok(d) => diags.extend(repository_findings(&d)),
+                    Err(e) => diags.push(info(DiagnosticStatus::Critical, "Repository", e, None)),
+                }
+            }
+            let credentials = fido2.lock().await.list_credentials().len();
+            diags.push(fido2_finding(credentials));
+            let last = tokio::task::spawn_blocking(|| {
+                OperationsManager::new()
+                    .get_history()
+                    .operations
+                    .iter()
+                    .find(|o| o.operation_type == "Backup")
+                    .cloned()
+            })
+            .await
+            .ok()
+            .flatten();
+            diags.push(last_backup_finding(last.as_ref()));
 
             diagnostics.set(diags);
-            last_run.set(Some("Now".to_string()));
+            last_run.set(Some(chrono::Local::now().format("%H:%M:%S").to_string()));
             is_loading.set(false);
         });
-    };
+    });
 
     use_effect(move || {
-        run_diagnostics(());
+        run_diagnostics.call(());
     });
 
     rsx! {
@@ -110,7 +235,7 @@ pub fn DiagnosticsScreen() -> Element {
                     h2 { class: "text-lg font-bold text-slate-900 dark:text-white", "🔧 {texts.diagnostics_title}" }
                     button {
                         class: "btn-primary py-1.5 px-2 flex items-center gap-1 text-sm",
-                    onclick: move |_| run_diagnostics(()),
+                    onclick: move |_| run_diagnostics.call(()),
                     disabled: is_loading(),
                     if is_loading() { "{texts.diagnostics_running}" } else { "{texts.diagnostics_run}" }
                 }
@@ -119,6 +244,38 @@ pub fn DiagnosticsScreen() -> Element {
             // Last run info
             if let Some(run_time) = last_run.read().as_ref() {
                 div { class: "text-xs text-slate-500 dark:text-slate-400", "Last run: {run_time}" }
+            }
+
+            div { class: "form-group",
+                label { class: "label-text", "Backup folder (rsb diagnose --backup)" }
+                div { class: "flex gap-3",
+                    input {
+                        class: "input-field",
+                        r#type: "text",
+                        placeholder: "Select the repository folder",
+                        value: "{repo_path.read().to_string_lossy()}",
+                        oninput: move |evt| repo_path.set(PathBuf::from(evt.value()))
+                    }
+                    button {
+                        class: "btn-icon",
+                        onclick: move |_| {
+                            spawn(async move {
+                                if let Some(h) = rfd::AsyncFileDialog::new().pick_folder().await {
+                                    repo_path.set(h.path().to_path_buf());
+                                    run_diagnostics.call(());
+                                }
+                            });
+                        },
+                        "📂"
+                    }
+                }
+                input {
+                    class: "input-field mt-2",
+                    r#type: "password",
+                    placeholder: "Encryption key (optional)",
+                    value: "{key}",
+                    oninput: move |evt| key.set(evt.value())
+                }
             }
 
             // Diagnostics summary
@@ -208,15 +365,59 @@ pub fn DiagnosticsScreen() -> Element {
                 }
             }
 
-            // Recommendations
-            div { class: "p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg",
-                h3 { class: "font-semibold text-sm text-blue-900 dark:text-blue-100 mb-2", "💡 Recomendações" }
-                ul { class: "text-xs text-blue-800 dark:text-blue-200 space-y-2 list-disc pl-5",
-                    li { "Configure uma chave FIDO2 para autenticação mais segura" }
-                    li { "Revise o agendamento de backups para garantir proteção regular" }
-                    li { "Realize um backup completo a cada mês para melhor recuperação" }
-                }
-            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn findings_reflect_the_real_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let empty = repository_findings(
+            &diagnose_repository(dir.path().to_path_buf(), None)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(empty[0].status, DiagnosticStatus::Critical);
+
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join("snapshots")).unwrap();
+        std::fs::create_dir_all(repo.join("data/enc")).unwrap();
+        std::fs::write(repo.join("snapshots/2026-01-01T000000Z.toml"), "").unwrap();
+        std::fs::write(repo.join("snapshots/.x.toml.rsb-tmp-1"), "").unwrap();
+        std::fs::write(repo.join("data/enc/abc"), "x").unwrap();
+        let d = diagnose_repository(repo.to_path_buf(), None).await.unwrap();
+        assert_eq!(d.details.snapshots_count, 1, "temp files are not snapshots");
+        let f = repository_findings(&d);
+        assert_eq!(f[0].status, DiagnosticStatus::Healthy);
+        // Encrypted data without a key is flagged.
+        assert!(f.iter().any(|i| i.status == DiagnosticStatus::Warning));
+    }
+
+    #[test]
+    fn fido2_and_history_findings() {
+        assert_eq!(fido2_finding(0).status, DiagnosticStatus::Warning);
+        assert_eq!(fido2_finding(2).status, DiagnosticStatus::Healthy);
+        assert_eq!(last_backup_finding(None).status, DiagnosticStatus::Warning);
+        let op = Operation {
+            id: "1".into(),
+            operation_type: "Backup".into(),
+            timestamp: "2026-10-01 10:00:00".into(),
+            duration_secs: 1,
+            status: "Failed".into(),
+            files_processed: 0,
+            files_skipped: 0,
+            files_with_errors: 0,
+            backup_size: "N/A".into(),
+            source_path: None,
+            destination_path: None,
+        };
+        assert_eq!(
+            last_backup_finding(Some(&op)).status,
+            DiagnosticStatus::Critical
+        );
     }
 }

@@ -5,22 +5,24 @@ use walkdir::WalkDir;
 use crate::utils::ensure_directory_exists_async;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+/// Result of [`run_backup_diagnostics`] (`rsb diagnose`).
 pub struct BackupDiagnostics {
-    backup_path: String,
-    status: String,
-    issues: Vec<String>,
-    warnings: Vec<String>,
-    suggestions: Vec<String>,
-    details: DiagnosticDetails,
+    pub backup_path: String,
+    pub status: String,
+    pub issues: Vec<String>,
+    pub warnings: Vec<String>,
+    pub suggestions: Vec<String>,
+    pub details: DiagnosticDetails,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+/// Counts gathered by [`run_backup_diagnostics`].
 pub struct DiagnosticDetails {
-    structure_valid: bool,
-    snapshots_count: usize,
-    data_files_count: usize,
-    encrypted_files_count: usize,
-    total_size_mb: f64,
+    pub structure_valid: bool,
+    pub snapshots_count: usize,
+    pub data_files_count: usize,
+    pub encrypted_files_count: usize,
+    pub total_size_mb: f64,
 }
 
 pub async fn run_backup_diagnostics(
@@ -74,9 +76,20 @@ pub async fn run_backup_diagnostics(
 
     // Count files
     let snapshots_count = if snapshots_dir.exists() {
+        // Only snapshot manifests: not temp files of interrupted writes.
         std::fs::read_dir(&snapshots_dir)
             .ok()
-            .map(|e| e.count())
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                    .filter(|e| {
+                        crate::portable_restore::is_snapshot_manifest_name(
+                            &e.file_name().to_string_lossy(),
+                        )
+                    })
+                    .count()
+            })
             .unwrap_or(0)
     } else {
         0

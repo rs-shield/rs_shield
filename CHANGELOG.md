@@ -68,6 +68,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   destination (`s3://<bucket>`); a failure to save the S3 credentials is
   reported instead of only logged (the screen also claimed they were
   "saved in config").
+- Desktop diagnostics: the screen showed hard-coded results ("250 GB
+  free", "Encryption key available", "Backup 2 hours ago"). It now runs
+  the same repository check as `rsb diagnose --backup <dir>` on a chosen
+  folder and reports the registered FIDO2 keys and the last backup from
+  the history.
+- Desktop backup integrity: objects are counted under `data/clear` and
+  `data/enc` with the SDK validation used by `rsb restore --backup` (it
+  always reported 0 data files and counted temp files as snapshots), off
+  the UI thread.
+- `rsb diagnose` counts only snapshot manifests (not temp files of
+  interrupted writes); its result fields are public in the SDK.
 
 ### Added
 - Desktop create profile: encryption (`--encrypt`), with the password
