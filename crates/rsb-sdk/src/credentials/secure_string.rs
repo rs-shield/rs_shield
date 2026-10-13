@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-#[derive(Clone, Zeroize, ZeroizeOnDrop, Serialize, Deserialize)]
+#[derive(Clone, Default, Zeroize, ZeroizeOnDrop, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SecureString {
     value: String,

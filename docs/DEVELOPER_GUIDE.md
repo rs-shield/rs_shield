@@ -627,30 +627,42 @@ Compressed: 2.3 GB → 1.1 GB
 
 #### Configuration
 
-**1. Desktop Configuration** (`integrations_screen.rs`)
+**1. Configuration types** (`rsb_sdk::integrations`, shared by the desktop
+Integrations screen and the CLI)
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelegramIntegrationConfig {
     pub enabled: bool,
-    pub bot_token: String,      // From @BotFather
-    pub chat_id: String,        // From /getUpdates API
+    pub bot_token: StoredSecret, // From @BotFather; redacted Debug, never serialized
+    pub chat_id: String,         // From /getUpdates API
 }
 ```
 
 **2. File Storage**
 
-Configurations saved to `integrations.json` in profile directory:
+`IntegrationConfig::load_default` / `save_default` use
+`~/.rs-shield/integrations.json` (atomic write, mode 0600). Secrets are kept
+in a `SecretStores` backend (OS keyring, service `rsb-shield`; fallback
+`~/.rs-shield/integrations_secrets.enc` when `RSB_INTEGRATIONS_PASSPHRASE` is
+set) and the file only records where:
 
 ```json
 {
   "telegram": {
     "enabled": true,
-    "bot_token": "123456789:ABCdefGHIjklmnoPQRstuvWXYZ",
+    "bot_token": { "stored": "keyring" },
     "chat_id": "-1001234567890"
   }
 }
 ```
+
+Legacy files with plaintext secrets are migrated on load (store, read back,
+then rewrite). Runtime overrides: `RSB_SMTP_PASSWORD`,
+`RSB_SLACK_WEBHOOK_URL`, `RSB_TELEGRAM_BOT_TOKEN`, `RSB_DISCORD_WEBHOOK_URL`.
+Tests must not touch the real keychain: pass a `SecretStores` built from
+`MemoryBackend` (or set `RSB_INTEGRATIONS_KEYRING_SERVICE` to an isolated
+service name).
 
 #### Setup Workflow
 

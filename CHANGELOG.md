@@ -13,6 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the SDK, so for the CLI, the desktop app and real-time sync alike. It
   used to store every file **unencrypted** in that repository without any
   warning. An empty key counts as no key.
+- Notification secrets (SMTP password, Slack/Discord webhook URLs, Telegram
+  bot token) are no longer stored in plaintext in
+  `~/.rs-shield/integrations.json`. They go to the OS keyring (service
+  `rsb-shield`) or, without one, to the encrypted
+  `~/.rs-shield/integrations_secrets.enc` (same AES-256-GCM/PBKDF2 format as
+  `s3_credentials.enc`, passphrase from `RSB_INTEGRATIONS_PASSPHRASE`); the
+  JSON keeps only a reference. Existing files are migrated on first load by
+  the desktop app or `rsb config list`: each secret is stored and read back
+  before the file is rewritten atomically (0600) without it; if no secure
+  store is available the file is left untouched and a warning is logged.
+  `RSB_SMTP_PASSWORD`, `RSB_SLACK_WEBHOOK_URL`, `RSB_TELEGRAM_BOT_TOKEN` and
+  `RSB_DISCORD_WEBHOOK_URL` override the stored values (headless/cron). The
+  shared logic is in the new `rsb_sdk::integrations` module; `Debug` of
+  `EmailConfig`, `ChatIntegration` and the integration settings now redacts
+  the secrets. `rsb config reset` also removes them from the keyring.
 
 ### Breaking
 - `rsb snapshots delete` now also deletes the data objects no other

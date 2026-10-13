@@ -279,8 +279,42 @@ impl ConfigCommand {
             println!("\n📦 S3 Configuration: ❌ Not configured");
         }
 
+        self.list_integrations();
+
         println!();
         Ok(())
+    }
+
+    /// Shows the notification integrations and where each secret lives
+    /// (never the value). Loading also migrates plaintext secrets out of
+    /// `integrations.json`, exactly like the desktop app.
+    fn list_integrations(&self) {
+        use rsb_sdk::integrations::{IntegrationConfig, SecretSource};
+
+        let path = IntegrationConfig::default_path();
+        if !path.exists() {
+            println!("\n🔔 Notification integrations: ❌ Not configured");
+            return;
+        }
+        let cfg = IntegrationConfig::load_default();
+        println!("\n🔔 Notification integrations ({}):", path.display());
+        let status = cfg.status();
+        if status.is_empty() {
+            println!("   (none)");
+        }
+        for s in status {
+            let mark = match s.secret {
+                SecretSource::LegacyPlaintext | SecretSource::Unreadable(_) => "⚠️",
+                _ => "  ",
+            };
+            println!(
+                "{} {:<9} {:<9} secret: {}",
+                mark,
+                s.name,
+                if s.enabled { "enabled" } else { "disabled" },
+                s.secret
+            );
+        }
     }
 
     async fn reset_config(&self, confirm: bool) -> Result<()> {
@@ -293,6 +327,19 @@ impl ConfigCommand {
         let config_dir = self.get_config_dir()?;
 
         println!("🗑️  Resetting RS Shield configuration...");
+
+        // Notification secrets live outside the directory (OS keyring).
+        {
+            use rsb_sdk::integrations::IntegrationConfig;
+            if let Err(e) =
+                IntegrationConfig::delete_all_secrets(&IntegrationConfig::default_stores())
+            {
+                eprintln!(
+                    "⚠️ Could not remove notification secrets from the keyring: {}",
+                    e
+                );
+            }
+        }
 
         if config_dir.exists() {
             fs::remove_dir_all(&config_dir).context("Failed to remove configuration directory")?;

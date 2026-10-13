@@ -272,7 +272,8 @@ pub struct Translations {
     pub ui_estimated: &'static str,
     // integrations_screen.rs
     pub integ_save_ok: &'static str,
-    pub integ_save_error: &'static str,
+    pub integ_save_error_detail: &'static str,
+    pub integ_secrets_hint: &'static str,
     pub integ_testing_status: &'static str,
     pub integ_tests_done: &'static str,
     pub integ_email_sent_ok: &'static str,
@@ -928,7 +929,8 @@ pub const PT_STRINGS: Translations = Translations {
     ui_estimated: "Estimado: {0}",
     // integrations_screen.rs
     integ_save_ok: "✅ Configurações guardadas com sucesso!",
-    integ_save_error: "❌ Erro ao guardar as configurações",
+    integ_save_error_detail: "❌ Erro ao guardar as configurações: {0}",
+    integ_secrets_hint: "🔐 A password SMTP, os URLs de webhook e o token do bot ficam no keyring do sistema, nunca em integrations.json.",
     integ_testing_status: "🧪 A testar integrações...",
     integ_tests_done: "✅ Testes concluídos:",
     integ_email_sent_ok: "✅ Email enviado com sucesso",
@@ -1584,7 +1586,8 @@ pub const EN_STRINGS: Translations = Translations {
     ui_estimated: "Estimated: {0}",
     // integrations_screen.rs
     integ_save_ok: "✅ Settings saved successfully!",
-    integ_save_error: "❌ Error saving settings",
+    integ_save_error_detail: "❌ Error saving settings: {0}",
+    integ_secrets_hint: "🔐 The SMTP password, webhook URLs and bot token are kept in the OS keyring, never in integrations.json.",
     integ_testing_status: "🧪 Testing integrations...",
     integ_tests_done: "✅ Tests completed:",
     integ_email_sent_ok: "✅ Email sent successfully",

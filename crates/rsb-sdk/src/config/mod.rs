@@ -201,6 +201,47 @@ pub fn write_file_secure(path: &std::path::Path, contents: &[u8]) -> std::io::Re
     Ok(())
 }
 
+/// Atomically replace `path` with `contents`: the data goes to a temporary
+/// file in the same directory, created with mode 0600 (no umask window),
+/// fsynced, then renamed over the destination. A crash leaves either the old
+/// or the new file, never a truncated one. The temp file is removed on error.
+pub fn write_file_atomic_secure(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("invalid file path (no file name)"))?
+        .to_string_lossy()
+        .into_owned();
+    let mut suffix = [0u8; 8];
+    {
+        use rand::Rng;
+        rand::rng().fill_bytes(&mut suffix);
+    }
+    let tmp_path = path.with_file_name(format!(".{}.tmp-{}", file_name, hex::encode(suffix)));
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let result = (|| -> std::io::Result<()> {
+        let mut file = options.open(&tmp_path)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&tmp_path, path)
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp_path);
+    }
+    result
+}
+
 /// Cria um diretório (recursivamente) com modo 0700 em unix.
 pub fn create_dir_secure(path: &std::path::Path) -> std::io::Result<()> {
     #[cfg(unix)]

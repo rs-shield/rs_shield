@@ -209,49 +209,17 @@ impl CredentialsManager {
     /// Atomically write the encrypted credentials: write to a temp file in the
     /// same directory, created with mode 0600 (no umask window), fsync, then
     /// rename over the destination. Errors are propagated, never ignored.
-    fn write_encrypted_file(
+    pub(crate) fn write_encrypted_file(
         file_path: &str,
         encrypted: &EncryptedCredentials,
     ) -> Result<(), String> {
-        use std::io::Write;
-
         let encrypted_json = serde_json::to_string_pretty(encrypted)
             .map_err(|e| format!("Error serializing encrypted data: {}", e))?;
-
-        let dest = std::path::Path::new(file_path);
-        let file_name = dest
-            .file_name()
-            .ok_or("Invalid credentials file path")?
-            .to_string_lossy()
-            .into_owned();
-        let mut suffix = [0u8; 8];
-        {
-            use rand::Rng;
-            rand::rng().fill_bytes(&mut suffix);
-        }
-        let tmp_path = dest.with_file_name(format!(".{}.tmp-{}", file_name, hex::encode(suffix)));
-
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-
-        let result = (|| -> std::io::Result<()> {
-            let mut file = options.open(&tmp_path)?;
-            file.write_all(encrypted_json.as_bytes())?;
-            file.sync_all()?;
-            drop(file);
-            std::fs::rename(&tmp_path, dest)
-        })();
-
-        if let Err(e) = result {
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(format!("Error writing file: {}", e));
-        }
-        Ok(())
+        crate::config::write_file_atomic_secure(
+            std::path::Path::new(file_path),
+            encrypted_json.as_bytes(),
+        )
+        .map_err(|e| format!("Error writing file: {}", e))
     }
 
     /// Try to get master password from keyring, or create a new one.
