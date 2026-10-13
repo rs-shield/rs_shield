@@ -260,7 +260,7 @@ does, with the same SDK code:
 | Restore | `rsb restore` (`--snapshot`, `--date`, `--files`, `--force`, `--versioned`, `--verify`) |
 | Integrity / Diagnostics | `rsb diagnose --backup <dir>` |
 | Verify | `rsb verify` (`--snapshot`, `--fast`, `--repair`) |
-| Prune | `rsb prune` (`-l N` or age, `--dry-run`, `--confirm`) |
+| Prune | `rsb prune` (`-l N` and/or `-r DAYS`, `--dry-run`, `--confirm`) |
 | Real-Time Sync | `rsb watch` |
 | Snapshots | `rsb snapshots` |
 | Schedule | `rsb schedule` |

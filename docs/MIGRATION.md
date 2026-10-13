@@ -1,5 +1,25 @@
 # Migration guide
 
+## Upgrading from 0.1.0-alpha.9 to the next release
+
+- **`rsb prune --retention` now means days, not a snapshot count.**
+  `--retention 30d` (or `30`) deletes the snapshots taken more than 30 days
+  ago and keeps all newer ones; it used to keep the newest 30 snapshots,
+  whatever their age (`6m` kept 26, `1y` 52). Scheduled prune jobs can
+  therefore delete more (several backups a day) or fewer snapshots than
+  before. The newest snapshot is never deleted. Preview first:
+
+  ```bash
+  rsb prune mybackup.toml --retention 30d --dry-run
+  ```
+
+  To keep the old behaviour, use a count: `--keep-last 30`. Given both,
+  a snapshot is kept if either rule keeps it, e.g. `--retention 30
+  --keep-last 5` keeps the last 30 days but at least 5 snapshots.
+  `--retention 0`, unknown units and values over 36500 days are now errors.
+- `rsb_sdk::utils::calculate_retention_backups` was removed; use
+  `rsb_sdk::core::RetentionPolicy` and `parse_retention_days`.
+
 ## Upgrading from 0.1.0-alpha.8 to 0.1.0-alpha.9
 
 0.1.0-alpha.9 changes the encryption format of repositories, how S3

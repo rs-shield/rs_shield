@@ -32,7 +32,7 @@ pub fn parse_retention(t: &Translations, mode: &str, value: &str) -> Result<Rete
         .filter(|n| *n >= 1)
         .ok_or_else(|| tr(t.pr_invalid_retention, &[&v]))?;
     match mode {
-        "days" => Ok(Retention::Days(n.min(36_500))),
+        "days" => Ok(Retention::Days(n.min(core::MAX_RETENTION_DAYS))),
         _ => Ok(Retention::KeepLast(n as usize)),
     }
 }
@@ -91,11 +91,20 @@ async fn run_prune(
     let storage = core::storage_backend::get_storage(&cfg)
         .await
         .map_err(|e| e.to_string())?;
-    let doomed = match retention {
-        Retention::KeepLast(n) => core::plan_prune_by_count_with_storage(&*storage, n).await,
-        Retention::Days(d) => core::plan_prune_by_age_with_storage(&*storage, d).await,
-    }
-    .map_err(|e| e.to_string())?;
+    // Same planning as `rsb prune -l N` / `rsb prune --retention N`.
+    let policy = match retention {
+        Retention::KeepLast(n) => core::RetentionPolicy {
+            keep_last: Some(n),
+            keep_within_days: None,
+        },
+        Retention::Days(d) => core::RetentionPolicy {
+            keep_last: None,
+            keep_within_days: Some(d),
+        },
+    };
+    let doomed = core::plan_prune_by_policy_with_storage(&*storage, policy)
+        .await
+        .map_err(|e| e.to_string())?;
     if doomed.is_empty() {
         return Ok((doomed, None));
     }
