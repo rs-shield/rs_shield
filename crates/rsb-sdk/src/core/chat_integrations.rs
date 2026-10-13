@@ -53,8 +53,9 @@ pub fn redact_url(raw: &str) -> String {
     }
 }
 
-/// Configuration for chat integrations (Slack, Telegram, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configuration for chat integrations (Slack, Telegram, etc.).
+/// `Debug` redacts webhook paths and the bot token (they are credentials).
+#[derive(Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub enum ChatIntegration {
     Slack {
@@ -68,6 +69,30 @@ pub enum ChatIntegration {
     Discord {
         webhook_url: String, // Discord Webhook URL
     },
+}
+
+impl std::fmt::Debug for ChatIntegration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ChatIntegration::Slack {
+                webhook_url,
+                mention_user,
+            } => f
+                .debug_struct("Slack")
+                .field("webhook_url", &redact_url(webhook_url))
+                .field("mention_user", mention_user)
+                .finish(),
+            ChatIntegration::Telegram { chat_id, .. } => f
+                .debug_struct("Telegram")
+                .field("bot_token", &"***REDACTED***")
+                .field("chat_id", chat_id)
+                .finish(),
+            ChatIntegration::Discord { webhook_url } => f
+                .debug_struct("Discord")
+                .field("webhook_url", &redact_url(webhook_url))
+                .finish(),
+        }
+    }
 }
 
 /// Formatted message for sending

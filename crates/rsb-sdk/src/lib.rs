@@ -9,6 +9,7 @@ pub mod fido2;
 #[cfg(any(test, feature = "fuzzing"))]
 #[doc(hidden)]
 pub mod fuzzing;
+pub mod integrations;
 pub mod integrity;
 pub mod metrics;
 pub mod operation;
