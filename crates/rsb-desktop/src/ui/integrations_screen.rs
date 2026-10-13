@@ -1,142 +1,13 @@
+//! Integrations screen. The configuration and its secret handling live in
+//! [`rsb_sdk::integrations`] (shared with the CLI): `integrations.json`
+//! keeps only non-secret fields; the SMTP password, webhook URLs and bot
+//! token go to the OS keyring (or the encrypted fallback file).
+
 use dioxus::prelude::*;
-use rsb_sdk::core::{ChatIntegration, EmailConfig};
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::{Path, PathBuf};
-/// Configurações de integrações salvas localmente
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IntegrationConfig {
-    pub email: Option<EmailIntegrationConfig>,
-    pub slack: Option<SlackIntegrationConfig>,
-    pub telegram: Option<TelegramIntegrationConfig>,
-    pub discord: Option<DiscordIntegrationConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmailIntegrationConfig {
-    pub enabled: bool,
-    pub smtp_server: String,
-    pub smtp_port: u16,
-    pub sender_email: String,
-    pub sender_password: String,
-    pub recipient_email: String,
-    pub use_tls: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SlackIntegrationConfig {
-    pub enabled: bool,
-    pub webhook_url: String,
-    pub mention_user: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TelegramIntegrationConfig {
-    pub enabled: bool,
-    pub bot_token: String,
-    pub chat_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiscordIntegrationConfig {
-    pub enabled: bool,
-    pub webhook_url: String,
-}
-
-impl IntegrationConfig {
-    /// The one file the Integrations screen saves and every operation
-    /// screen reads: `~/.rs-shield/integrations.json`. (Operations used to
-    /// look next to the profile or the backup folder instead, so configured
-    /// notifications were never sent.)
-    pub fn default_path() -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".rs-shield")
-            .join("integrations.json")
-    }
-
-    /// Loads [`Self::default_path`] (empty configuration if missing).
-    pub fn load_default() -> Self {
-        Self::load_from(&Self::default_path())
-    }
-
-    /// Loads the configuration file at `path` (empty if missing/invalid).
-    pub fn load_from(path: &Path) -> Self {
-        match fs::read_to_string(path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|e| {
-                tracing::warn!("Ignoring invalid {}: {}", path.display(), e);
-                Self::empty()
-            }),
-            Err(_) => Self::empty(),
-        }
-    }
-
-    fn empty() -> Self {
-        Self {
-            email: None,
-            slack: None,
-            telegram: None,
-            discord: None,
-        }
-    }
-
-    /// Saves to `path` (mode 0600: it holds SMTP passwords and webhooks).
-    pub fn save_to(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            rsb_sdk::config::create_dir_secure(dir)?;
-        }
-        let json = serde_json::to_string_pretty(self)?;
-        rsb_sdk::config::write_file_secure(path, json.as_bytes())
-    }
-
-    /// Converter para EmailConfig do SDK
-    pub fn to_email_config(&self) -> Option<EmailConfig> {
-        self.email
-            .as_ref()
-            .filter(|e| e.enabled)
-            .map(|e| EmailConfig {
-                smtp_server: e.smtp_server.clone(),
-                smtp_port: e.smtp_port,
-                sender_email: e.sender_email.clone(),
-                sender_password: e.sender_password.clone(),
-                recipient_email: e.recipient_email.clone(),
-                use_tls: e.use_tls,
-            })
-    }
-
-    /// Converter para ChatIntegrations do SDK
-    pub fn to_chat_integrations(&self) -> Vec<ChatIntegration> {
-        let mut integrations = Vec::new();
-
-        if let Some(slack) = &self.slack
-            && slack.enabled
-        {
-            integrations.push(ChatIntegration::Slack {
-                webhook_url: slack.webhook_url.clone(),
-                mention_user: slack.mention_user.clone(),
-            });
-        }
-
-        if let Some(telegram) = &self.telegram
-            && telegram.enabled
-        {
-            integrations.push(ChatIntegration::Telegram {
-                bot_token: telegram.bot_token.clone(),
-                chat_id: telegram.chat_id.clone(),
-            });
-        }
-
-        if let Some(discord) = &self.discord
-            && discord.enabled
-        {
-            integrations.push(ChatIntegration::Discord {
-                webhook_url: discord.webhook_url.clone(),
-            });
-        }
-
-        integrations
-    }
-}
+pub use rsb_sdk::integrations::{
+    DiscordIntegrationConfig, EmailIntegrationConfig, IntegrationConfig, SlackIntegrationConfig,
+    TelegramIntegrationConfig,
+};
 
 /// Componente de tela de integrações
 #[component]
@@ -149,7 +20,15 @@ pub fn IntegrationScreen() -> Element {
     let mut test_results = use_signal(String::new);
 
     let handle_save_config = move |_| {
-        if let Ok(()) = config().save_to(&IntegrationConfig::default_path()) {
+        let mut updated = config();
+        let result = updated.save_default();
+        // Keep the stored locations even if a later step failed.
+        config.set(updated);
+        if let Err(e) = result {
+            // The error never contains secret values.
+            status_msg.set(format!("❌ Erro ao salvar configurações: {}", e));
+            show_status.set(true);
+        } else {
             status_msg.set("✅ Configurações salvas com sucesso!".to_string());
             show_status.set(true);
 
@@ -158,9 +37,6 @@ pub fn IntegrationScreen() -> Element {
                 tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                 show_status.set(false);
             });
-        } else {
-            status_msg.set("❌ Erro ao salvar configurações".to_string());
-            show_status.set(true);
         }
     };
 
@@ -319,21 +195,21 @@ fn EmailForm(
     config: Signal<IntegrationConfig>,
     on_change: EventHandler<EmailIntegrationConfig>,
 ) -> Element {
-    let email_config = config().email.unwrap_or(EmailIntegrationConfig {
-        enabled: false,
-        smtp_server: "smtp.gmail.com".to_string(),
-        smtp_port: 587,
-        sender_email: String::new(),
-        sender_password: String::new(),
-        recipient_email: String::new(),
-        use_tls: true,
-    });
+    let email_config = config().email.unwrap_or_default();
+    // Typed value applied to the current secret (unchanged = untouched).
+    let password_secret = move |v: &str| {
+        config()
+            .email
+            .unwrap_or_default()
+            .sender_password
+            .updated(v)
+    };
 
     let mut enabled = use_signal(|| email_config.enabled);
     let mut smtp_server = use_signal(|| email_config.smtp_server.clone());
     let mut smtp_port = use_signal(|| email_config.smtp_port.to_string());
     let mut sender_email = use_signal(|| email_config.sender_email.clone());
-    let mut sender_password = use_signal(|| email_config.sender_password.clone());
+    let mut sender_password = use_signal(|| email_config.sender_password.expose().to_string());
     let mut recipient_email = use_signal(|| email_config.recipient_email.clone());
     let mut use_tls = use_signal(|| email_config.use_tls);
 
@@ -344,7 +220,7 @@ fn EmailForm(
             smtp_server: smtp_server(),
             smtp_port: port,
             sender_email: sender_email(),
-            sender_password: sender_password(),
+            sender_password: password_secret(&sender_password()),
             recipient_email: recipient_email(),
             use_tls: use_tls(),
         });
@@ -358,7 +234,7 @@ fn EmailForm(
             smtp_server: smtp_server(),
             smtp_port: port,
             sender_email: sender_email(),
-            sender_password: sender_password(),
+            sender_password: password_secret(&sender_password()),
             recipient_email: recipient_email(),
             use_tls: use_tls(),
         });
@@ -478,7 +354,7 @@ fn EmailForm(
                                 smtp_server: smtp_server(),
                                 smtp_port: port,
                                 sender_email: sender_email(),
-                                sender_password: sender_password(),
+                                sender_password: password_secret(&sender_password()),
                                 recipient_email: recipient_email(),
                                 use_tls: use_tls(),
                             });
@@ -496,20 +372,17 @@ fn SlackForm(
     config: Signal<IntegrationConfig>,
     on_change: EventHandler<SlackIntegrationConfig>,
 ) -> Element {
-    let slack_config = config().slack.unwrap_or(SlackIntegrationConfig {
-        enabled: false,
-        webhook_url: String::new(),
-        mention_user: None,
-    });
+    let slack_config = config().slack.unwrap_or_default();
+    let webhook_secret = move |v: &str| config().slack.unwrap_or_default().webhook_url.updated(v);
 
     let mut enabled = use_signal(|| slack_config.enabled);
-    let mut webhook_url = use_signal(|| slack_config.webhook_url.clone());
+    let mut webhook_url = use_signal(|| slack_config.webhook_url.expose().to_string());
     let mut mention_user = use_signal(|| slack_config.mention_user.clone().unwrap_or_default());
 
     let handle_update = move |_| {
         on_change.call(SlackIntegrationConfig {
             enabled: enabled(),
-            webhook_url: webhook_url(),
+            webhook_url: webhook_secret(&webhook_url()),
             mention_user: if mention_user().is_empty() {
                 None
             } else {
@@ -522,7 +395,7 @@ fn SlackForm(
         enabled.toggle();
         on_change.call(SlackIntegrationConfig {
             enabled: enabled(),
-            webhook_url: webhook_url(),
+            webhook_url: webhook_secret(&webhook_url()),
             mention_user: if mention_user().is_empty() {
                 None
             } else {
@@ -591,20 +464,17 @@ fn TelegramForm(
     config: Signal<IntegrationConfig>,
     on_change: EventHandler<TelegramIntegrationConfig>,
 ) -> Element {
-    let telegram_config = config().telegram.unwrap_or(TelegramIntegrationConfig {
-        enabled: false,
-        bot_token: String::new(),
-        chat_id: String::new(),
-    });
+    let telegram_config = config().telegram.unwrap_or_default();
+    let token_secret = move |v: &str| config().telegram.unwrap_or_default().bot_token.updated(v);
 
     let mut enabled = use_signal(|| telegram_config.enabled);
-    let mut bot_token = use_signal(|| telegram_config.bot_token.clone());
+    let mut bot_token = use_signal(|| telegram_config.bot_token.expose().to_string());
     let mut chat_id = use_signal(|| telegram_config.chat_id.clone());
 
     let handle_update = move |_| {
         on_change.call(TelegramIntegrationConfig {
             enabled: enabled(),
-            bot_token: bot_token(),
+            bot_token: token_secret(&bot_token()),
             chat_id: chat_id(),
         });
     };
@@ -613,7 +483,7 @@ fn TelegramForm(
         enabled.toggle();
         on_change.call(TelegramIntegrationConfig {
             enabled: enabled(),
-            bot_token: bot_token(),
+            bot_token: token_secret(&bot_token()),
             chat_id: chat_id(),
         });
     };
@@ -702,18 +572,16 @@ fn DiscordForm(
     config: Signal<IntegrationConfig>,
     on_change: EventHandler<DiscordIntegrationConfig>,
 ) -> Element {
-    let discord_config = config().discord.unwrap_or(DiscordIntegrationConfig {
-        enabled: false,
-        webhook_url: String::new(),
-    });
+    let discord_config = config().discord.unwrap_or_default();
+    let webhook_secret = move |v: &str| config().discord.unwrap_or_default().webhook_url.updated(v);
 
     let mut enabled = use_signal(|| discord_config.enabled);
-    let mut webhook_url = use_signal(|| discord_config.webhook_url.clone());
+    let mut webhook_url = use_signal(|| discord_config.webhook_url.expose().to_string());
 
     let handle_update = move |_| {
         on_change.call(DiscordIntegrationConfig {
             enabled: enabled(),
-            webhook_url: webhook_url(),
+            webhook_url: webhook_secret(&webhook_url()),
         });
     };
 
@@ -721,7 +589,7 @@ fn DiscordForm(
         enabled.toggle();
         on_change.call(DiscordIntegrationConfig {
             enabled: enabled(),
-            webhook_url: webhook_url(),
+            webhook_url: webhook_secret(&webhook_url()),
         });
     };
 
@@ -764,30 +632,41 @@ fn DiscordForm(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rsb_sdk::integrations::{MemoryBackend, SecretLocation, SecretStores, StoredSecret};
+
+    const HOOK: &str = "https://discord.example/api/webhooks/1/SECRETPART";
 
     #[test]
-    fn saved_config_is_loaded_back_from_the_same_file() {
+    fn saved_config_keeps_the_secret_out_of_the_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sub").join("integrations.json");
-        let mut cfg = IntegrationConfig::load_from(&path);
-        assert!(cfg.to_chat_integrations().is_empty());
+        // In-memory "keyring": tests never touch the real OS keychain.
+        let stores = SecretStores::new(vec![Box::new(MemoryBackend::new(SecretLocation::Keyring))]);
+        let no_env = |_: &str| None;
+
+        let mut cfg = IntegrationConfig::load(&path, &stores);
+        assert!(cfg.to_chat_integrations_with(&no_env).is_empty());
         cfg.discord = Some(DiscordIntegrationConfig {
             enabled: true,
-            webhook_url: "https://discord.example/hook".into(),
+            webhook_url: StoredSecret::new(HOOK),
         });
-        cfg.save_to(&path).unwrap();
+        cfg.save(&path, &stores).unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = std::fs::metadata(&path).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
-        assert_eq!(
-            IntegrationConfig::load_from(&path)
-                .to_chat_integrations()
-                .len(),
-            1
+        assert!(
+            !std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("SECRETPART")
         );
+        assert!(!format!("{:?}", cfg).contains("SECRETPART"));
+
+        let back = IntegrationConfig::load(&path, &stores);
+        assert_eq!(back.to_chat_integrations_with(&no_env).len(), 1);
+        assert_eq!(back.discord.unwrap().webhook_url.expose(), HOOK);
         assert!(IntegrationConfig::default_path().ends_with(".rs-shield/integrations.json"));
     }
 }
