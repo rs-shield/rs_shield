@@ -699,6 +699,20 @@ impl Fido2Manager {
         Ok(())
     }
 
+    /// Deletes every key of `user_id` from the credentials file at `path`
+    /// (`rsb auth delete`): reloads the file first, so nothing newer is
+    /// lost and a file that cannot be read is never overwritten with an
+    /// empty state; refuses unknown users; then saves. The caller must
+    /// have authenticated as `user_id`.
+    pub fn revoke_user_persisted(&mut self, path: &Path, user_id: &str) -> Result<(), Fido2Error> {
+        self.load_from_file(path)?;
+        if !self.has_credential(user_id) {
+            return Err(Fido2Error::CredentialNotFound);
+        }
+        self.revoke_user(user_id)?;
+        self.save_to_file(path)
+    }
+
     pub fn revoke_credential(
         &mut self,
         user_id: &str,
@@ -782,6 +796,25 @@ mod tests {
         let mgr = create_manager();
         assert_eq!(mgr.list_credentials().len(), 0);
     }
+    #[test]
+    fn test_revoke_user_persisted_refuses_unknown_user_without_writing() {
+        // No credentials file: loading it touches neither the disk nor the
+        // keyring, and an unknown user is refused before anything is saved.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fido2_credentials.json");
+        let mut mgr = create_manager();
+        assert!(matches!(
+            mgr.revoke_user_persisted(&path, "ghost"),
+            Err(Fido2Error::CredentialNotFound)
+        ));
+        assert!(!path.exists());
+
+        // An unreadable file is never replaced.
+        std::fs::write(&path, b"short").unwrap();
+        assert!(mgr.revoke_user_persisted(&path, "ghost").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"short");
+    }
+
     #[test]
     fn test_generate_codes_refuses_unknown_user() {
         let mut mgr = create_manager();

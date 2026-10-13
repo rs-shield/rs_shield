@@ -564,3 +564,256 @@ pub fn get_texts(lang: Language) -> &'static Translations {
         Language::En => &EN_STRINGS,
     }
 }
+
+/// Fills `{name}` placeholders of a translated template.
+pub fn fill(template: &str, values: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (name, value) in values {
+        out = out.replace(&format!("{{{}}}", name), value);
+    }
+    out
+}
+
+/// Declares [`KeyTexts`] with its Portuguese and English values side by
+/// side, so no language can miss a string.
+macro_rules! key_texts {
+    ($($field:ident: $pt:expr, $en:expr;)*) => {
+        /// Texts of the key lifecycle, repair and FIDO2 management screens.
+        pub struct KeyTexts {
+            $(pub $field: &'static str,)*
+        }
+
+        pub const PT_KEY_TEXTS: KeyTexts = KeyTexts { $($field: $pt,)* };
+        pub const EN_KEY_TEXTS: KeyTexts = KeyTexts { $($field: $en,)* };
+
+        impl KeyTexts {
+            /// Every (field, text) pair, for consistency tests.
+            #[cfg(test)]
+            pub fn all(&self) -> Vec<(&'static str, &'static str)> {
+                vec![$((stringify!($field), self.$field),)*]
+            }
+        }
+    };
+}
+
+key_texts! {
+    // Repository key screen
+    title: "🔑 Chave do repositório", "🔑 Repository Key";
+    intro:
+        "keys/repo.key guarda a chave de dados de um repositório cifrado (formato v3), protegida pela sua palavra-passe. Perdê-lo torna todos os backups v3 ilegíveis, mesmo com a palavra-passe: exporte uma cópia. Equivalente a `rsb key init/migrate/rotate/export/import/change-password`.",
+        "keys/repo.key holds the data key of an encrypted repository (format v3), wrapped by your password. Losing it makes every v3 backup unreadable, even with the password: export a copy. Same as `rsb key init/migrate/rotate/export/import/change-password`.";
+    profile_label: "📋 Perfil (opcional)", "📋 Profile (optional)";
+    profile_placeholder: "Selecione um perfil", "Select a profile";
+    profile_loaded: "✅ Perfil carregado: {path}", "✅ Profile loaded: {path}";
+    repo_label: "Pasta do repositório", "Repository folder";
+    repo_placeholder:
+        "Pasta do backup (repositório); vazio: bucket S3 das Configurações",
+        "Backup (repository) folder; empty: S3 bucket of Settings";
+    password_label: "Palavra-passe do repositório (atual)", "Repository password (current)";
+    need_password: "Introduza a palavra-passe do repositório.", "Enter the repository password.";
+    working: "A trabalhar na chave do repositório...", "Working on the repository key...";
+    status_section: "Estado", "Status";
+    check_button: "🔄 Analisar repositório", "🔄 Check repository";
+    checking: "🔍 A analisar o repositório (só leitura)...", "🔍 Checking the repository (read-only)...";
+    status_no_key:
+        "Sem keys/repo.key: o repositório ainda não é v3 (crie a chave abaixo ou faça um backup cifrado).",
+        "No keys/repo.key: the repository is not v3 yet (create the key below, or run an encrypted backup).";
+    status_key: "✅ keys/repo.key presente (id da chave {id}).", "✅ keys/repo.key present (key id {id}).";
+    status_rotating:
+        "⚠️ Uma rotação da chave foi interrompida: execute Rodar de novo para a retomar.",
+        "⚠️ A key rotation was interrupted: run Rotate again to resume it.";
+    status_encrypted:
+        "{objects} objeto(s) cifrado(s) ({bytes}) e {manifests} manifesto(s) cifrado(s).",
+        "{objects} encrypted object(s) ({bytes}) and {manifests} encrypted manifest(s).";
+    status_legacy:
+        "⚠️ {objects} objeto(s) v1/v2 ({bytes}) e {manifests} manifesto(s) v1/v2 por migrar.",
+        "⚠️ {objects} v1/v2 object(s) ({bytes}) and {manifests} v1/v2 manifest(s) still to migrate.";
+    status_legacy_secret:
+        "O ficheiro da chave ainda guarda a palavra-passe antiga (v1/v2); a migração remove-a.",
+        "The key file still holds the legacy (v1/v2) password; the migration removes it.";
+    // Init
+    init_section: "Criar a chave (init)", "Create the key (init)";
+    init_hint:
+        "Cria keys/repo.key (formato v3). Se o repositório já tem backups cifrados, use a palavra-passe deles.",
+        "Creates keys/repo.key (format v3). If this repository already has encrypted backups, use their password.";
+    new_password: "Nova palavra-passe", "New password";
+    confirm_password: "Confirmar a nova palavra-passe", "Confirm new password";
+    password_empty: "A nova palavra-passe não pode estar vazia.", "The new password must not be empty.";
+    password_mismatch: "As palavras-passe não coincidem.", "The passwords do not match.";
+    init_button: "🆕 Criar o ficheiro da chave", "🆕 Create key file";
+    init_exists:
+        "keys/repo.key já existe; use Alterar palavra-passe.",
+        "keys/repo.key already exists; use Change password.";
+    init_done: "✅ Criado keys/repo.key (formato v3).", "✅ Created keys/repo.key (format v3).";
+    init_legacy:
+        "ℹ️ O repositório tem dados v1/v2: re-cifre-os com Migrar (até lá a palavra-passe não pode ser alterada).",
+        "ℹ️ This repository holds v1/v2 data: re-encrypt it with Migrate (until then the password cannot be changed).";
+    export_reminder:
+        "⚠️ Perder keys/repo.key torna todos os backups v3 ilegíveis, mesmo com a palavra-passe: exporte agora uma cópia (Exportar ficheiro da chave) e guarde-a em segurança.",
+        "⚠️ Losing keys/repo.key makes every v3 backup unreadable, even with the password: export a copy now (Export key file) and store it safely.";
+    // Migrate
+    migrate_section: "Migrar dados v1/v2 para v3", "Migrate v1/v2 data to v3";
+    migrate_hint:
+        "Re-cifra cada objeto e manifesto v1/v2 como v3, verifica o repositório e remove a palavra-passe antiga. Pode ser retomada: se for interrompida ou parada, execute-a de novo.",
+        "Re-encrypts every v1/v2 object and manifest as v3, verifies the repository and drops the legacy password. Resumable: if interrupted or stopped, run it again.";
+    migrate_button: "🔁 Migrar…", "🔁 Migrate…";
+    migrate_confirm:
+        "Vai re-cifrar como v3 {objects} objeto(s) v1/v2 ({bytes}) e {manifests} manifesto(s) v1/v2 e verificar todo o repositório. Nada é apagado.",
+        "This re-encrypts {objects} v1/v2 object(s) ({bytes}) and {manifests} v1/v2 manifest(s) as v3 and verifies the whole repository. Nothing is deleted.";
+    migrate_nothing:
+        "Não há dados v1/v2: a migração só verifica o repositório e remove a palavra-passe antiga, se estiver guardada.",
+        "No v1/v2 data left: the migration only verifies the repository and removes the legacy password, if stored.";
+    migrate_running: "🔁 A migrar para v3...", "🔁 Migrating to v3...";
+    migrate_done:
+        "✅ Migração concluída: {migrated} objeto(s) re-cifrado(s) como v3 ({already} já eram v3), {manifests} manifesto(s) reescrito(s), {verified} objeto(s) verificado(s).",
+        "✅ Migration complete: {migrated} object(s) re-encrypted as v3 ({already} already v3), {manifests} manifest(s) rewritten, {verified} object(s) verified.";
+    migrate_secret_removed:
+        "🔑 A palavra-passe antiga (v1/v2) foi removida de keys/repo.key.",
+        "🔑 The legacy (v1/v2) password was removed from keys/repo.key.";
+    migrate_unreferenced:
+        "ℹ️ {count} objeto(s) v1/v2 não são usados por nenhum snapshot (a limpeza remove-os).",
+        "ℹ️ {count} v1/v2 object(s) are not referenced by any snapshot (prune garbage-collects them).";
+    migrate_unreadable:
+        "⚠️ {count} objeto(s) não referenciado(s) não puderam ser decifrados e ficaram como estavam.",
+        "⚠️ {count} unreferenced object(s) could not be decrypted and were left as they are.";
+    // Rotate
+    rotate_section: "Rodar a chave de dados", "Rotate the data key";
+    rotate_hint:
+        "Gera uma nova chave de dados e re-cifra cada objeto e manifesto com ela; a chave antiga é removida depois de tudo verificado. Pode ser retomada. Requer a migração v1/v2 concluída.",
+        "Generates a new data key and re-encrypts every object and manifest under it; the old key is dropped once everything verifies. Resumable. Requires the v1/v2 migration to be complete.";
+    rotate_button: "♻️ Rodar…", "♻️ Rotate…";
+    rotate_confirm:
+        "Vai ler e reescrever com uma chave nova {objects} objeto(s) ({bytes}) e {manifests} manifesto(s). As cópias antigas de keys/repo.key (exportações) deixam de abrir os dados.",
+        "This reads and rewrites {objects} object(s) ({bytes}) and {manifests} manifest(s) under a new key. Old copies of keys/repo.key (exports) will no longer open the data.";
+    rotate_resume:
+        "Uma rotação interrompida vai ser retomada (os objetos já re-cifrados são saltados).",
+        "An interrupted rotation will be resumed (objects already re-encrypted are skipped).";
+    rotate_running: "♻️ A rodar a chave...", "♻️ Rotating the key...";
+    rotate_done:
+        "✅ Chave rodada: {old} → {new} ({objects} objeto(s) e {manifests} manifesto(s) re-cifrados, {verified} objeto(s) verificado(s)).",
+        "✅ Key rotated: {old} → {new} ({objects} object(s) and {manifests} manifest(s) re-encrypted, {verified} object(s) verified).";
+    rotate_unreadable:
+        "⚠️ {count} objeto(s) não referenciado(s) não puderam ser re-cifrados e ficaram como estavam (a limpeza remove-os).",
+        "⚠️ {count} unreferenced object(s) could not be re-encrypted and were left as they are (prune garbage-collects them).";
+    rotate_export_reminder:
+        "⚠️ As cópias antigas de keys/repo.key já não abrem os dados: exporte agora o novo ficheiro da chave.",
+        "⚠️ Old copies of keys/repo.key no longer open the data: export the new key file now.";
+    // Shared
+    confirm_title: "Confirmar", "Confirm";
+    confirm_button: "✅ Confirmar", "✅ Confirm";
+    cancel_button: "✖ Cancelar", "✖ Cancel";
+    stop_button: "⏹️ Parar", "⏹️ Stop";
+    stopping:
+        "⏹️ A parar depois do objeto atual...",
+        "⏹️ Stopping after the current object...";
+    stopped:
+        "⏹️ Parado. O repositório continua legível; execute a mesma ação de novo para retomar.",
+        "⏹️ Stopped. The repository stays readable; run the same action again to resume.";
+    // Export / import / change password
+    export_section: "Exportar / Importar", "Export / Import";
+    paper_form: "Exportar a forma imprimível em papel (--paper)", "Export the printable paper form (--paper)";
+    import_force:
+        "Importar: substituir um ficheiro de chave diferente já existente (--force; o antigo é guardado)",
+        "Import: replace a different existing key file (--force; the old one is backed up)";
+    export_button: "📤 Exportar ficheiro da chave", "📤 Export key file";
+    import_button: "📥 Importar ficheiro da chave", "📥 Import key file";
+    change_section: "Alterar palavra-passe", "Change password";
+    change_hint:
+        "Só o ficheiro da chave é reescrito; os dados ficam como estão.",
+        "Only the key file is rewritten; the data stays as it is.";
+    change_button: "🔁 Alterar palavra-passe", "🔁 Change password";
+    // Verify --repair
+    repair_option:
+        "🔧 Reparar (--repair): apagar objetos comprovadamente corrompidos, para o próximo backup os enviar de novo (sempre verificação completa)",
+        "🔧 Repair (--repair): delete objects proven corrupt, so the next backup uploads them again (always a full check)";
+    repair_checking:
+        "🔍 A procurar objetos corrompidos (sem alterar nada)...",
+        "🔍 Looking for corrupt objects (nothing is changed)...";
+    repair_none:
+        "✅ Nenhum objeto corrompido: a reparação não tem nada a apagar.",
+        "✅ No corrupt object: repair has nothing to delete.";
+    repair_will_delete:
+        "A reparação vai APAGAR {count} objeto(s) comprovadamente corrompido(s); o próximo backup envia-os de novo se os ficheiros de origem ainda existirem:",
+        "Repair will DELETE {count} object(s) proven corrupt; the next backup uploads them again if the source files still exist:";
+    repair_missing:
+        "{count} objeto(s) referenciado(s) em falta: a reparação não os recupera (o próximo backup envia-os se os ficheiros de origem existirem).",
+        "{count} referenced object(s) are missing: repair cannot bring them back (the next backup uploads them if the source files still exist).";
+    repair_more: "… mais {count}", "… {count} more";
+    repair_used_by: "usado por", "used by";
+    repair_confirm_button: "🗑️ Apagar {count} objeto(s) corrompido(s)", "🗑️ Delete {count} corrupt object(s)";
+    // Diagnose --repair
+    diag_repair_button: "🔧 Reparar estrutura…", "🔧 Repair structure…";
+    diag_repair_confirm:
+        "A reparação vai criar as pastas em falta: {list}. Nada mais é alterado.",
+        "Repair will create the missing directories: {list}. Nothing else is changed.";
+    diag_repair_none:
+        "A estrutura do repositório está completa: nada a reparar.",
+        "The repository structure is complete: nothing to repair.";
+    diag_repair_done: "✅ Estrutura reparada: {list}", "✅ Structure repaired: {list}";
+    diag_path_not_found:
+        "❌ Pasta do backup não encontrada: {path}",
+        "❌ Backup path not found: {path}";
+    diag_repair_local_only:
+        "A reparação da estrutura só se aplica a repositórios locais.",
+        "Structure repair only applies to local repositories.";
+    // FIDO2 keys
+    fido2_register_button: "➕ Registar uma chave nova", "➕ Register a new key";
+    fido2_register_hint:
+        "Abre o browser para registar uma chave de segurança (como `rsb auth register`). Para juntar uma chave a um utilizador existente, autentique-se primeiro nessa página com uma das chaves dele.",
+        "Opens the browser to register a security key (like `rsb auth register`). To add a key to an existing user, first authenticate in that page with one of its keys.";
+    fido2_register_waiting:
+        "🌐 À espera do registo no browser...",
+        "🌐 Waiting for the registration in the browser...";
+    fido2_register_done: "✅ Chave registada.", "✅ Key registered.";
+    fido2_register_cancelled: "Registo cancelado.", "Registration cancelled.";
+    fido2_delete_button: "🗑️ Apagar as minhas chaves…", "🗑️ Delete my keys…";
+    fido2_delete_confirm:
+        "Isto apaga deste computador todas as chaves FIDO2 de '{user}' (como `rsb auth delete`). A sessão termina e terá de registar uma chave para voltar a entrar. Escreva o identificador para confirmar:",
+        "This deletes every FIDO2 key of '{user}' from this computer (like `rsb auth delete`). You will be signed out and need to register a key again to sign in. Type the identifier to confirm:";
+    fido2_delete_mismatch: "O identificador não coincide.", "The identifier does not match.";
+    fido2_delete_unknown: "Utilizador desconhecido: {user}", "Unknown user: {user}";
+    fido2_delete_done: "✅ Chaves de '{user}' apagadas.", "✅ Keys of '{user}' deleted.";
+    fido2_delete_action: "🗑️ Apagar", "🗑️ Delete";
+}
+
+pub fn get_key_texts(lang: Language) -> &'static KeyTexts {
+    match lang {
+        Language::Pt => &PT_KEY_TEXTS,
+        Language::En => &EN_KEY_TEXTS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn placeholders(s: &str) -> Vec<String> {
+        let mut v: Vec<String> = s
+            .split('{')
+            .skip(1)
+            .filter_map(|p| p.split_once('}').map(|(name, _)| name.to_string()))
+            .collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn key_texts_have_the_same_placeholders_in_every_language() {
+        let pt = PT_KEY_TEXTS.all();
+        let en = EN_KEY_TEXTS.all();
+        assert_eq!(pt.len(), en.len());
+        for ((field, p), (_, e)) in pt.iter().zip(en.iter()) {
+            assert!(!p.is_empty() && !e.is_empty(), "{field}");
+            assert_eq!(placeholders(p), placeholders(e), "{field}");
+        }
+    }
+
+    #[test]
+    fn fill_replaces_named_placeholders() {
+        assert_eq!(
+            fill("{a} and {b} and {a}", &[("a", "1"), ("b", "2")]),
+            "1 and 2 and 1"
+        );
+        assert_eq!(fill("no placeholder", &[("a", "1")]), "no placeholder");
+    }
+}

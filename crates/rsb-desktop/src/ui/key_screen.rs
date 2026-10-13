@@ -1,9 +1,12 @@
-//! Repository key (`keys/repo.key`, format v3): export, import and change
-//! password — the same SDK calls as `rsb key export/import/change-password`.
+//! Repository key (`keys/repo.key`, format v3): init, migrate, rotate,
+//! export, import and change password — the same SDK calls as
+//! `rsb key init/migrate/rotate/export/import/change-password`.
 
 use dioxus::prelude::*;
-use rsb_sdk::crypto::keyfile::{self, REPO_KEY_PATH};
-use rsb_sdk::crypto::{lifecycle, paper};
+use rsb_sdk::CancellationToken;
+use rsb_sdk::crypto::keyfile::{self, KdfParams, REPO_KEY_PATH};
+use rsb_sdk::crypto::lifecycle::{self, KeyStatus};
+use rsb_sdk::crypto::paper;
 use rsb_sdk::storage::Storage;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -13,8 +16,14 @@ use zeroize::Zeroizing;
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
+    i18n::{fill, get_key_texts},
+    key_lifecycle::{
+        check_new_password, init_key, migrate, migrate_preview, off_ui_thread, rotate,
+        rotate_preview, status_text,
+    },
     loading_state::{LoadingOverlay, LoadingStyle},
     profile_loader::{LoadedProfile, load_profile, repository_config, repository_label},
+    shared::{ProgressBar, progress_reporter},
 };
 
 /// Largest key file accepted for import (as `rsb key import`).
@@ -141,21 +150,40 @@ pub async fn change_password(
     Ok("✅ Repository password changed. Existing backups are unchanged. Update RSB_ENCRYPTION_KEY / the OS keyring entry used by scheduled backups.".to_string())
 }
 
+/// A key operation waiting for the user's confirmation, with the text that
+/// says what it will do.
+#[derive(Clone, Debug, PartialEq)]
+enum Pending {
+    Migrate(String),
+    Rotate(String),
+}
+
 #[component]
 pub fn KeyScreen() -> Element {
     let app_config = use_context::<AppConfig>();
+    let t = get_key_texts(app_config.language());
     let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut repo_path = use_signal(PathBuf::new);
+    // Passwords live only in these signals (memory) and are cleared after
+    // use; they are never logged or written anywhere.
     let mut password = use_signal(String::new);
     let mut new_password = use_signal(String::new);
     let mut confirm_password = use_signal(String::new);
+    let mut init_password = use_signal(String::new);
+    let mut init_confirm = use_signal(String::new);
     let mut paper_form = use_signal(|| false);
     let mut force = use_signal(|| false);
+    // Short operations (spinner) and long ones (progress bar + stop).
     let mut busy = use_signal(|| false);
+    let mut running = use_signal(|| false);
+    let mut progress = use_signal(|| 0.0);
+    let mut token = use_signal(CancellationToken::new);
+    let mut pending = use_signal(|| Option::<Pending>::None);
+    let mut key_status = use_signal(|| Option::<KeyStatus>::None);
     let mut status = use_signal(String::new);
 
     // Opens the storage of the selected repository (profile, folder or the
-    // S3 bucket of Settings).
+    // S3 bucket of Settings) through the SDK storage abstraction.
     let open_storage = move || {
         let s3 = S3Settings::from_app(&app_config);
         let cfg = repository_config(profile().as_ref(), &repo_path(), &s3);
@@ -165,6 +193,25 @@ pub fn KeyScreen() -> Element {
                 .await
                 .map_err(|e| e.to_string())
         }
+    };
+
+    // Reads the key status (no password) off the UI thread.
+    let fetch_status = move || {
+        let storage = open_storage();
+        async move {
+            let storage = storage.await?;
+            off_ui_thread(move || async move {
+                lifecycle::key_status(&*storage)
+                    .await
+                    .map_err(|e| e.to_string())
+            })
+            .await?
+        }
+    };
+
+    let mut forget_repo_state = move || {
+        key_status.set(None);
+        pending.set(None);
     };
 
     let handle_load_profile = move |_| {
@@ -177,12 +224,153 @@ pub fn KeyScreen() -> Element {
                 match load_profile(h.path()) {
                     Ok(p) => {
                         repo_path.set(PathBuf::from(repository_label(&p.config)));
-                        status.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status.set(fill(
+                            t.profile_loaded,
+                            &[("path", &p.path.display().to_string())],
+                        ));
                         profile.set(Some(p));
+                        forget_repo_state();
                     }
                     Err(e) => status.set(format!("❌ {}", e)),
                 }
             }
+        });
+    };
+
+    let handle_check = move |_| {
+        busy.set(true);
+        pending.set(None);
+        status.set(t.checking.to_string());
+        let fut = fetch_status();
+        spawn(async move {
+            match fut.await {
+                Ok(s) => {
+                    status.set(status_text(&s, t));
+                    key_status.set(Some(s));
+                }
+                Err(e) => status.set(format!("❌ {}", e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    // First step of migrate/rotate: read what it will do and ask.
+    let mut prepare = move |rotate_op: bool| {
+        busy.set(true);
+        pending.set(None);
+        status.set(t.checking.to_string());
+        let fut = fetch_status();
+        spawn(async move {
+            match fut.await {
+                Ok(s) if !s.key_file => {
+                    status.set(format!("❌ {}", t.status_no_key));
+                    key_status.set(Some(s));
+                }
+                Ok(s) => {
+                    status.set(status_text(&s, t));
+                    pending.set(Some(if rotate_op {
+                        Pending::Rotate(rotate_preview(&s, t))
+                    } else {
+                        Pending::Migrate(migrate_preview(&s, t))
+                    }));
+                    key_status.set(Some(s));
+                }
+                Err(e) => status.set(format!("❌ {}", e)),
+            }
+            busy.set(false);
+        });
+    };
+
+    // Second step: the confirmed migrate/rotate, off the UI thread, with
+    // progress and stop (resumable: running it again continues).
+    let handle_confirm = move |_| {
+        let Some(op) = pending() else {
+            return;
+        };
+        let pw = Zeroizing::new(password());
+        if pw.is_empty() {
+            status.set(format!("❌ {}", t.need_password));
+            return;
+        }
+        pending.set(None);
+        let is_rotate = matches!(op, Pending::Rotate(_));
+        let tok = CancellationToken::new();
+        token.set(tok.clone());
+        progress.set(0.0);
+        running.set(true);
+        status.set(
+            if is_rotate {
+                t.rotate_running
+            } else {
+                t.migrate_running
+            }
+            .to_string(),
+        );
+        let cb = progress_reporter(progress, status, running);
+        let storage = open_storage();
+        spawn(async move {
+            let res = async {
+                let storage = storage.await.map_err(|e| format!("❌ {}", e))?;
+                off_ui_thread(move || async move {
+                    if is_rotate {
+                        rotate(storage, &pw, Some(cb), Some(tok), t).await
+                    } else {
+                        migrate(storage, &pw, Some(cb), Some(tok), t).await
+                    }
+                })
+                .await
+                .map_err(|e| format!("❌ {}", e))?
+            }
+            .await;
+            running.set(false);
+            if res.is_ok() {
+                progress.set(1.0);
+            }
+            status.set(match res {
+                Ok(m) | Err(m) => m,
+            });
+            if let Ok(s) = fetch_status().await {
+                key_status.set(Some(s));
+            }
+        });
+    };
+
+    let handle_stop = move |_| {
+        token().cancel();
+        status.set(t.stopping.to_string());
+    };
+
+    let handle_init = move |_| {
+        let new = Zeroizing::new(init_password());
+        let confirm = Zeroizing::new(init_confirm());
+        if let Err(e) = check_new_password(&new, &confirm, t) {
+            status.set(format!("❌ {}", e));
+            return;
+        }
+        busy.set(true);
+        pending.set(None);
+        status.set(t.working.to_string());
+        let storage = open_storage();
+        spawn(async move {
+            let res = async {
+                let storage = storage.await.map_err(|e| format!("❌ {}", e))?;
+                off_ui_thread(move || async move {
+                    init_key(storage, &new, &confirm, KdfParams::default(), t).await
+                })
+                .await
+                .map_err(|e| format!("❌ {}", e))?
+            }
+            .await;
+            match res {
+                Ok((msg, s)) => {
+                    init_password.set(String::new());
+                    init_confirm.set(String::new());
+                    status.set(msg);
+                    key_status.set(Some(s));
+                }
+                Err(e) => status.set(e),
+            }
+            busy.set(false);
         });
     };
 
@@ -230,6 +418,7 @@ pub fn KeyScreen() -> Element {
             .await;
             status.set(res.unwrap_or_else(|e| format!("❌ {}", e)));
             busy.set(false);
+            forget_repo_state();
         });
     };
 
@@ -257,55 +446,61 @@ pub fn KeyScreen() -> Element {
     let profile_label = profile()
         .map(|p| p.path.to_string_lossy().into_owned())
         .unwrap_or_default();
+    let locked = busy() || running();
+    let no_password = password().is_empty();
+    let known = key_status();
+    let init_disabled = locked || known.as_ref().is_some_and(|s| !s.can_init());
+    let key_ops_disabled = locked || no_password || known.as_ref().is_some_and(|s| !s.key_file);
 
     rsx! {
         LoadingOverlay {
             is_visible: busy(),
             style: LoadingStyle::Spinner,
-            message: "Working on the repository key...".to_string(),
+            message: t.working.to_string(),
         }
 
         div { class: "card",
-            h2 { class: "page-title", "🔑 Repository Key" }
-            p { class: "hint mb-4",
-                "keys/repo.key holds the data key of an encrypted repository (format v3), wrapped by your password. Losing it makes every backup unreadable, even with the password: export a copy. Same as `rsb key export/import/change-password`."
-            }
+            h2 { class: "page-title", "{t.title}" }
+            p { class: "hint mb-4", "{t.intro}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Profile (Optional)" }
+                label { class: "label-text", "{t.profile_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select a profile",
+                        placeholder: "{t.profile_placeholder}",
                         value: "{profile_label}",
                         readonly: true
                     }
-                    button { class: "btn-icon", onclick: handle_load_profile, disabled: busy(), "📂" }
+                    button { class: "btn-icon", onclick: handle_load_profile, disabled: locked, "📂" }
                 }
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Repository folder" }
+                label { class: "label-text", "{t.repo_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Backup (repository) folder; empty: S3 bucket of Settings",
+                        placeholder: "{t.repo_placeholder}",
                         value: "{repo_path.read().to_string_lossy()}",
+                        disabled: locked,
                         oninput: move |evt| {
                             profile.set(None);
                             repo_path.set(PathBuf::from(evt.value()));
+                            forget_repo_state();
                         }
                     }
                     button {
                         class: "btn-icon",
-                        disabled: busy(),
+                        disabled: locked,
                         onclick: move |_| {
                             spawn(async move {
                                 if let Some(h) = rfd::AsyncFileDialog::new().pick_folder().await {
                                     profile.set(None);
                                     repo_path.set(h.path().to_path_buf());
+                                    forget_repo_state();
                                 }
                             });
                         },
@@ -315,64 +510,158 @@ pub fn KeyScreen() -> Element {
             }
 
             div { class: "form-group",
-                label { class: "label-text", "Repository password (current)" }
+                label { class: "label-text", "{t.password_label}" }
                 input {
                     class: "input-field",
                     r#type: "password",
+                    autocomplete: "off",
                     value: "{password}",
                     oninput: move |evt| password.set(evt.value())
                 }
             }
 
-            h3 { class: "section-title", "Export / Import" }
+            h3 { class: "section-title", "{t.status_section}" }
+            button {
+                class: "w-full btn-secondary mb-4",
+                disabled: locked,
+                onclick: handle_check,
+                "{t.check_button}"
+            }
+
+            h3 { class: "section-title", "{t.init_section}" }
+            div { class: "form-group",
+                p { class: "hint", "{t.init_hint}" }
+                input {
+                    class: "input-field mb-2",
+                    r#type: "password",
+                    autocomplete: "off",
+                    placeholder: "{t.new_password}",
+                    value: "{init_password}",
+                    oninput: move |evt| init_password.set(evt.value())
+                }
+                input {
+                    class: "input-field",
+                    r#type: "password",
+                    autocomplete: "off",
+                    placeholder: "{t.confirm_password}",
+                    value: "{init_confirm}",
+                    oninput: move |evt| init_confirm.set(evt.value())
+                }
+            }
+            button {
+                class: "w-full btn-primary mb-4",
+                disabled: init_disabled || init_password().is_empty(),
+                onclick: handle_init,
+                "{t.init_button}"
+            }
+
+            h3 { class: "section-title", "{t.migrate_section}" }
+            p { class: "hint", "{t.migrate_hint}" }
+            button {
+                class: "w-full btn-secondary mb-4",
+                disabled: key_ops_disabled,
+                onclick: move |_| prepare(false),
+                "{t.migrate_button}"
+            }
+
+            h3 { class: "section-title", "{t.rotate_section}" }
+            p { class: "hint", "{t.rotate_hint}" }
+            button {
+                class: "w-full btn-warning mb-4",
+                disabled: key_ops_disabled,
+                onclick: move |_| prepare(true),
+                "{t.rotate_button}"
+            }
+
+            if let Some(op) = pending() {
+                div { class: "status-box mb-4 border-l-4 border-amber-500",
+                    p { class: "font-semibold mb-2", "{t.confirm_title}" }
+                    p { class: "whitespace-pre-wrap mb-3",
+                        match &op {
+                            Pending::Migrate(text) | Pending::Rotate(text) => text.clone(),
+                        }
+                    }
+                    if no_password {
+                        p { class: "hint mb-2", "{t.need_password}" }
+                    }
+                    div { class: "flex gap-3",
+                        button {
+                            class: "flex-1 btn-warning",
+                            disabled: locked || no_password,
+                            onclick: handle_confirm,
+                            "{t.confirm_button}"
+                        }
+                        button {
+                            class: "flex-1 btn-secondary",
+                            onclick: move |_| pending.set(None),
+                            "{t.cancel_button}"
+                        }
+                    }
+                }
+            }
+
+            if running() {
+                div { class: "mb-4",
+                    ProgressBar { progress: progress() }
+                    button {
+                        class: "w-full mt-2 px-4 py-2 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
+                        onclick: handle_stop,
+                        "{t.stop_button}"
+                    }
+                }
+            }
+
+            h3 { class: "section-title", "{t.export_section}" }
             div { class: "form-group space-y-2",
                 label { class: "label-text flex items-center gap-2",
                     input { r#type: "checkbox", checked: paper_form(), onchange: move |_| paper_form.toggle() }
-                    "Export the printable paper form (--paper)"
+                    "{t.paper_form}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input { r#type: "checkbox", checked: force(), onchange: move |_| force.toggle() }
-                    "Import: replace a different existing key file (--force; the old one is backed up)"
+                    "{t.import_force}"
                 }
             }
             div { class: "flex gap-3 mb-4",
                 button {
                     class: "flex-1 btn-primary",
-                    disabled: busy() || password().is_empty(),
+                    disabled: locked || no_password,
                     onclick: handle_export,
-                    "📤 Export key file"
+                    "{t.export_button}"
                 }
                 button {
                     class: "flex-1 btn-secondary",
-                    disabled: busy() || password().is_empty(),
+                    disabled: locked || no_password,
                     onclick: handle_import,
-                    "📥 Import key file"
+                    "{t.import_button}"
                 }
             }
 
-            h3 { class: "section-title", "Change password" }
+            h3 { class: "section-title", "{t.change_section}" }
             div { class: "form-group",
                 input {
                     class: "input-field mb-2",
                     r#type: "password",
-                    placeholder: "New password",
+                    autocomplete: "off",
+                    placeholder: "{t.new_password}",
                     value: "{new_password}",
                     oninput: move |evt| new_password.set(evt.value())
                 }
                 input {
                     class: "input-field",
                     r#type: "password",
-                    placeholder: "Confirm new password",
+                    autocomplete: "off",
+                    placeholder: "{t.confirm_password}",
                     value: "{confirm_password}",
                     oninput: move |evt| confirm_password.set(evt.value())
                 }
-                p { class: "hint", "Only the key file is rewritten; the data stays as it is." }
+                p { class: "hint", "{t.change_hint}" }
             }
             button {
                 class: "w-full btn-warning mb-4",
-                disabled: busy() || password().is_empty() || new_password().is_empty(),
+                disabled: locked || no_password || new_password().is_empty(),
                 onclick: handle_change,
-                "🔁 Change password"
+                "{t.change_button}"
             }
 
             if !status().is_empty() {

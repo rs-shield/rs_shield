@@ -3,7 +3,7 @@
 
 use rsb_sdk::backup::perform_backup;
 use rsb_sdk::config::Config;
-use rsb_sdk::integrity::perform_verify;
+use rsb_sdk::integrity::{perform_verify, perform_verify_detailed};
 use rsb_sdk::{BackupOptions, VerifyOptions};
 use std::path::{Path, PathBuf};
 
@@ -115,6 +115,39 @@ async fn verify_detects_and_repairs_truncated_clear_object() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn verify_detects_and_repairs_truncated_encrypted_object() {
     roundtrip(Some("correct horse battery staple")).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn detailed_verify_previews_what_repair_deletes() {
+    let src = tempfile::tempdir().unwrap();
+    let dst = tempfile::tempdir().unwrap();
+    std::fs::write(src.path().join("a.txt"), b"alpha ".repeat(500)).unwrap();
+    std::fs::write(src.path().join("b.txt"), b"bravo ".repeat(500)).unwrap();
+    let cfg = config(src.path(), dst.path(), None);
+    perform_backup(&cfg, backup_opts(None)).await.unwrap();
+    let objects = data_objects(dst.path(), "clear");
+    let victim = &objects[0];
+    truncate_half(victim);
+    std::fs::remove_file(&objects[1]).unwrap();
+
+    // Without repair: the corrupt object is a candidate, the missing one is
+    // reported separately, nothing is deleted.
+    let run = perform_verify_detailed(&cfg, quiet()).await.unwrap();
+    let name = victim.file_name().unwrap().to_string_lossy().into_owned();
+    let candidates = run.repair_candidates();
+    assert_eq!(candidates.len(), 1, "{:?}", run.objects);
+    assert!(candidates[0].path.ends_with(&name));
+    assert_eq!(candidates[0].files.len(), 1);
+    assert_eq!(run.objects.missing.len(), 1);
+    assert!(run.objects.deleted.is_empty());
+    assert_eq!(run.report.files_with_errors, 2);
+    assert!(victim.exists());
+
+    // With repair: exactly the previewed object is deleted.
+    let run = perform_verify_detailed(&cfg, repair()).await.unwrap();
+    assert_eq!(run.objects.deleted.len(), 1);
+    assert!(run.objects.deleted[0].ends_with(&name));
+    assert!(!victim.exists());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

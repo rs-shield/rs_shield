@@ -35,6 +35,35 @@ pub async fn perform_verify(
     config: &Config,
     options: VerifyOptions,
 ) -> crate::error::Result<ReportData> {
+    perform_verify_detailed(config, options)
+        .await
+        .map(|run| run.report)
+}
+
+/// Result of [`perform_verify_detailed`]: the report plus the per-object
+/// outcome (missing, corrupt and deleted objects).
+#[derive(Debug)]
+pub struct VerifyRun {
+    pub report: ReportData,
+    pub objects: VerifyObjectsOutcome,
+}
+
+impl VerifyRun {
+    /// Objects that a repair would delete: those proven corrupt. Without
+    /// `repair` this is the preview of `verify --repair` (a repair also
+    /// keeps objects that failed to decrypt when no encrypted object could
+    /// be decrypted at all, since that rather means a wrong key).
+    pub fn repair_candidates(&self) -> Vec<&CorruptObject> {
+        self.objects.corrupt.iter().collect()
+    }
+}
+
+/// [`perform_verify`], also returning the per-object outcome, e.g. to show
+/// which objects a repair would delete (run it without `repair` first).
+pub async fn perform_verify_detailed(
+    config: &Config,
+    options: VerifyOptions,
+) -> crate::error::Result<VerifyRun> {
     let VerifyOptions {
         snapshot_id,
         quiet,
@@ -108,7 +137,7 @@ pub async fn perform_verify(
         (false, true) => "Full + repair",
     };
 
-    Ok(ReportData {
+    let report = ReportData {
         operation: "Verify".to_string(),
         profile_path: "".to_string(),
         timestamp: chrono::Local::now().to_rfc3339(),
@@ -118,8 +147,12 @@ pub async fn perform_verify(
         files_skipped: 0,
         files_with_errors: outcome.files_with_errors,
         total_files: manifest.len(),
-        errors: outcome.errors,
+        errors: outcome.errors.clone(),
         status,
+    };
+    Ok(VerifyRun {
+        report,
+        objects: outcome,
     })
 }
 

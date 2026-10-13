@@ -1,14 +1,14 @@
 use crate::ui::profile_loader::non_empty;
 use crate::ui::{
     app::AppConfig,
-    i18n::get_texts,
+    i18n::{KeyTexts, fill, get_key_texts, get_texts},
     loading_state::{LoadingOverlay, LoadingStyle},
 };
 use dioxus::prelude::*;
-use rsb_sdk::backup::diagnostic::{BackupDiagnostics, run_backup_diagnostics};
+use rsb_sdk::backup::diagnostic::{BackupDiagnostics, missing_directories, run_backup_diagnostics};
 use rsb_sdk::credentials::Fido2Manager;
 use rsb_sdk::operation::operations::{Operation, OperationsManager};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -65,6 +65,61 @@ pub async fn diagnose_repository(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+fn path_list(paths: &[PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// What `rsb diagnose --repair` would do on `repo`: `Ok(text)` to confirm,
+/// or `Err(reason)` when there is nothing to repair.
+pub fn structure_repair_preview(repo: &Path, t: &KeyTexts) -> Result<String, String> {
+    if !repo.is_dir() {
+        return Err(fill(
+            t.diag_path_not_found,
+            &[("path", &repo.display().to_string())],
+        ));
+    }
+    let missing = missing_directories(repo);
+    if missing.is_empty() {
+        return Err(t.diag_repair_none.to_string());
+    }
+    Ok(fill(
+        t.diag_repair_confirm,
+        &[("list", &path_list(&missing))],
+    ))
+}
+
+/// Runs `rsb diagnose --repair` (creates the missing `snapshots/` and
+/// `data/` directories) off the UI thread and says what was created.
+pub async fn repair_structure(repo: PathBuf, t: &'static KeyTexts) -> Result<String, String> {
+    if !repo.is_dir() {
+        return Err(fill(
+            t.diag_path_not_found,
+            &[("path", &repo.display().to_string())],
+        ));
+    }
+    let before = missing_directories(&repo);
+    let handle = tokio::runtime::Handle::current();
+    let path = repo.clone();
+    tokio::task::spawn_blocking(move || {
+        handle
+            .block_on(run_backup_diagnostics(&path, None, false, true))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let still = missing_directories(&repo);
+    let created: Vec<PathBuf> = before.into_iter().filter(|p| !still.contains(p)).collect();
+    if !still.is_empty() {
+        return Err(format!("❌ {}", path_list(&still)));
+    }
+    Ok(fill(t.diag_repair_done, &[("list", &path_list(&created))]))
 }
 
 /// Turns the SDK diagnostics of a repository into report lines (real
@@ -165,6 +220,7 @@ fn last_backup_finding(last: Option<&Operation>) -> DiagnosticInfo {
 pub fn DiagnosticsScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
+    let kt = get_key_texts(app_config.language());
     let fido2 = use_context::<Arc<Mutex<Fido2Manager>>>();
 
     let mut diagnostics = use_signal(Vec::<DiagnosticInfo>::new);
@@ -172,6 +228,8 @@ pub fn DiagnosticsScreen() -> Element {
     let mut last_run = use_signal(|| Option::<String>::None);
     let mut repo_path = use_signal(PathBuf::new);
     let mut key = use_signal(String::new);
+    let mut repair_pending = use_signal(|| Option::<String>::None);
+    let mut repair_msg = use_signal(String::new);
 
     let run_diagnostics = use_callback(move |_: ()| {
         is_loading.set(true);
@@ -275,6 +333,56 @@ pub fn DiagnosticsScreen() -> Element {
                     placeholder: "Encryption key (optional)",
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
+                }
+                button {
+                    class: "btn-secondary mt-2 text-sm",
+                    disabled: is_loading() || repo_path.read().as_os_str().is_empty(),
+                    onclick: move |_| {
+                        repair_msg.set(String::new());
+                        match structure_repair_preview(&repo_path.peek(), kt) {
+                            Ok(text) => repair_pending.set(Some(text)),
+                            Err(e) => {
+                                repair_pending.set(None);
+                                repair_msg.set(e);
+                            }
+                        }
+                    },
+                    "{kt.diag_repair_button}"
+                }
+                p { class: "hint", "{kt.diag_repair_local_only}" }
+                if let Some(text) = repair_pending() {
+                    div { class: "status-box mt-2 border-l-4 border-amber-500",
+                        p { class: "font-semibold mb-2", "{kt.confirm_title}" }
+                        p { class: "whitespace-pre-wrap mb-3", "{text}" }
+                        div { class: "flex gap-3",
+                            button {
+                                class: "flex-1 btn-warning",
+                                disabled: is_loading(),
+                                onclick: move |_| {
+                                    repair_pending.set(None);
+                                    is_loading.set(true);
+                                    let repo = repo_path.peek().clone();
+                                    spawn(async move {
+                                        let res = repair_structure(repo, kt).await;
+                                        is_loading.set(false);
+                                        repair_msg.set(match res {
+                                            Ok(m) | Err(m) => m,
+                                        });
+                                        run_diagnostics.call(());
+                                    });
+                                },
+                                "{kt.confirm_button}"
+                            }
+                            button {
+                                class: "flex-1 btn-secondary",
+                                onclick: move |_| repair_pending.set(None),
+                                "{kt.cancel_button}"
+                            }
+                        }
+                    }
+                }
+                if !repair_msg().is_empty() {
+                    p { class: "text-sm mt-2 whitespace-pre-wrap", "{repair_msg}" }
                 }
             }
 
@@ -395,6 +503,29 @@ mod tests {
         assert_eq!(f[0].status, DiagnosticStatus::Healthy);
         // Encrypted data without a key is flagged.
         assert!(f.iter().any(|i| i.status == DiagnosticStatus::Warning));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn structure_repair_previews_then_creates_the_missing_directories() {
+        use crate::ui::i18n::EN_KEY_TEXTS;
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        // A path that does not exist is never created.
+        assert!(structure_repair_preview(&repo, &EN_KEY_TEXTS).is_err());
+        assert!(repair_structure(repo.clone(), &EN_KEY_TEXTS).await.is_err());
+        assert!(!repo.exists());
+
+        std::fs::create_dir_all(repo.join("snapshots")).unwrap();
+        let preview = structure_repair_preview(&repo, &EN_KEY_TEXTS).unwrap();
+        assert!(preview.contains("data"), "{preview}");
+        assert!(!repo.join("data").exists(), "the preview changes nothing");
+        let done = repair_structure(repo.clone(), &EN_KEY_TEXTS).await.unwrap();
+        assert!(done.contains("data"), "{done}");
+        assert!(repo.join("data").is_dir());
+        assert_eq!(
+            structure_repair_preview(&repo, &EN_KEY_TEXTS).unwrap_err(),
+            EN_KEY_TEXTS.diag_repair_none
+        );
     }
 
     #[test]

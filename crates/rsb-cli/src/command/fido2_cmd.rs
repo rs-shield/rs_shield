@@ -141,20 +141,15 @@ impl Fido2Command {
                 info!("🗑️  Deleting Auth credential for user: {}", user_id);
 
                 let mut mg = manager.lock().await;
-
-                // 🔥 carregar antes (falha = abortar, para não gravar um estado vazio)
-                mg.load_from_file(&path)
-                    .map_err(|e| anyhow::anyhow!("❌ Failed to load credentials: {}", e))?;
-
-                if !mg.has_credential(&user_id) {
-                    return Err(anyhow::anyhow!("❌ Unknown user: {}", user_id));
-                }
-
-                mg.revoke_user(&user_id)
-                    .map_err(|e| anyhow::anyhow!("❌ Error deleting credential: {}", e))?;
-                // 🔥 salvar depois
-                mg.save_to_file(&path)
-                    .map_err(|e| anyhow::anyhow!("❌ Failed to save credentials: {}", e))?;
+                // Reload, refuse unknown users, revoke and save (shared with
+                // the desktop app).
+                mg.revoke_user_persisted(&path, &user_id)
+                    .map_err(|e| match e {
+                        rsb_sdk::credentials::fido2_manager::Fido2Error::CredentialNotFound => {
+                            anyhow::anyhow!("❌ Unknown user: {}", user_id)
+                        }
+                        e => anyhow::anyhow!("❌ Error deleting credential: {}", e),
+                    })?;
                 println!("✅ Credential deleted successfully");
             }
 

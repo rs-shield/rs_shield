@@ -375,21 +375,22 @@ impl KeyCommand {
             }
             KeyCommand::Rotate { target, yes } => {
                 let storage = open_storage(target).await?;
-                let resuming = keyfile::read_key_file(&*storage)
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "{} not found: run `rsb key init` or an encrypted backup first",
-                            REPO_KEY_PATH
-                        )
-                    })?
-                    .is_rotating();
-                if resuming {
+                let status = lifecycle::key_status(&*storage).await?;
+                if !status.can_rotate() {
+                    return Err(anyhow!(
+                        "{} not found: run `rsb key init` or an encrypted backup first",
+                        REPO_KEY_PATH
+                    ));
+                }
+                if status.rotating {
                     println!("ℹ️  Resuming the interrupted key rotation.");
                 } else if !*yes && std::io::stdin().is_terminal() {
                     println!(
-                        "Key rotation re-encrypts every object and manifest of the repository \
-                         (it reads and rewrites all encrypted data)."
+                        "Key rotation re-encrypts every object and manifest of the repository: \
+                         {} object(s) ({}) and {} manifest(s) are read and rewritten.",
+                        status.encrypted_objects,
+                        human_bytes(status.encrypted_bytes),
+                        status.encrypted_manifests
                     );
                     if !confirm("Continue?")? {
                         return Ok(());

@@ -12,6 +12,7 @@ pub mod error_handler;
 pub mod fido2_manager_view;
 mod i18n;
 pub mod integrations_screen;
+mod key_lifecycle;
 mod key_screen;
 pub mod loading_state;
 mod login_screen;
