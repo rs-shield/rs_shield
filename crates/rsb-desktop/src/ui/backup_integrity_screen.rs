@@ -1,6 +1,10 @@
 use dioxus::prelude::*;
-use std::fs;
 use std::path::PathBuf;
+
+use crate::ui::diagnostics_screen::diagnose_repository;
+use rsb_sdk::BackupValidation;
+use rsb_sdk::backup::diagnostic::BackupDiagnostics;
+use std::path::Path;
 
 use crate::ui::{
     app::AppConfig,
@@ -20,6 +24,30 @@ struct IntegrityStatus {
     encrypted_files_count: usize,
     issues: Vec<String>,
     suggestions: Vec<String>,
+}
+
+/// Structure check of a repository folder with the same SDK validation as
+/// `rsb restore --backup` (snapshot manifests only; objects counted under
+/// `data/clear` and `data/enc`). The old screen only looked at files
+/// directly inside `data/` and so always reported 0 data files.
+fn integrity_status(
+    path: &Path,
+    v: &BackupValidation,
+    d: Option<&BackupDiagnostics>,
+) -> IntegrityStatus {
+    let encrypted = d.map(|d| d.details.encrypted_files_count).unwrap_or(0);
+    let mut issues: Vec<String> = v.issues.iter().map(|i| format!("❌ {}", i)).collect();
+    issues.extend(v.warnings.iter().map(|w| format!("⚠️ {}", w)));
+    IntegrityStatus {
+        backup_path: path.to_string_lossy().to_string(),
+        status: if v.is_valid { "valid" } else { "invalid" }.to_string(),
+        is_valid: v.is_valid,
+        snapshots_count: v.snapshots_count,
+        data_files_count: v.data_files_count.saturating_sub(encrypted),
+        encrypted_files_count: encrypted,
+        issues,
+        suggestions: v.suggestions.clone(),
+    }
 }
 
 #[component]
@@ -58,97 +86,28 @@ pub fn BackupIntegrityScreen() -> Element {
         status_msg.set("🔍 Checking backup structure...".to_string());
 
         spawn(async move {
-            // Simulating progress
-            progress.set(0.2);
-            status_msg.set("🔍 Counting snapshots...".to_string());
-
-            let snapshots_dir = path.join("snapshots");
-            let data_dir = path.join("data");
-
-            // Verificar estrutura básica
-            let structure_valid = snapshots_dir.exists() && data_dir.exists();
-
-            let mut issues = Vec::new();
-            let mut suggestions = Vec::new();
-
-            if !snapshots_dir.exists() {
-                issues.push("❌ 'snapshots/' directory not found".to_string());
-                suggestions.push("Verify that the entire folder was copied".to_string());
-            }
-            if !data_dir.exists() {
-                issues.push("❌ 'data/' directory not found".to_string());
-                suggestions
-                    .push("Re-copy the complete backup from the original computer".to_string());
-            }
-
-            progress.set(0.4);
-            status_msg.set("📊 Analyzing content...".to_string());
-
-            // Contar snapshots
-            let snapshots_count = fs::read_dir(&snapshots_dir)
-                .ok()
-                .map(|e| e.count())
-                .unwrap_or(0);
-
-            // Contar arquivos de dados
-            let mut data_files_count = 0;
-            let mut encrypted_files_count = 0;
-
-            if data_dir.exists()
-                && let Ok(entries) = fs::read_dir(&data_dir)
-            {
-                for entry in entries.flatten() {
-                    if let Ok(metadata) = entry.metadata()
-                        && metadata.is_file()
-                    {
-                        if entry.path().to_string_lossy().contains("enc") {
-                            encrypted_files_count += 1;
-                        } else {
-                            data_files_count += 1;
-                        }
-                    }
-                }
-            }
-
-            progress.set(0.8);
-
-            if snapshots_count == 0 {
-                issues.push("⚠️ No snapshots found".to_string());
-                suggestions.push("The backup may be corrupted or incomplete".to_string());
-            }
-
+            progress.set(0.3);
+            status_msg.set("🔍 Checking backup structure...".to_string());
+            let p = path.clone();
+            let validation =
+                tokio::task::spawn_blocking(move || rsb_sdk::validate_backup_structure(&p))
+                    .await
+                    .map_err(|e| e.to_string());
+            progress.set(0.6);
+            let diagnostics = diagnose_repository(path.clone(), None).await;
             progress.set(1.0);
-
-            let is_valid = structure_valid && snapshots_count > 0;
-            let status = if is_valid {
-                format!(
-                    "✅ Integrity Report\n📁 {}\nSnapshots: {}\nNormal Files: {}\nEncrypted Files: {}\n✅ Your backup is ready to be restored on another computer!",
-                    path.to_string_lossy(),
-                    snapshots_count,
-                    data_files_count,
-                    encrypted_files_count
-                )
-            } else {
-                "❌ Backup is invalid or incomplete".to_string()
-            };
-
-            integrity_result.set(Some(IntegrityStatus {
-                backup_path: path.to_string_lossy().to_string(),
-                status,
-                is_valid,
-                snapshots_count,
-                data_files_count,
-                encrypted_files_count,
-                issues,
-                suggestions,
-            }));
-
-            status_msg.set(if is_valid {
-                "✅ Verification completed successfully!".to_string()
-            } else {
-                "❌ Verification completed with issues".to_string()
-            });
-
+            match validation {
+                Ok(v) => {
+                    let result = integrity_status(&path, &v, diagnostics.ok().as_ref());
+                    status_msg.set(if result.is_valid {
+                        "✅ Verification completed successfully!".to_string()
+                    } else {
+                        "❌ Verification completed with issues".to_string()
+                    });
+                    integrity_result.set(Some(result));
+                }
+                Err(e) => status_msg.set(format!("❌ {}", e)),
+            }
             is_checking.set(false);
         });
     };
@@ -259,5 +218,40 @@ pub fn BackupIntegrityScreen() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn counts_objects_in_the_real_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join("snapshots")).unwrap();
+        std::fs::create_dir_all(repo.join("data/clear")).unwrap();
+        std::fs::create_dir_all(repo.join("data/enc")).unwrap();
+        std::fs::write(repo.join("snapshots/2026-01-01T000000Z.toml"), "").unwrap();
+        std::fs::write(repo.join("data/clear/aa"), "x").unwrap();
+        std::fs::write(repo.join("data/enc/bb"), "x").unwrap();
+        std::fs::write(repo.join("data/enc/cc"), "x").unwrap();
+        let v = rsb_sdk::validate_backup_structure(repo);
+        let d = diagnose_repository(repo.to_path_buf(), None).await.unwrap();
+        let s = integrity_status(repo, &v, Some(&d));
+        assert!(s.is_valid);
+        assert_eq!(
+            (
+                s.snapshots_count,
+                s.data_files_count,
+                s.encrypted_files_count
+            ),
+            (1, 1, 2)
+        );
+
+        let empty = tempfile::tempdir().unwrap();
+        let v = rsb_sdk::validate_backup_structure(empty.path());
+        let s = integrity_status(empty.path(), &v, None);
+        assert!(!s.is_valid && !s.issues.is_empty());
     }
 }

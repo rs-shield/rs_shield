@@ -1,10 +1,15 @@
-use crate::ui::{app::AppConfig, error_handler::format_user_error, i18n::get_texts};
+use crate::ui::profile_loader::{
+    LoadedProfile, load_profile, repository_label, resolve_key_blocking,
+};
+use crate::ui::{app::AppConfig, i18n::get_texts};
 use battery::Manager;
 use dioxus::prelude::*;
 use notify_rust::Notification;
-use rsb_sdk::realtime::{create_backup, sync_all_files};
+use rsb_sdk::config::Config;
+use rsb_sdk::realtime::{SyncStats, SyncStrategy, WatchEvent, mirror_and_backup_sync};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// Event structure for webhook
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,25 +89,32 @@ fn send_system_notification(
     });
 }
 
-/// Send notification to webhook
+/// Send notification to webhook (blocking; called from a notification
+/// thread). It used to spawn a thread returning a future that was never
+/// polled, so no webhook was ever sent.
 fn send_webhook_notification(event: &NotificationEvent, webhook_url: &str) {
-    let event = event.clone();
-    let webhook_url = webhook_url.to_string();
-
-    std::thread::spawn(async move || {
-        let client = reqwest::Client::new();
-
-        match client.post(&webhook_url).json(&event).send().await {
-            Ok(response) => {
-                if response.status().is_success() {
-                    println!("✅ [Webhook] Sent successfully to {}", webhook_url);
-                } else {
-                    eprintln!("⚠️ [Webhook] Status {}: {}", response.status(), webhook_url);
-                }
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            tracing::warn!("[Webhook] cannot start a runtime: {}", e);
+            return;
+        }
+    };
+    runtime.block_on(async {
+        match reqwest::Client::new()
+            .post(webhook_url)
+            .json(event)
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => {
+                tracing::info!("[Webhook] sent");
             }
-            Err(e) => {
-                eprintln!("⚠️ [Webhook] Error sending: {:?}", e);
-            }
+            Ok(response) => tracing::warn!("[Webhook] status {}", response.status()),
+            Err(e) => tracing::warn!("[Webhook] error sending: {}", e),
         }
     });
 }
@@ -118,8 +130,12 @@ fn check_battery_status() -> (f32, bool, String) {
                             let percent = batt.state_of_charge().value * 100.0;
                             let is_charging = batt.state() == battery::State::Charging;
                             let energy_full = batt.energy_full().value;
-                            let energy = batt.energy().value;
-                            let health = format!("{:.1}%", (energy_full / energy) * 100.0);
+                            let design = batt.energy_full_design().value;
+                            let health = if design > 0.0 {
+                                format!("{:.1}%", energy_full / design * 100.0)
+                            } else {
+                                "N/A".to_string()
+                            };
 
                             return (percent, is_charging, health);
                         }
@@ -150,6 +166,52 @@ struct SyncEvent {
     details: String,
 }
 
+/// Repository settings of a watch without profile: back up `source` to the
+/// `backup` folder, everything encrypted (`rsb watch` always encrypts).
+fn watch_config(source: &std::path::Path, backup: &std::path::Path) -> Config {
+    Config {
+        encrypt_patterns: Some(vec!["*".to_string()]),
+        compression_level: Some(3),
+        ..Config::new(
+            source.to_string_lossy().into_owned(),
+            backup.to_string_lossy().into_owned(),
+        )
+    }
+}
+
+/// Appends an event to the history shown on screen (last 20 kept).
+fn push_event(history: &mut Signal<Vec<SyncEvent>>, kind: &str, details: String) {
+    let mut h = history();
+    h.push(SyncEvent {
+        timestamp: chrono::Local::now().format("%H:%M:%S").to_string(),
+        event_type: kind.to_string(),
+        details,
+    });
+    if h.len() > 20 {
+        h.remove(0);
+    }
+    history.set(h);
+}
+
+/// Message shown once monitoring stopped (pending changes are not lost
+/// silently: they need a manual backup).
+fn stop_summary(stats: &SyncStats) -> String {
+    let mut msg = format!(
+        "⏹️ Monitoring stopped: {} change(s) backed up, {} backup(s) succeeded, {} failed",
+        stats.synced, stats.backups_completed, stats.backups_failed
+    );
+    if stats.pending_changes > 0 {
+        msg.push_str(&format!(
+            "\n⚠️ {} change(s) were NOT backed up yet: run a backup to capture them.",
+            stats.pending_changes
+        ));
+    }
+    if let Some(e) = &stats.last_error {
+        msg.push_str(&format!("\n❌ Last backup error: {}", e));
+    }
+    msg
+}
+
 #[component]
 pub fn RealtimeSyncScreen() -> Element {
     let app_config = use_context::<AppConfig>();
@@ -160,6 +222,8 @@ pub fn RealtimeSyncScreen() -> Element {
     let mut backup_path = use_signal(PathBuf::new);
     let mut backup_password = use_signal(String::new);
     let mut is_monitoring = use_signal(|| false);
+    let mut stopping = use_signal(|| false);
+    let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut status_msg = use_signal(|| "Ready to monitor and backup".to_string());
 
     let mut files_synced = use_signal(|| 0usize);
@@ -228,6 +292,7 @@ pub fn RealtimeSyncScreen() -> Element {
     let handle_select_source = move |_| {
         spawn(async move {
             if let Some(folder) = rfd::AsyncFileDialog::new().pick_folder().await {
+                profile.set(None);
                 source_path.set(folder.path().to_path_buf());
                 status_msg.set(texts.source_folder_selected.to_string());
             }
@@ -246,14 +311,39 @@ pub fn RealtimeSyncScreen() -> Element {
     let handle_select_backup = move |_| {
         spawn(async move {
             if let Some(folder) = rfd::AsyncFileDialog::new().pick_folder().await {
+                profile.set(None);
                 backup_path.set(folder.path().to_path_buf());
                 status_msg.set(texts.backup_folder_selected.to_string());
             }
         });
     };
 
+    let handle_load_profile = move |_| {
+        spawn(async move {
+            if let Some(h) = rfd::AsyncFileDialog::new()
+                .add_filter("TOML", &["toml"])
+                .pick_file()
+                .await
+            {
+                match load_profile(h.path()) {
+                    Ok(p) => {
+                        source_path.set(PathBuf::from(&p.config.source_path));
+                        backup_path.set(PathBuf::from(repository_label(&p.config)));
+                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        profile.set(Some(p));
+                    }
+                    Err(e) => status_msg.set(format!("❌ {}", e)),
+                }
+            }
+        });
+    };
+
     let handle_start_monitoring = move |_| {
-        if source_path().as_os_str().is_empty() {
+        if is_monitoring() || stopping() {
+            return;
+        }
+        let loaded = profile();
+        if loaded.is_none() && source_path().as_os_str().is_empty() {
             status_msg.set(texts.select_source_folder.to_string());
             return;
         }
@@ -261,301 +351,186 @@ pub fn RealtimeSyncScreen() -> Element {
             status_msg.set(texts.select_dest_folder.to_string());
             return;
         }
-        if backup_path().as_os_str().is_empty() {
+        if loaded.is_none() && backup_path().as_os_str().is_empty() {
             status_msg.set(texts.select_backup_folder.to_string());
-            return;
-        }
-        if backup_password().is_empty() {
-            status_msg.set(texts.enter_backup_password.to_string());
             return;
         }
 
         is_monitoring.set(true);
-        status_msg.set("🟢 Monitoring and backing up...".to_string());
+        status_msg.set("⏳ Starting...".to_string());
         files_synced.set(0);
         files_changed.set(0);
         backups_created.set(0);
         sync_errors.set(0);
 
-        // Notify monitoring start
-        if notifications_enabled() {
-            send_system_notification("RS Shield", "Monitoring started successfully", "info", None);
-        }
-
-        let src = source_path();
-        let dst = dest_path();
-        let bkp = backup_path();
-        let pwd = backup_password();
+        let cfg = match &loaded {
+            Some(p) => p.config.clone(),
+            None => watch_config(&source_path(), &backup_path()),
+        };
+        let mirror = dest_path();
+        let typed = backup_password();
+        let strategy = SyncStrategy {
+            batch_interval: 2,
+            ignore_patterns: ignore_patterns(),
+            ..SyncStrategy::default()
+        };
         let notify_enabled = notifications_enabled();
-        let webhook_enabled_val = webhook_enabled();
-        let webhook_url_val = webhook_url();
+        let webhook = webhook_enabled()
+            .then(|| webhook_url.read().clone())
+            .filter(|u| !u.trim().is_empty());
 
         spawn(async move {
-            // Initial sync with timeout
-            println!("[DEBUG] Starting initial sync...");
-            status_msg
-                .set("⏳ Processing initial sync (this may take a few seconds)...".to_string());
+            // `rsb watch` always encrypts: no key, no watch.
+            let Some(key) = resolve_key_blocking(typed, loaded.clone()).await else {
+                status_msg.set(format!("❌ {}", texts.enter_backup_password));
+                is_monitoring.set(false);
+                return;
+            };
+            let mut cfg = cfg;
+            cfg.encryption_key = Some(key);
+            let source = rsb_sdk::utils::expand_path(&cfg.source_path);
 
-            let sync_result = tokio::time::timeout(
-                tokio::time::Duration::from_secs(30),
-                sync_all_files(&src, &dst),
-            )
-            .await;
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<WatchEvent>();
+            let rt = Arc::new(mirror_and_backup_sync(
+                &cfg,
+                mirror,
+                strategy,
+                Some(Arc::new(move |e| {
+                    let _ = tx.send(e);
+                })),
+            ));
+            if let Err(e) = rt.start(&source).await {
+                status_msg.set(format!("❌ Cannot watch {}: {}", source.display(), e));
+                is_monitoring.set(false);
+                return;
+            }
+            // Back up once at start-up, then only on changes (like rsb watch).
+            rt.queue_full_backup(&source).await;
+            let loop_handle = rt.clone().spawn_processing_loop();
+            status_msg.set("🟢 Monitoring changes (initial backup queued)...".to_string());
+            if notify_enabled {
+                send_system_notification("RS Shield", "Monitoring started", "info", None);
+            }
 
-            match sync_result {
-                Ok(Ok(count)) => {
-                    println!("[DEBUG] ✅ Initial sync complete: {} files", count);
-                    files_synced.set(count);
-                    status_msg.set("🟢 Initial sync OK. Monitoring changes...".to_string());
-
-                    // Monitor changes
-                    let mut last_count = count;
-                    let mut last_battery_check = 0usize;
-                    loop {
-                        if !is_monitoring() {
-                            println!("[DEBUG] ⏹️ Monitoring stopped");
-                            status_msg.set("⏹️ Monitoring stopped".to_string());
-                            break;
-                        }
-
-                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
-                        // Check battery every 10 seconds
-                        last_battery_check += 1;
-                        if last_battery_check >= 5 {
-                            last_battery_check = 0;
-                            let (percent, is_charging, health) = check_battery_status();
-
-                            battery_percent.set(percent);
-                            battery_status.set(if is_charging {
-                                "⚡ Charging".to_string()
-                            } else {
-                                "🔋 Battery".to_string()
-                            });
-                            battery_health.set(health);
-
-                            // Low battery alert (< 15%)
-                            if percent < 15.0 && !is_charging && !show_low_battery_alert() {
-                                show_low_battery_alert.set(true);
-                                show_dialog(
-                                    "⚠️ Low Battery",
-                                    &format!(
-                                        "Battery at {:.0}% - Consider connecting charger",
-                                        percent
-                                    ),
-                                    "warning",
-                                );
-
-                                if notify_enabled {
-                                    let webhook = if webhook_enabled_val {
-                                        Some(webhook_url_val.as_str())
-                                    } else {
-                                        None
-                                    };
-                                    send_system_notification(
-                                        "⚠️ Low Battery",
-                                        &format!(
-                                            "Battery at {:.0}% - Synchronization might be paused",
-                                            percent
-                                        ),
-                                        "warning",
-                                        webhook,
-                                    );
-                                }
-                            } else if percent > 20.0 && is_charging {
-                                show_low_battery_alert.set(false);
+            let mut last_failed = 0usize;
+            let mut ticks = 0usize;
+            while is_monitoring() {
+                tokio::select! {
+                    Some(event) = rx.recv() => {
+                        let (kind, details, title) = match &event {
+                            WatchEvent::Mirrored { files } => {
+                                files_changed.set(files_changed() + files);
+                                ("file_synced", format!("{} file(s) mirrored", files), "📄 Files Synchronized")
                             }
-                        }
-
-                        // Check for new changes
-                        match sync_all_files(&src, &dst).await {
-                            Ok(new_count) => {
-                                if new_count > last_count {
-                                    let changes = new_count - last_count;
-                                    println!("[DEBUG] 📄 Detected {} changes", changes);
-                                    files_changed.set(files_changed() + changes);
-                                    last_count = new_count;
-
-                                    // Add event to history
-                                    let timestamp =
-                                        chrono::Local::now().format("%H:%M:%S").to_string();
-                                    let mut history = sync_history();
-                                    history.push(SyncEvent {
-                                        timestamp,
-                                        event_type: "file_synced".to_string(),
-                                        details: format!("{} file(s) synchronized", changes),
-                                    });
-                                    // Keep only last 20 events
-                                    if history.len() > 20 {
-                                        history.remove(0);
-                                    }
-                                    sync_history.set(history);
-                                    last_sync_time
-                                        .set(chrono::Local::now().format("%H:%M:%S").to_string());
-
-                                    // Notify synchronization
-                                    if notify_enabled {
-                                        let webhook = if webhook_enabled_val {
-                                            Some(webhook_url_val.as_str())
-                                        } else {
-                                            None
-                                        };
-                                        send_system_notification(
-                                            "📄 Files Synchronized",
-                                            &format!(
-                                                "{} file(s) successfully synchronized",
-                                                changes
-                                            ),
-                                            "success",
-                                            webhook,
-                                        );
-                                    }
-
-                                    // Automatic backup of changes (with encryption)
-                                    if let Ok(backup_name) =
-                                        create_backup(&src, &bkp, Some(&pwd)).await
-                                    {
-                                        backups_created.set(backups_created() + 1);
-                                        status_msg.set(format!("✅ {}", backup_name));
-
-                                        // Add backup event to history
-                                        let timestamp_bkp =
-                                            chrono::Local::now().format("%H:%M:%S").to_string();
-                                        let mut history = sync_history();
-                                        history.push(SyncEvent {
-                                            timestamp: timestamp_bkp,
-                                            event_type: "backup_created".to_string(),
-                                            details: "Automatic backup created successfully"
-                                                .to_string(),
-                                        });
-                                        if history.len() > 20 {
-                                            history.remove(0);
-                                        }
-                                        sync_history.set(history);
-
-                                        // Notify backup creation
-                                        if notify_enabled {
-                                            let webhook = if webhook_enabled_val {
-                                                Some(webhook_url_val.as_str())
-                                            } else {
-                                                None
-                                            };
-                                            send_system_notification(
-                                                "💾 Backup Created",
-                                                &format!(
-                                                    "Backup '{}' created successfully and encrypted",
-                                                    backup_name
-                                                ),
-                                                "success",
-                                                webhook,
-                                            );
-                                        }
-                                    } else {
-                                        sync_errors.set(sync_errors() + 1);
-
-                                        // Add error event
-                                        let timestamp_err =
-                                            chrono::Local::now().format("%H:%M:%S").to_string();
-                                        let mut history = sync_history();
-                                        history.push(SyncEvent {
-                                            timestamp: timestamp_err,
-                                            event_type: "error".to_string(),
-                                            details: "Failed to create backup".to_string(),
-                                        });
-                                        if history.len() > 20 {
-                                            history.remove(0);
-                                        }
-                                        sync_history.set(history);
-
-                                        // Notify error
-                                        if notify_enabled {
-                                            let webhook = if webhook_enabled_val {
-                                                Some(webhook_url_val.as_str())
-                                            } else {
-                                                None
-                                            };
-                                            send_system_notification(
-                                                "❌ Backup Error",
-                                                "Failed to create automatic backup - check permissions",
-                                                "error",
-                                                webhook,
-                                            );
-                                        }
-                                    }
-
-                                    // Update success rate
-                                    let total = backups_created() + sync_errors();
-                                    if total > 0 {
-                                        let rate =
-                                            (backups_created() as f64 / total as f64) * 100.0;
-                                        success_rate.set(rate);
-                                    }
-                                }
+                            WatchEvent::BackedUp { number, summary } => {
+                                backups_created.set(*number);
+                                status_msg.set(format!("✅ Backup #{}: {}", number, summary));
+                                ("backup_created", format!("Backup #{}: {}", number, summary), "💾 Backup Created")
                             }
-                            Err(e) => {
-                                println!("[DEBUG] ❌ Sync error: {}", e);
-                                sync_errors.set(sync_errors() + 1);
-
-                                // Add error event
-                                let timestamp_err =
-                                    chrono::Local::now().format("%H:%M:%S").to_string();
-                                let mut history = sync_history();
-                                history.push(SyncEvent {
-                                    timestamp: timestamp_err,
-                                    event_type: "error".to_string(),
-                                    details: format!("Synchronization error: {}", e),
-                                });
-                                if history.len() > 20 {
-                                    history.remove(0);
-                                }
-                                sync_history.set(history);
-
-                                // Notify error
-                                if notify_enabled {
-                                    let webhook = if webhook_enabled_val {
-                                        Some(webhook_url_val.as_str())
-                                    } else {
-                                        None
-                                    };
-                                    send_system_notification(
-                                        "❌ Synchronization Error",
-                                        &format!("Synchronization failed: {}", e),
-                                        "error",
-                                        webhook,
-                                    );
-                                }
-                            }
+                        };
+                        push_event(&mut sync_history, kind, details.clone());
+                        last_sync_time.set(chrono::Local::now().format("%H:%M:%S").to_string());
+                        if notify_enabled {
+                            send_system_notification(title, &details, "success", webhook.as_deref());
                         }
                     }
+                    _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {}
                 }
-                Ok(Err(e)) => {
-                    println!("[DEBUG] Initial sync error: {}", e);
-                    status_msg.set(format_user_error(&e, "realtime"));
-                    is_monitoring.set(false);
+
+                let stats = rt.get_stats().await;
+                files_synced.set(stats.synced);
+                sync_errors.set(stats.backups_failed);
+                let total = stats.backups_completed + stats.backups_failed;
+                if total > 0 {
+                    success_rate.set(stats.backups_completed as f64 / total as f64 * 100.0);
                 }
-                Err(_) => {
-                    println!("[DEBUG] Timeout: Initial sync exceeded 30 seconds");
-                    status_msg
-                        .set("❌ Timeout exceeded (30s) - folder with too many files?".to_string());
-                    is_monitoring.set(false);
+                if stats.backups_failed > last_failed {
+                    last_failed = stats.backups_failed;
+                    let err = stats
+                        .last_error
+                        .clone()
+                        .unwrap_or_else(|| "unknown error".into());
+                    status_msg.set(format!(
+                        "❌ Backup failed (will retry): {} — {} change(s) pending",
+                        err, stats.pending_changes
+                    ));
+                    push_event(
+                        &mut sync_history,
+                        "error",
+                        format!("Backup failed: {}", err),
+                    );
+                    if notify_enabled {
+                        send_system_notification(
+                            "❌ Backup Error",
+                            &err,
+                            "error",
+                            webhook.as_deref(),
+                        );
+                    }
                 }
+
+                ticks += 1;
+                if ticks.is_multiple_of(10) {
+                    let (percent, is_charging, health) =
+                        tokio::task::spawn_blocking(check_battery_status)
+                            .await
+                            .unwrap_or((100.0, true, "N/A".to_string()));
+                    battery_percent.set(percent);
+                    battery_status.set(if is_charging {
+                        "⚡ Charging".to_string()
+                    } else {
+                        "🔋 Battery".to_string()
+                    });
+                    battery_health.set(health);
+                    if percent < 15.0 && !is_charging && !show_low_battery_alert() {
+                        show_low_battery_alert.set(true);
+                        let msg = format!(
+                            "Battery at {:.0}% - Consider connecting the charger",
+                            percent
+                        );
+                        show_dialog("⚠️ Low Battery", &msg, "warning");
+                        if notify_enabled {
+                            send_system_notification(
+                                "⚠️ Low Battery",
+                                &msg,
+                                "warning",
+                                webhook.as_deref(),
+                            );
+                        }
+                    } else if percent > 20.0 && is_charging {
+                        show_low_battery_alert.set(false);
+                    }
+                }
+            }
+
+            // Stop: a backup in progress is allowed to finish (its snapshot
+            // is all-or-nothing), then report what is still pending.
+            stopping.set(true);
+            status_msg
+                .set("⏹️ Stopping — a backup in progress is allowed to finish...".to_string());
+            rt.stop().await;
+            let _ = loop_handle.await;
+            let stats = rt.get_stats().await;
+            files_synced.set(stats.synced);
+            backups_created.set(stats.backups_completed);
+            sync_errors.set(stats.backups_failed);
+            status_msg.set(stop_summary(&stats));
+            stopping.set(false);
+            if notify_enabled {
+                send_system_notification(
+                    "⏹️ Monitoring Stopped",
+                    &stop_summary(&stats),
+                    "info",
+                    None,
+                );
             }
         });
     };
 
     let handle_stop_monitoring = move |_| {
+        // The monitoring task sees this, stops the watcher and waits for a
+        // running backup to finish.
         is_monitoring.set(false);
-        status_msg.set("⏹️ Monitoring stopped".to_string());
-
-        // Notify monitoring stop
-        if notifications_enabled() {
-            send_system_notification(
-                "⏹️ Monitoring Stopped",
-                "Monitoring was stopped successfully",
-                "info",
-                None,
-            );
-        }
     };
 
     // Handlers to manage ignore patterns
@@ -623,7 +598,35 @@ pub fn RealtimeSyncScreen() -> Element {
             h2 { class: "page-title", "⚡ Real-Time Sync with Backup" }
 
             p { class: "hint mb-4",
-                "Monitor a folder, sync in real-time AND create automatic backups of changes."
+                "Watches a folder; after each burst of changes it mirrors new/modified files to the synchronization folder and runs an encrypted incremental backup (same engine as `rsb watch`)."
+            }
+
+            div { class: "form-group",
+                label { class: "label-text", "📋 Profile (Optional, like `rsb watch <profile>`)" }
+                div { class: "flex gap-3",
+                    input {
+                        class: "input-field",
+                        r#type: "text",
+                        placeholder: "No profile: use the folders below",
+                        value: "{profile().map(|p| p.path.to_string_lossy().into_owned()).unwrap_or_default()}",
+                        readonly: true
+                    }
+                    button {
+                        class: "btn-icon",
+                        onclick: handle_load_profile,
+                        disabled: is_monitoring(),
+                        "📂"
+                    }
+                    if profile().is_some() {
+                        button {
+                            class: "btn-icon",
+                            onclick: move |_| profile.set(None),
+                            disabled: is_monitoring(),
+                            "✖"
+                        }
+                    }
+                }
+                p { class: "hint", "With a profile its source, repository (local or S3) and keyring key are used; the password below is then optional." }
             }
 
             div { class: "form-group",
@@ -903,8 +906,8 @@ pub fn RealtimeSyncScreen() -> Element {
                 button {
                     class: "btn-primary flex-1",
                     onclick: handle_start_monitoring,
-                    disabled: is_monitoring() || source_path().as_os_str().is_empty(),
-                    if is_monitoring() { "🔴 Monitoring..." } else { "▶️ Start" }
+                    disabled: is_monitoring() || stopping() || source_path().as_os_str().is_empty(),
+                    if is_monitoring() { "🔴 Monitoring..." } else if stopping() { "⏳ Stopping..." } else { "▶️ Start" }
                 }
                 button {
                     class: "btn-secondary flex-1",
@@ -1066,5 +1069,33 @@ pub fn RealtimeSyncScreen() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watch_without_profile_encrypts_everything() {
+        let cfg = watch_config(std::path::Path::new("/src"), std::path::Path::new("/bkp"));
+        assert!(cfg.encryption_required());
+        assert_eq!(cfg.destination_path, "/bkp");
+    }
+
+    #[test]
+    fn stop_summary_mentions_pending_changes_and_errors() {
+        let stats = SyncStats {
+            pending_changes: 2,
+            synced: 5,
+            failed: 1,
+            backups_completed: 3,
+            backups_failed: 1,
+            backup_running: false,
+            last_error: Some("disk full".into()),
+        };
+        let msg = stop_summary(&stats);
+        assert!(msg.contains("2 change(s) were NOT backed up"));
+        assert!(msg.contains("disk full"));
     }
 }

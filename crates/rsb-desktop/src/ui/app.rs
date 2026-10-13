@@ -18,6 +18,7 @@ use crate::ui::{
     fido2_manager_view::Fido2ManagerView,
     i18n::{Language, Theme, get_texts},
     integrations_screen::IntegrationScreen,
+    key_screen::KeyScreen,
     login_screen::LoginScreen,
     profile_manager_screen::ProfileManagerScreen,
     prune_screen::PruneScreen,
@@ -43,6 +44,7 @@ pub enum ActiveTab {
     Snapshots,
     Diagnostics,
     Fido2Manager,
+    Keys,
     Integrations,
     Config,
 }
@@ -128,26 +130,41 @@ pub fn App() -> Element {
         disk_free_gb: 0.0,
     });
 
+    // Metrics and the activity counters are read off the UI thread (they
+    // block on system tables / the history file) and refreshed
+    // periodically, so operations done in this session show up.
     use_effect(move || {
         spawn(async move {
-            let _ = rsb_sdk::operation::operations::ensure_history_directory();
-            let manager = OperationsManager::new();
-            let history = manager.get_history();
-
-            backup_count.set(history.get_operations_count("Backup"));
-            restore_count.set(history.get_operations_count("Restore"));
-            verify_count.set(history.get_operations_count("Verify"));
-            prune_count.set(history.get_operations_count("Prune"));
-            total_operations.set(history.get_total_operations());
-            last_operation_time.set(history.get_last_operation_time(None));
-        });
-    });
-
-    use_effect(move || {
-        spawn(async move {
+            let mut tick = 0u32;
             loop {
-                let metrics = get_system_metrics();
-                system_metrics.set(metrics);
+                if let Ok(metrics) = tokio::task::spawn_blocking(get_system_metrics).await {
+                    system_metrics.set(metrics);
+                }
+                if tick.is_multiple_of(5) {
+                    let counts = tokio::task::spawn_blocking(|| {
+                        let _ = rsb_sdk::operation::operations::ensure_history_directory();
+                        let manager = OperationsManager::new();
+                        let history = manager.get_history();
+                        (
+                            history.get_operations_count("Backup"),
+                            history.get_operations_count("Restore"),
+                            history.get_operations_count("Verify"),
+                            history.get_operations_count("Prune"),
+                            history.get_total_operations(),
+                            history.get_last_operation_time(None),
+                        )
+                    })
+                    .await;
+                    if let Ok((b, r, v, p, total, last)) = counts {
+                        backup_count.set(b);
+                        restore_count.set(r);
+                        verify_count.set(v);
+                        prune_count.set(p);
+                        total_operations.set(total);
+                        last_operation_time.set(last);
+                    }
+                }
+                tick = tick.wrapping_add(1);
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             }
         });
@@ -294,6 +311,7 @@ pub fn App() -> Element {
                             h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Sistema" }
                             TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
                             TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
+                            TabButton { label: "Chave do repositório".to_string(), icon: "🗝️", active: *active_tab.read() == ActiveTab::Keys, onclick: move |_| active_tab.set(ActiveTab::Keys) }
                             TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
                             TabButton { label: "Diagnósticos".to_string(), icon: "🔧", active: *active_tab.read() == ActiveTab::Diagnostics, onclick: move |_| active_tab.set(ActiveTab::Diagnostics) }
                             TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
@@ -356,6 +374,7 @@ pub fn App() -> Element {
                                     ActiveTab::Diagnostics => rsx! { DiagnosticsScreen {} },
                                     ActiveTab::Schedule => rsx! { ScheduleScreen {} },
                                     ActiveTab::Fido2Manager => rsx! { Fido2ManagerView {} },
+                                    ActiveTab::Keys => rsx! { KeyScreen {} },
                                     ActiveTab::Integrations => rsx! { IntegrationScreen {} },
                                     ActiveTab::Config => rsx! { ConfigScreen {} },
                                 }

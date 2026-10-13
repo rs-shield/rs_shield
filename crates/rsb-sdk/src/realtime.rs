@@ -277,6 +277,67 @@ pub fn profile_backup_runner(mut config: Config, encryption_key: Option<String>)
     })
 }
 
+/// What a batch of [`mirror_and_backup_sync`] did (for progress output).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WatchEvent {
+    /// New/modified files copied to the mirror folder.
+    Mirrored { files: usize },
+    /// A backup (the `number`-th of this session) wrote a snapshot.
+    BackedUp { number: usize, summary: String },
+}
+
+/// Receives the [`WatchEvent`]s (called from the backup task).
+pub type WatchEventFn = Arc<dyn Fn(WatchEvent) + Send + Sync>;
+
+/// The synchronizer behind `rsb watch` and the desktop Real-Time Sync
+/// screen: each debounced batch first mirrors new/modified files of the
+/// profile's source to `sync_dst`, then runs an incremental backup of the
+/// profile with `cfg.encryption_key`. Neither the mirror nor the
+/// repository feed changes back into the watcher (they may live inside the
+/// source tree). Start it with [`RealtimeSync::start`] and
+/// [`RealtimeSync::spawn_processing_loop`].
+pub fn mirror_and_backup_sync(
+    cfg: &Config,
+    sync_dst: PathBuf,
+    strategy: SyncStrategy,
+    on_event: Option<WatchEventFn>,
+) -> RealtimeSync {
+    let source = crate::utils::expand_path(&cfg.source_path);
+    let backup_dst = crate::utils::expand_path(&cfg.destination_path);
+    let backup = profile_backup_runner(cfg.clone(), cfg.encryption_key.clone());
+    let backups = Arc::new(AtomicUsize::new(0));
+    let mirror_dst = sync_dst.clone();
+    let runner: BackupRunner = Arc::new(move || {
+        let backup = backup.clone();
+        let backups = backups.clone();
+        let on_event = on_event.clone();
+        let src = source.clone();
+        let dst = mirror_dst.clone();
+        Box::pin(async move {
+            let copied = crate::backup::diagnostic::sync_changed_files(&src, &dst)
+                .await
+                .map_err(|e| format!("sync to {} failed: {}", dst.display(), e))?;
+            if copied > 0
+                && let Some(f) = &on_event
+            {
+                f(WatchEvent::Mirrored { files: copied });
+            }
+            let summary = backup().await?;
+            let number = backups.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some(f) = &on_event {
+                f(WatchEvent::BackedUp {
+                    number,
+                    summary: summary.clone(),
+                });
+            }
+            Ok(summary)
+        })
+    });
+    RealtimeSync::with_backup_runner(strategy, runner)
+        .exclude_root(sync_dst)
+        .exclude_root(backup_dst)
+}
+
 /// A change waiting for a successful backup.
 struct PendingEntry {
     /// Monotonic sequence: a backup only confirms entries whose seq was
@@ -399,6 +460,20 @@ impl RealtimeSync {
 
     pub async fn start(&self, source: &Path) -> NotifyResult<()> {
         self.watcher.lock().await.start_watching(source).await
+    }
+
+    /// Queues a change of the whole `source` tree, so the next batch backs
+    /// it up (used at start-up, before only reacting to changes).
+    pub async fn queue_full_backup(&self, source: &Path) {
+        self.queue
+            .add_change(FileChange {
+                path: source.to_path_buf(),
+                change_type: ChangeType::Modified,
+                timestamp: Utc::now(),
+                size: 0,
+                hash: None,
+            })
+            .await;
     }
 
     /// Stops the file watcher and the processing loop.
@@ -839,6 +914,37 @@ pub async fn create_backup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn mirror_and_backup_sync_mirrors_then_backs_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        let repo = dir.path().join("repo");
+        let mirror = dir.path().join("mirror");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a.txt"), "hello").unwrap();
+        let cfg = Config::new(src.to_string_lossy(), repo.to_string_lossy());
+
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let sink = events.clone();
+        let rt = mirror_and_backup_sync(
+            &cfg,
+            mirror.clone(),
+            SyncStrategy::default(),
+            Some(Arc::new(move |e| sink.lock().unwrap().push(e))),
+        );
+        rt.queue_full_backup(&src).await;
+        assert_eq!(rt.sync_now().await.unwrap(), 1);
+
+        assert_eq!(
+            std::fs::read_to_string(mirror.join("a.txt")).unwrap(),
+            "hello"
+        );
+        assert!(std::fs::read_dir(repo.join("snapshots")).unwrap().count() >= 1);
+        let events = events.lock().unwrap();
+        assert_eq!(events[0], WatchEvent::Mirrored { files: 1 });
+        assert!(matches!(events[1], WatchEvent::BackedUp { number: 1, .. }));
+    }
 
     #[tokio::test]
     async fn process_batch_drains_queue() {

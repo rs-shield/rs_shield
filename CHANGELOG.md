@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- A backup into an encrypted repository (one with `keys/repo.key`) without
+  an encryption key is now refused before anything is read or written, in
+  the SDK, so for the CLI, the desktop app and real-time sync alike. It
+  used to store every file **unencrypted** in that repository without any
+  warning. An empty key counts as no key.
+
 ### Breaking
 - `rsb snapshots delete` now also deletes the data objects no other
   snapshot uses (like `rsb prune`), so it requires `--confirm`, exactly like
@@ -24,6 +31,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   data objects that would be deleted, without deleting anything
   (`rsb_sdk::snapshot::preview_delete_snapshot`,
   `rsb_sdk::core::preview_prune`).
+- Desktop FIDO2 tab (was a placeholder): lists the registered security
+  keys and generates new recovery codes for the signed-in user, like
+  `rsb auth list` / `generate-codes`.
+- Desktop "Repository key" screen: export `keys/repo.key` (JSON or paper
+  form, 0600, never overwriting), import an exported key file (`--force`
+  keeps a backup of the replaced one) and change the repository password —
+  the SDK calls behind `rsb key export/import/change-password`.
+- Desktop create profile: encryption (`--encrypt`), with the password
+  stored in the OS keyring under the profile name, where backup, restore,
+  verify and prune (desktop and CLI) find it.
+- Desktop prune: "Keep the last N snapshots" (`rsb prune -l N`) besides the
+  age-based retention, and a Preview button (`--dry-run`).
+- Desktop verify: snapshot selection and `--repair`.
+- Desktop restore: `--versioned` and `--verify` options; with a date, the
+  chosen snapshot is shown.
+- Desktop backup: "Verify the backup afterwards" (`rsb backup --verify`).
 
 ### Fixed
 - Desktop: the Snapshots tab listed nothing (loading, details, compare and
@@ -60,11 +83,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prune reads every manifest it keeps before deleting anything, so a
   missing key or an unreadable manifest aborts it with the repository
   untouched (previously the selected manifests were already deleted).
+- Desktop: e-mail/Slack/Telegram/Discord notifications configured in the
+  Integrations screen are now sent after backup, restore and verify. The
+  operations looked for `integrations.json` next to the profile or the
+  backup folder instead of `~/.rs-shield/integrations.json`, where the
+  screen saves it (and the backup screen sent nothing without a profile).
+  The file is now written with mode 0600.
+- Desktop backup: a loaded profile is used as `rsb backup <profile>` uses
+  it, and its encryption key is found like in the CLI (typed key →
+  `RSB_ENCRYPTION_KEY` → the profile's OS keyring entry → legacy TOML key).
+  Before, only a key written in the TOML was read, so a profile created with
+  `--encrypt` (key in the keyring) was backed up **unencrypted** without any
+  warning; such a backup is now refused when no key is found. Profiles are
+  read with the SDK loader (minimal profiles without `exclude_patterns` /
+  `backup_mode` no longer fail; `max_threads` and S3 settings are kept), and
+  loading one no longer overwrites the app-wide settings.
+- Desktop backup: Cancel keeps the screen busy until the backup has really
+  stopped (a second backup could be started while the first was still
+  running); errors of files that failed are listed instead of a bare
+  status; invalid numbers in Settings are reported instead of silently
+  ignored; the history no longer records the duration as the backup size;
+  dry runs are not recorded or notified; HTML reports go to
+  `~/.rs-shield/reports/` instead of the app's working directory.
+- Desktop restore: the encryption key is found like in the CLI (keyring,
+  `RSB_ENCRYPTION_KEY`), existing files are no longer overwritten unless
+  "Overwrite existing files" (`--force`) is ticked (it was always forced),
+  a backup folder typed or picked after loading a profile is used instead
+  of being silently ignored, and restoring straight from the S3 bucket of
+  Settings is possible again (the button stayed disabled without a folder).
+- Desktop verify: a verification that found problems is reported as a
+  failure with the problems listed (like the exit code of `rsb verify`),
+  not as a plain status; the key is found like in the CLI and a loaded
+  profile's repository (also S3) is verified instead of a dummy
+  configuration.
+- Desktop prune: an encrypted repository is no longer pruned without its
+  key (refused before anything is deleted, like `rsb prune`); the key is
+  found like in the CLI; invalid retention input is reported instead of
+  silently becoming 30 days; the result says what was deleted, or that
+  nothing matched, instead of always "Prune completed".
+- `rsb backup --verify` and `rsb restore --verify` pass the encryption key
+  to the verification: with the key in the OS keyring or
+  `RSB_ENCRYPTION_KEY` (not in the TOML), verifying an encrypted backup
+  failed.
+- Desktop schedule: the generated job is the one `rsb schedule` prints
+  (shared code in `rsb_sdk::schedule`): the encryption key is read from a
+  0600 env file instead of being written as `--key "<key>"` into the
+  crontab/unit, `--storage` matches the profile and the profile must load.
+  The "Schedule Now" button, which reported success without scheduling
+  anything, was removed.
+- Desktop create profile: profiles are written like `rsb create-profile`
+  (SDK `Config`, mode 0600 via `write_config_secure`, same defaults — the
+  CPU pause threshold was 20%); an existing profile is no longer silently
+  overwritten; names with path separators (`../x`) are rejected instead of
+  writing outside `~/.rsb-desktop`; an S3 profile no longer needs a local
+  destination (`s3://<bucket>`); a failure to save the S3 credentials is
+  reported instead of only logged (the screen also claimed they were
+  "saved in config").
+- Desktop diagnostics: the screen showed hard-coded results ("250 GB
+  free", "Encryption key available", "Backup 2 hours ago"). It now runs
+  the same repository check as `rsb diagnose --backup <dir>` on a chosen
+  folder and reports the registered FIDO2 keys and the last backup from
+  the history.
+- Desktop backup integrity: objects are counted under `data/clear` and
+  `data/enc` with the SDK validation used by `rsb restore --backup` (it
+  always reported 0 data files and counted temp files as snapshots), off
+  the UI thread.
+- `rsb diagnose` counts only snapshot manifests (not temp files of
+  interrupted writes); its result fields are public in the SDK.
+- Desktop real-time sync now uses the engine of `rsb watch` (shared as
+  `rsb_sdk::realtime::mirror_and_backup_sync`). It used to copy every file
+  of the source every 2 seconds, start a backup only when the number of
+  copied files grew (modified or deleted files never triggered one), drop
+  the backup error text, ignore the ignore-pattern editor, abort folders
+  that took over 30 s to copy, and never send the webhook (its future was
+  never polled). Stopping lets a running backup finish and reports changes
+  that are still pending; a profile can be used like `rsb watch <profile>`.
+  Battery health is computed against the design capacity.
+- Desktop dashboard: CPU usage always showed 0% (a new `System` was
+  created for each sample) and the metrics were read on the UI thread
+  every 2 s; the activity counters were read once at start-up and never
+  showed the operations of the running session. Both are now refreshed
+  off the UI thread.
+- Desktop login: an unreadable FIDO2 credentials file is reported instead
+  of looking like "identifier not found", and a first-time user is told to
+  register a key with `rsb auth register`. Settings: the compression
+  slider allows the zstd levels up to 22 (it stopped at 11).
 
 ### Removed
 - `rsb_sdk::snapshot::{repository::SnapshotRepository, model::Snapshot,
   model::SnapshotFile}`: unused, and they read `snapshots/*.json` files no
   version ever wrote. Use `rsb_sdk::snapshot`.
+
 
 ## [0.1.0-alpha.9] - 2026-10-12
 

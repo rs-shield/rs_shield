@@ -1,37 +1,71 @@
-use chrono::Local;
 use dioxus::prelude::*;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::ui::integrations_screen::IntegrationConfig;
-use rsb_sdk::core::{NotificationEvent, NotificationManager, NotificationPayload};
+use rsb_sdk::core::NotificationEvent;
 use rsb_sdk::operation::operations_helpers::record_restore_operation;
-use rsb_sdk::{CancellationToken, RestoreOptions};
+use rsb_sdk::{CancellationToken, RestoreOptions, VerifyOptions, perform_verify};
 
-use crate::ui::s3_settings;
+use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    error_handler::format_user_error,
     i18n::get_texts,
     loading_state::{LoadingOverlay, LoadingStyle},
-    profile_loader::{ProfileData, load_profile},
+    ops,
+    profile_loader::{
+        LoadedProfile, load_profile, repository_config, repository_label, resolve_key_blocking,
+    },
     shared::ProgressBar,
 };
 
+/// What to restore, as typed on screen.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RestoreSelection {
+    pub snapshot_id: Option<String>,
+    pub at_or_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub include: Vec<String>,
+}
+
+/// Validates the snapshot / date / file fields exactly like `rsb restore
+/// --snapshot/--date/--files` (before the repository is touched).
+pub fn restore_selection(
+    snapshot: &str,
+    date: &str,
+    files: &str,
+) -> Result<RestoreSelection, String> {
+    let snapshot_id = Some(snapshot.trim().to_string()).filter(|s| !s.is_empty());
+    let at_or_before = if date.trim().is_empty() {
+        None
+    } else {
+        Some(rsb_sdk::core::parse_restore_date(date).map_err(|e| e.to_string())?)
+    };
+    if at_or_before.is_some() && snapshot_id.is_some() {
+        return Err("Give either a snapshot ID or a date, not both.".to_string());
+    }
+    let include = include_patterns(files);
+    rsb_sdk::core::FileSelector::new(&include).map_err(|e| e.to_string())?;
+    Ok(RestoreSelection {
+        snapshot_id,
+        at_or_before,
+        include,
+    })
+}
+
 #[component]
 pub fn RestoreScreen() -> Element {
-    let mut app_config = use_context::<AppConfig>();
+    let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
-    let mut profile_path = use_signal(PathBuf::new);
+    let mut profile = use_signal(|| Option::<LoadedProfile>::None);
     let mut source_path = use_signal(PathBuf::new);
-    let mut portable_backup_path = use_signal(PathBuf::new);
     let mut restore_to = use_signal(PathBuf::new);
     let mut key = use_signal(String::new);
     let mut snapshot_id = use_signal(String::new);
     let mut include_text = use_signal(String::new);
     let mut date_text = use_signal(String::new);
     let mut generate_report = use_signal(|| false);
+    let mut overwrite = use_signal(|| false);
+    let mut versioned = use_signal(|| false);
+    let mut verify_after = use_signal(|| false);
     let mut last_report_path = use_signal(|| Option::<PathBuf>::None);
 
     let mut status_msg = use_signal(|| texts.ready.to_string());
@@ -46,30 +80,13 @@ pub fn RestoreScreen() -> Element {
                 .pick_file()
                 .await
             {
-                let path = h.path().to_path_buf();
-                match load_profile(&path) {
-                    Ok(cfg) => {
-                        let profile_data = ProfileData::from(cfg);
-                        profile_path.set(path);
-                        source_path.set(PathBuf::from(profile_data.destination_path));
-                        key.set(profile_data.encryption_key);
-
-                        app_config
-                            .exclude_patterns
-                            .set(profile_data.exclude_patterns);
-                        app_config.backup_mode.set(profile_data.backup_mode);
-                        app_config.s3_bucket.set(profile_data.s3_bucket);
-                        app_config.s3_region.set(profile_data.s3_region);
-                        app_config.s3_endpoint.set(profile_data.s3_endpoint);
-                        app_config
-                            .encrypt_patterns
-                            .set(profile_data.encrypt_patterns);
-
-                        status_msg.set("✅ Profile loaded successfully!".to_string());
+                match load_profile(h.path()) {
+                    Ok(p) => {
+                        source_path.set(PathBuf::from(repository_label(&p.config)));
+                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        profile.set(Some(p));
                     }
-                    Err(e) => {
-                        status_msg.set(format_user_error(e, "restore"));
-                    }
+                    Err(e) => status_msg.set(format!("❌ {}", e)),
                 }
             }
         });
@@ -79,9 +96,14 @@ pub fn RestoreScreen() -> Element {
         spawn(async move {
             if let Some(h) = rfd::AsyncFileDialog::new().pick_folder().await {
                 let backup_path = h.path().to_path_buf();
-
-                // Validate backup structure using portable restore function
-                let validation = rsb_sdk::validate_backup_structure(&backup_path);
+                let path = backup_path.clone();
+                let validation =
+                    tokio::task::spawn_blocking(move || rsb_sdk::validate_backup_structure(&path))
+                        .await;
+                let Ok(validation) = validation else {
+                    status_msg.set("❌ Could not read the backup folder".to_string());
+                    return;
+                };
 
                 if !validation.is_valid {
                     let mut error_msg = format!("{}\n", texts.backup_validation_failed);
@@ -95,19 +117,16 @@ pub fn RestoreScreen() -> Element {
                     return;
                 }
 
-                // Load portable backup successfully
-                portable_backup_path.set(backup_path.clone());
+                profile.set(None);
                 source_path.set(backup_path);
-
-                let details = format!(
+                status_msg.set(format!(
                     "{}\n📊 {} {} | {} {}",
                     texts.portable_backup_loaded,
                     validation.snapshots_count,
                     texts.snapshots_found,
                     validation.data_files_count,
                     texts.data_files_found
-                );
-                status_msg.set(details);
+                ));
             }
         });
     };
@@ -116,44 +135,30 @@ pub fn RestoreScreen() -> Element {
         if is_running() {
             return;
         }
-
         is_running.set(true);
-
-        // Reset do token de cancellation para nova operação
         let token = CancellationToken::new();
         cancellation_token.set(token.clone());
-
         last_report_path.set(None);
         progress.set(0.0);
         status_msg.set(texts.starting.to_string());
 
         let create_report = generate_report();
+        let loaded = profile();
+        let bkp = source_path();
+        let rst = restore_to();
+        let selection = restore_selection(&snapshot_id(), &date_text(), &include_text());
+        let typed_key = key();
+        let force = overwrite();
+        let versioned_mode = versioned();
+        let verify_mode = verify_after();
+        // Session credentials typed in Settings stay in memory only.
+        let s3 = S3Settings::from_app(&app_config);
 
         spawn(async move {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(f64, String)>();
-
-            let bkp = source_path();
-            let rst = restore_to();
-            let snap = snapshot_id();
-            let include = include_patterns(&include_text());
-            let date = date_text();
-            let key_val = key();
-            let s3_bucket = app_config.s3_bucket();
-            let s3_region = app_config.s3_region();
-            let s3_endpoint = app_config.s3_endpoint();
-            // Credenciais escritas no formulário ficam só em memória (sessão).
-            s3_settings::apply_session_credentials(&app_config);
-            let source_label = if bkp.as_os_str().is_empty() && !s3_bucket.trim().is_empty() {
-                format!("s3://{}", s3_bucket.trim())
-            } else {
-                bkp.to_string_lossy().to_string()
-            };
-            let rst_for_record = rst.clone();
-
             let progress_cb = Arc::new(move |current: usize, total: usize, msg: String| {
                 let _ = tx.send((current as f64 / total.max(1) as f64, msg));
             });
-
             spawn(async move {
                 while let Some((p, msg)) = rx.recv().await {
                     progress.set(p);
@@ -161,199 +166,159 @@ pub fn RestoreScreen() -> Element {
                 }
             });
 
-            let res = async {
-                let snap_opt = if snap.trim().is_empty() {
-                    None
-                } else {
-                    Some(snap.trim().to_string())
-                };
-                // Same parsing/validation as `rsb restore --date/--files`.
-                let at_or_before = if date.trim().is_empty() {
-                    None
-                } else {
-                    Some(rsb_sdk::core::parse_restore_date(&date).map_err(|e| e.to_string())?)
-                };
-                if at_or_before.is_some() && snap_opt.is_some() {
-                    return Err("❌ Give either a snapshot ID or a date, not both.".to_string());
-                }
-                rsb_sdk::core::FileSelector::new(&include).map_err(|e| e.to_string())?;
-                let key_opt = if key_val.is_empty() {
-                    None
-                } else {
-                    Some(key_val.as_str())
-                };
+            let cfg = repository_config(loaded.as_ref(), &bkp, &s3);
+            let source_label = cfg.as_ref().map(repository_label).unwrap_or_default();
+            let target_label = rst.to_string_lossy().to_string();
 
+            let res: Result<(rsb_sdk::report::ReportData, Vec<String>), String> = async {
+                let sel = selection?;
                 if rst.as_os_str().is_empty() {
-                    return Err("❌ Please select a restore target.".to_string());
+                    return Err("Please select a restore target.".to_string());
                 }
-
-                // Use portable restore function to support both config and direct backup paths
-                let profile_path_str = profile_path.read();
-                let config_path_opt = if profile_path_str.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(profile_path_str.as_path())
-                };
-
-                let token = cancellation_token();
-                let restore_opts = RestoreOptions {
-                    snapshot_id: snap_opt.clone(),
-                    at_or_before,
-                    include,
-                    force: true, // UI default is force
-                    versioned: false,
-                    on_progress: Some(progress_cb),
-                    cancellation_token: Some(token),
-                    ..RestoreOptions::new(rst)
-                }
-                .with_encryption_key(key_opt);
-
-                // Sem perfil nem pasta local: restaurar diretamente do bucket S3
-                // configurado no ecrã (antes estas definições eram ignoradas).
-                if config_path_opt.is_none() && bkp.as_os_str().is_empty() {
-                    if s3_bucket.trim().is_empty() {
-                        return Err(texts.define_backup_or_s3.to_string());
+                let cfg = cfg?;
+                let key = resolve_key_blocking(typed_key, loaded.clone()).await;
+                let mut notes = Vec::new();
+                // A date is resolved here (as the CLI does) so the chosen
+                // snapshot can be shown and verified.
+                let snapshot = match sel.at_or_before {
+                    Some(when) => {
+                        let id = rsb_sdk::core::find_snapshot_at_or_before_in(&cfg, None, when)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        notes.push(format!("📅 Latest snapshot at or before that date: {}", id));
+                        Some(id)
                     }
-                    let cfg = rsb_sdk::portable_restore::config_for_s3_restore(
-                        &s3_bucket,
-                        Some(s3_region.clone()),
-                        Some(s3_endpoint.clone()),
-                    )
-                    .map_err(|e| e.to_string())?;
-                    return rsb_sdk::core::restore::perform_restore(&cfg, restore_opts)
-                        .await
-                        .map_err(|e| e.to_string());
-                }
-
-                let backup_path_opt = if bkp.as_os_str().is_empty() {
-                    None
-                } else {
-                    Some(bkp.as_path())
+                    None => sel.snapshot_id,
                 };
-
-                rsb_sdk::restore_from_config_or_backup(
-                    config_path_opt,
-                    backup_path_opt,
-                    restore_opts,
+                let report = rsb_sdk::core::perform_restore(
+                    &cfg,
+                    RestoreOptions {
+                        snapshot_id: snapshot.clone(),
+                        include: sel.include,
+                        force,
+                        versioned: versioned_mode,
+                        on_progress: Some(progress_cb),
+                        cancellation_token: Some(token),
+                        ..RestoreOptions::new(rst.clone())
+                    }
+                    .with_encryption_key(key.as_deref()),
                 )
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string())?;
+
+                if verify_mode {
+                    status_msg.set("🔍 Verifying the restored snapshot...".to_string());
+                    let v = perform_verify(
+                        &cfg,
+                        VerifyOptions {
+                            snapshot_id: snapshot,
+                            ..Default::default()
+                        }
+                        .with_encryption_key(key.as_deref()),
+                    )
+                    .await
+                    .map_err(|e| format!("Restore verification failed: {}", e))?;
+                    if v.files_with_errors > 0 || !v.errors.is_empty() {
+                        return Err(format!(
+                            "Restore verification found problems ({} file(s) with errors): {}",
+                            v.files_with_errors,
+                            v.errors.first().cloned().unwrap_or_default()
+                        ));
+                    }
+                    notes.push(format!("🔍 Verification passed: {} files", v.total_files));
+                }
+                Ok((report, notes))
             }
             .await;
 
             match res {
-                Ok(mut report) => {
+                Ok((mut report, notes)) => {
                     let _ = record_restore_operation(
                         report.status.clone(),
                         report.files_processed,
                         report.duration.as_secs(),
                         source_label.clone(),
-                        rst_for_record.to_string_lossy().to_string(),
+                        target_label.clone(),
                     );
+                    ops::notify(
+                        NotificationEvent::RestoreCompleted,
+                        "✅ Restore completed",
+                        format!(
+                            "Files: {}\nDuration: {}s",
+                            report.files_processed,
+                            report.duration.as_secs()
+                        ),
+                        format!("Source: {}\nTarget: {}", source_label, target_label),
+                    )
+                    .await;
 
-                    // Send notifications
-                    if let Some(bkp_parent) = bkp.parent() {
-                        let integrations = IntegrationConfig::load(bkp_parent);
-                        let mut manager = NotificationManager::new();
-
-                        if let Some(email_cfg) = integrations.to_email_config() {
-                            manager.set_email_config(email_cfg);
-                        }
-
-                        for chat_integration in integrations.to_chat_integrations() {
-                            manager.add_chat_integration(chat_integration);
-                        }
-
-                        let notification = NotificationPayload {
-                            event: NotificationEvent::RestoreCompleted,
-                            title: "✅ Restauração Concluída".to_string(),
-                            message: format!(
-                                "Arquivos: {}\nDuração: {}s",
-                                report.files_processed,
-                                report.duration.as_secs()
-                            ),
-                            details: Some(format!(
-                                "Origem: {}\nDestino: {}",
-                                source_label,
-                                rst_for_record.to_string_lossy()
-                            )),
-                            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                        };
-
-                        let _ = manager.send(&notification).await;
+                    let mut msg = format!(
+                        "{}: {} file(s) restored, {} skipped, {} with errors",
+                        report.status,
+                        report.files_processed,
+                        report.files_skipped,
+                        report.files_with_errors
+                    );
+                    for e in report.errors.iter().take(5) {
+                        msg.push_str(&format!("\n  ❌ {}", e));
                     }
-
+                    for n in notes {
+                        msg.push('\n');
+                        msg.push_str(&n);
+                    }
                     if create_report {
-                        report.profile_path = "Desktop UI".to_string();
-                        let html = rsb_sdk::report::generate_html(&report);
-                        let filename = format!(
-                            "rsb-report-restore-{}.html",
-                            Local::now().format("%Y%m%d-%H%M%S")
-                        );
-                        if fs::write(&filename, html).is_ok() {
-                            status_msg.set(format!("{} Relatório: {}", report.status, filename));
-                            last_report_path.set(Some(PathBuf::from(filename)));
-                        } else {
-                            status_msg.set(format!("{} (Erro ao gravar relatório)", report.status));
+                        report.profile_path = loaded
+                            .as_ref()
+                            .map(|p| p.path.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| format!("Backup: {}", source_label));
+                        match ops::write_report("restore", &report) {
+                            Ok(path) => {
+                                msg.push_str(&format!("\n📄 Report: {}", path.display()));
+                                last_report_path.set(Some(path));
+                            }
+                            Err(e) => msg.push_str(&format!("\n❌ {}", e)),
                         }
-                    } else {
-                        status_msg.set(report.status);
                     }
+                    status_msg.set(msg);
                     progress.set(1.0);
                 }
                 Err(e) => {
                     let _ = record_restore_operation(
-                        "Falha".to_string(),
+                        "Failed".to_string(),
                         0,
                         0,
                         source_label.clone(),
-                        rst_for_record.to_string_lossy().to_string(),
+                        target_label.clone(),
                     );
-
-                    // Send error notification
-                    if let Some(bkp_parent) = bkp.parent() {
-                        let integrations = IntegrationConfig::load(bkp_parent);
-                        let mut manager = NotificationManager::new();
-
-                        if let Some(email_cfg) = integrations.to_email_config() {
-                            manager.set_email_config(email_cfg);
-                        }
-
-                        for chat_integration in integrations.to_chat_integrations() {
-                            manager.add_chat_integration(chat_integration);
-                        }
-
-                        let notification = NotificationPayload {
-                            event: NotificationEvent::RestoreFailed,
-                            title: "❌ Restauração Falhou".to_string(),
-                            message: format!("Erro: {}", e),
-                            details: Some(format!(
-                                "Origem: {}\nDestino: {}",
-                                source_label,
-                                rst_for_record.to_string_lossy()
-                            )),
-                            timestamp: Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
-                        };
-
-                        let _ = manager.send(&notification).await;
-                    }
-
+                    ops::notify(
+                        NotificationEvent::RestoreFailed,
+                        "❌ Restore failed",
+                        format!("Error: {}", e),
+                        format!("Source: {}\nTarget: {}", source_label, target_label),
+                    )
+                    .await;
                     status_msg.set(format!("{} {}", texts.error_prefix, e));
                 }
             }
-
             is_running.set(false);
         });
     };
 
+    // The restore stops after the files in progress; the screen stays busy
+    // until it has.
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️  Restore canceled by user".to_string());
-        is_running.set(false);
+        status_msg.set("⏹️ Cancelling — waiting for the files in progress...".to_string());
     };
 
+    let profile_label = profile()
+        .map(|p| p.path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let has_source = profile().is_some()
+        || !source_path.read().as_os_str().is_empty()
+        || !app_config.s3_bucket().trim().is_empty();
+
     rsx! {
-        // Loading overlay
         LoadingOverlay {
             is_visible: is_running(),
             style: LoadingStyle::ProgressBar,
@@ -371,7 +336,7 @@ pub fn RestoreScreen() -> Element {
                         class: "input-field",
                         r#type: "text",
                         placeholder: "Select a profile",
-                        value: "{profile_path.read().to_string_lossy()}",
+                        value: "{profile_label}",
                         readonly: true
                     }
                     button {
@@ -381,7 +346,7 @@ pub fn RestoreScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "Loads the backup path from the selected profile" }
+                p { class: "hint", "Restores from the profile's repository (local or S3), like `rsb restore <profile>`." }
             }
 
             div { class: "form-group",
@@ -392,13 +357,17 @@ pub fn RestoreScreen() -> Element {
                         r#type: "text",
                         placeholder: "{texts.backup_folder_label}",
                         value: "{source_path.read().to_string_lossy()}",
-                        oninput: move |evt| source_path.set(PathBuf::from(evt.value()))
+                        oninput: move |evt| {
+                            profile.set(None);
+                            source_path.set(PathBuf::from(evt.value()));
+                        }
                     }
                     button {
                         class: "btn-icon",
                         onclick: move |_| {
                             spawn(async move {
                                 if let Some(handle) = rfd::AsyncFileDialog::new().pick_folder().await {
+                                    profile.set(None);
                                     source_path.set(handle.path().to_path_buf());
                                 }
                             });
@@ -406,6 +375,7 @@ pub fn RestoreScreen() -> Element {
                         "📂"
                     }
                 }
+                p { class: "hint", "The repository folder (`rsb restore --backup <dir>`). Empty: the S3 bucket configured in Settings." }
             }
 
             div { class: "form-group",
@@ -441,7 +411,7 @@ pub fn RestoreScreen() -> Element {
                     value: "{snapshot_id}",
                     oninput: move |evt| snapshot_id.set(evt.value())
                 }
-                p { class: "hint", "Snapshot ID to restore (optional)" }
+                p { class: "hint", "Snapshot ID to restore (optional, default: the latest)" }
             }
 
             div { class: "form-group",
@@ -481,23 +451,41 @@ pub fn RestoreScreen() -> Element {
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
                 }
-                p { class: "hint", "If the backup was encrypted, provide the key" }
+                p { class: "hint", "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used." }
             }
 
-            div { class: "form-group",
-                div { class: "flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800",
+            div { class: "form-group space-y-2",
+                label { class: "label-text flex items-center gap-2",
                     input {
                         r#type: "checkbox",
-                        id: "gen_report_restore",
-                        class: "w-4 h-4 rounded",
-                        checked: "{generate_report}",
-                        oninput: move |evt| generate_report.set(evt.value() == "true")
+                        checked: overwrite(),
+                        onchange: move |_| overwrite.toggle()
                     }
-                    label {
-                        class: "label-text mb-0 cursor-pointer",
-                        r#for: "gen_report_restore",
-                        "{texts.generate_report_label}"
+                    "Overwrite existing files in the target (--force)"
+                }
+                label { class: "label-text flex items-center gap-2",
+                    input {
+                        r#type: "checkbox",
+                        checked: versioned(),
+                        onchange: move |_| versioned.toggle()
                     }
+                    "Restore into a new restore_<timestamp> folder (--versioned)"
+                }
+                label { class: "label-text flex items-center gap-2",
+                    input {
+                        r#type: "checkbox",
+                        checked: verify_after(),
+                        onchange: move |_| verify_after.toggle()
+                    }
+                    "Verify the snapshot afterwards (--verify)"
+                }
+                label { class: "label-text flex items-center gap-2",
+                    input {
+                        r#type: "checkbox",
+                        checked: generate_report(),
+                        onchange: move |_| generate_report.toggle()
+                    }
+                    "{texts.generate_report_label}"
                 }
             }
 
@@ -520,7 +508,7 @@ pub fn RestoreScreen() -> Element {
                     button {
                         class: "flex-1 btn-success",
                         onclick: handle_restore,
-                        disabled: is_running() || source_path.read().as_os_str().is_empty() || restore_to.read().as_os_str().is_empty(),
+                        disabled: is_running() || !has_source || restore_to.read().as_os_str().is_empty(),
                         "{texts.start_restore}"
                     }
                 }
@@ -542,7 +530,7 @@ pub fn RestoreScreen() -> Element {
 
             div { class: "status-box mt-6",
                 p { class: "font-semibold mb-2", "Status:" }
-                p { "{status_msg}" }
+                p { class: "whitespace-pre-wrap", "{status_msg}" }
             }
         }
     }
@@ -559,7 +547,7 @@ fn include_patterns(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::include_patterns;
+    use super::*;
 
     #[test]
     fn include_patterns_one_per_line() {
@@ -569,5 +557,22 @@ mod tests {
             include_patterns("docs/\r\n**/*.pdf\n\nmy file.txt"),
             ["docs/", "**/*.pdf", "my file.txt"]
         );
+    }
+
+    #[test]
+    fn selection_is_validated_like_the_cli() {
+        let all = restore_selection(" ", "", "").unwrap();
+        assert_eq!(all, RestoreSelection::default());
+        let s = restore_selection("2026-01-01T000000Z", "", "docs/\n").unwrap();
+        assert_eq!(s.snapshot_id.as_deref(), Some("2026-01-01T000000Z"));
+        assert_eq!(s.include, ["docs/"]);
+        assert!(
+            restore_selection("", "2026-10-01", "")
+                .unwrap()
+                .at_or_before
+                .is_some()
+        );
+        assert!(restore_selection("id", "2026-10-01", "").is_err());
+        assert!(restore_selection("", "not a date", "").is_err());
     }
 }

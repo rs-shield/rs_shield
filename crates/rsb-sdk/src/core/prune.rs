@@ -110,16 +110,34 @@ pub async fn perform_prune_by_age_with_storage(
     encryption_key: Option<&str>,
     retention_days: u32,
 ) -> Result<(), RsbError> {
-    let snapshots = list_snapshots(&*storage).await?;
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
-    // Snapshot names are `%Y-%m-%dT%H%M%S[.mmm]Z` (not RFC3339); the shared
-    // parser handles every format ever written. Unparseable names are kept.
-    let to_delete = select_by_age(snapshots, cutoff);
+    let to_delete = plan_prune_by_age_with_storage(&*storage, retention_days).await?;
     if to_delete.is_empty() {
         info!("Nothing to prune by age.");
         return Ok(());
     }
     prune_with_storage(storage, encryption_key, &to_delete).await
+}
+
+/// Snapshots that [`perform_prune_by_age`] would delete (nothing is
+/// deleted): those older than `retention_days`, never the newest one.
+pub async fn plan_prune_by_age(
+    config: &Config,
+    retention_days: u32,
+) -> Result<Vec<String>, RsbError> {
+    let storage = super::storage_backend::get_storage(config).await?;
+    plan_prune_by_age_with_storage(&*storage, retention_days).await
+}
+
+/// [`plan_prune_by_age`] on an existing storage backend.
+pub async fn plan_prune_by_age_with_storage(
+    storage: &dyn Storage,
+    retention_days: u32,
+) -> Result<Vec<String>, RsbError> {
+    let snapshots = list_snapshots(storage).await?;
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+    // Snapshot names are `%Y-%m-%dT%H%M%S[.mmm]Z` (not RFC3339); the shared
+    // parser handles every format ever written. Unparseable names are kept.
+    Ok(select_by_age(snapshots, cutoff))
 }
 
 async fn list_snapshots(storage: &dyn Storage) -> Result<Vec<String>, RsbError> {
@@ -468,6 +486,20 @@ mod tests {
                 .await
                 .unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn plan_by_age_lists_old_snapshots_but_keeps_the_newest() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage: Arc<dyn Storage> = Arc::new(LocalStorage::new(dir.path().to_str().unwrap()));
+        for s in ["2020-01-01T000000Z", "2020-01-02T000000Z"] {
+            storage
+                .write(&format!("snapshots/{}.toml", s), b"")
+                .await
+                .unwrap();
+        }
+        let plan = plan_prune_by_age_with_storage(&*storage, 30).await.unwrap();
+        assert_eq!(plan, vec!["snapshots/2020-01-01T000000Z.toml".to_string()]);
     }
 
     #[tokio::test]

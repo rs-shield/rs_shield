@@ -1,35 +1,124 @@
 use dioxus::prelude::*;
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
+use rsb_sdk::config::{self, Config, S3Config};
+use std::path::{Path, PathBuf};
 
 use crate::ui::components::{
     Button, ButtonSize, ButtonVariant, Card, CardVariant, Input, InputVariant,
 };
-use crate::ui::{app::AppConfig, i18n::get_texts};
-use rsb_sdk::credentials::SecureString;
-use rsb_sdk::credentials::credentials_manager::{CredentialsManager, S3Credentials};
-use rsb_sdk::utils::ensure_directory_exists;
+use crate::ui::{app::AppConfig, i18n::get_texts, s3_settings};
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct S3Config {
-    pub bucket: Option<String>,
-    pub region: Option<String>,
-    pub endpoint: Option<String>,
+/// Fields of the Create Profile form.
+#[derive(Debug, Clone, Default)]
+pub struct ProfileForm {
+    pub name: String,
+    pub source: PathBuf,
+    pub destination: PathBuf,
+    pub exclude_patterns: String,
+    pub encrypt: bool,
+    pub s3_bucket: Option<String>,
+    pub s3_region: Option<String>,
+    pub s3_endpoint: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Config {
-    pub source_path: String,
-    pub destination_path: String,
-    pub exclude_patterns: Vec<String>,
-    pub encryption_key: Option<String>,
-    pub backup_mode: String,
-    pub s3: Option<S3Config>,
-    pub encrypt_patterns: Option<Vec<String>>,
-    pub pause_on_low_battery: Option<u8>,
-    pub pause_on_high_cpu: Option<u8>,
-    pub compression_level: Option<u8>,
+/// Directory of the profiles listed by "Manage profiles" (`~/.rsb-desktop`).
+pub fn profiles_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".rsb-desktop")
+}
+
+/// A profile name is also its file name and its OS keyring account: only
+/// letters, digits, `-`, `_` and `.` (no path separators, no leading dot),
+/// so it can never write outside the profiles folder.
+pub fn validate_profile_name(name: &str) -> Result<(), String> {
+    let ok = !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "Invalid profile name '{}': use letters, digits, '-', '_' or '.' (max 64)",
+            name
+        ))
+    }
+}
+
+/// Builds the profile like `rsb create-profile` does (same defaults; the
+/// key is never part of it). With an S3 bucket and no destination, the
+/// destination is `s3://<bucket>`.
+pub fn build_profile(form: &ProfileForm) -> Result<Config, String> {
+    validate_profile_name(&form.name)?;
+    if form.source.as_os_str().is_empty() {
+        return Err("Select the source folder.".to_string());
+    }
+    let bucket = form
+        .s3_bucket
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty());
+    let destination = match (form.destination.as_os_str().is_empty(), bucket) {
+        (false, _) => form.destination.to_string_lossy().into_owned(),
+        (true, Some(b)) => format!("s3://{}", b),
+        (true, None) => {
+            return Err("Select the destination folder (or configure an S3 bucket).".to_string());
+        }
+    };
+    let exclude_patterns: Vec<String> = form
+        .exclude_patterns
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let region = form.s3_region.clone().filter(|r| !r.trim().is_empty());
+    let endpoint = form.s3_endpoint.clone().filter(|e| !e.trim().is_empty());
+    Ok(Config {
+        source_path: form.source.to_string_lossy().into_owned(),
+        destination_path: destination,
+        exclude_patterns: if exclude_patterns.is_empty() {
+            Config::default().exclude_patterns
+        } else {
+            exclude_patterns
+        },
+        backup_mode: "incremental".to_string(),
+        s3_bucket: bucket.map(str::to_string),
+        s3_region: bucket.and(region.clone()),
+        s3_endpoint: bucket.and(endpoint.clone()),
+        s3: bucket.map(|b| S3Config {
+            bucket: Some(b.to_string()),
+            region,
+            endpoint,
+            access_key: None,
+            secret_key: None,
+        }),
+        encrypt_patterns: form.encrypt.then(|| vec!["*".to_string()]),
+        pause_on_low_battery: Some(20),
+        pause_on_high_cpu: Some(65),
+        compression_level: Some(3),
+        ..Config::default()
+    })
+}
+
+/// Writes `<dir>/<name>.toml` (mode 0600, never overwriting an existing
+/// profile) and returns its path.
+pub fn write_profile(dir: &Path, name: &str, cfg: &Config) -> Result<PathBuf, String> {
+    validate_profile_name(name)?;
+    config::create_dir_secure(dir)
+        .map_err(|e| format!("Cannot create {}: {}", dir.display(), e))?;
+    let path = dir.join(format!("{}.toml", name));
+    if path.exists() {
+        return Err(format!(
+            "A profile named '{}' already exists ({})",
+            name,
+            path.display()
+        ));
+    }
+    config::write_config_secure(&path, cfg)
+        .map_err(|e| format!("Cannot write {}: {}", path.display(), e))?;
+    Ok(path)
 }
 
 #[component]
@@ -40,10 +129,14 @@ pub fn CreateProfileScreen() -> Element {
     let mut profile_name = use_signal(String::new);
     let mut source_path = use_signal(PathBuf::new);
     let mut dest_path = use_signal(PathBuf::new);
-    let mut exclude_patterns = use_signal(|| "*.tmp\nnode_modules\n.git".to_string());
+    let mut exclude_patterns =
+        use_signal(|| config::DEFAULT_EXCLUDE_PATTERNS.join("\n").to_string());
     let mut message = use_signal(String::new);
 
-    // S3 Signals
+    let mut encrypt = use_signal(|| true);
+    let mut password = use_signal(String::new);
+    let mut password_confirm = use_signal(String::new);
+
     let mut use_s3 = use_signal(|| false);
     let mut s3_bucket = use_signal(String::new);
     let mut s3_region = use_signal(String::new);
@@ -73,97 +166,110 @@ pub fn CreateProfileScreen() -> Element {
     };
 
     let handle_create = move |_| {
-        let name = profile_name();
-        let source = source_path();
-        let dest = dest_path();
-        let _excludes = exclude_patterns();
-
-        if name.is_empty() {
-            message.set(texts.profile_name_required.to_string());
-            return;
-        }
-
-        if source.as_os_str().is_empty() {
-            message.set(texts.select_source_dir.to_string());
-            return;
-        }
-
-        if dest.as_os_str().is_empty() {
-            message.set(texts.select_dest_dir.to_string());
-            return;
-        }
-
-        let s3_config = if use_s3() {
-            Some(S3Config {
-                bucket: if s3_bucket().is_empty() {
-                    None
-                } else {
-                    Some(s3_bucket())
-                },
-                region: if s3_region().is_empty() {
-                    None
-                } else {
-                    Some(s3_region())
-                },
-                endpoint: if s3_endpoint().is_empty() {
-                    None
-                } else {
-                    Some(s3_endpoint())
-                },
-            })
-        } else {
-            None
+        is_success.set(false);
+        let s3_on = use_s3();
+        let form = ProfileForm {
+            name: profile_name().trim().to_string(),
+            source: source_path(),
+            destination: dest_path(),
+            exclude_patterns: exclude_patterns(),
+            encrypt: encrypt(),
+            s3_bucket: s3_on.then(|| s3_bucket.read().clone()),
+            s3_region: s3_on.then(|| s3_region.read().clone()),
+            s3_endpoint: s3_on.then(|| s3_endpoint.read().clone()),
         };
+        let cfg = match build_profile(&form) {
+            Ok(c) => c,
+            Err(e) => {
+                message.set(format!("❌ {}", e));
+                return;
+            }
+        };
+        let pwd = password();
+        if form.encrypt && pwd != password_confirm() {
+            message.set("❌ The passwords do not match.".to_string());
+            return;
+        }
+        let access_key = s3_access_key();
+        let secret_key = s3_secret_key();
+        let save_creds = use_s3() && !access_key.is_empty() && !secret_key.is_empty();
 
         is_loading.set(true);
-        is_success.set(false);
-
-        // Capture credentials if provided
-        let access_key = s3_access_key().clone();
-        let secret_key = s3_secret_key().clone();
-        let excludes = exclude_patterns();
-
-        tracing::debug!("=== Form submitted ===");
-        tracing::debug!("s3_use: {}", use_s3());
-
         spawn(async move {
-            match create_profile_async(
-                &name, &source, &dest, &excludes, s3_config, access_key, secret_key,
-            )
+            let name = form.name.clone();
+            // File writes, keyring and the credentials KDF block: keep them
+            // off the UI thread.
+            let result = tokio::task::spawn_blocking(move || {
+                let path = write_profile(&profiles_dir(), &form.name, &cfg)?;
+                let mut notes = vec![format!("Profile saved: {}", path.display())];
+                if form.encrypt {
+                    if pwd.is_empty() {
+                        notes.push(format!(
+                            "⚠️ Encryption is on but no password was stored: backups need the key typed on screen or {}.",
+                            config::ENCRYPTION_KEY_ENV
+                        ));
+                    } else {
+                        match config::store_encryption_key_in_keyring(&form.name, &pwd) {
+                            Ok(()) => notes.push("🔐 Encryption key stored in the OS keyring.".to_string()),
+                            Err(e) => notes.push(format!(
+                                "⚠️ {} — the key was NOT saved: type it at backup time or set {}.",
+                                e,
+                                config::ENCRYPTION_KEY_ENV
+                            )),
+                        }
+                    }
+                }
+                if save_creds {
+                    match s3_settings::remember_credentials(&access_key, &secret_key) {
+                        Ok(p) => notes.push(format!("☁️ S3 credentials saved encrypted in {}", p.display())),
+                        Err(e) => notes.push(format!("⚠️ S3 credentials were NOT saved: {}", e)),
+                    }
+                }
+                Ok::<_, String>(notes)
+            })
             .await
-            {
-                Ok(_) => {
-                    let success_msg = texts.create_profile_success.replace("{0}", &name);
-                    message.set(success_msg);
+            .map_err(|e| e.to_string())
+            .and_then(|r| r);
+
+            match result {
+                Ok(notes) => {
+                    message.set(format!(
+                        "{}\n{}",
+                        texts.create_profile_success.replace("{0}", &name),
+                        notes.join("\n")
+                    ));
                     is_success.set(true);
                     profile_name.set(String::new());
                     source_path.set(PathBuf::new());
                     dest_path.set(PathBuf::new());
+                    password.set(String::new());
+                    password_confirm.set(String::new());
+                    s3_secret_key.set(String::new());
                 }
-                Err(e) => {
-                    let error_msg = texts.error_creating_profile.replace("{0}", &e);
-                    message.set(error_msg);
-                }
+                Err(e) => message.set(texts.error_creating_profile.replace("{0}", &e)),
             }
             is_loading.set(false);
         });
     };
 
-    let profile_saved_msg =
-        use_memo(move || format!("Profile will be saved as: {}.toml", profile_name()));
+    let profile_saved_msg = use_memo(move || {
+        format!(
+            "Profile will be saved as: {}",
+            profiles_dir()
+                .join(format!("{}.toml", profile_name().trim()))
+                .display()
+        )
+    });
 
     rsx! {
         div { class: "flex flex-col gap-4 p-4 bg-slate-50 dark:bg-slate-900",
-            // Header
             div { class: "space-y-1",
                 h1 { class: "text-lg font-semibold text-slate-900 dark:text-slate-100", "➕ Create Profile" }
-                p { class: "text-sm text-slate-600 dark:text-slate-400", "Set up a new backup profile with your preferences" }
+                p { class: "text-sm text-slate-600 dark:text-slate-400", "Same profile as `rsb create-profile`; usable from the CLI too." }
             }
 
-            // Main form card
             Card { variant: CardVariant::Elevated,
                 div { class: "space-y-4",
-                    // Profile name
                     Input {
                         label: texts.profile_name_label.to_string(),
                         placeholder: "documents_backup".to_string(),
@@ -175,7 +281,6 @@ pub fn CreateProfileScreen() -> Element {
                         })),
                     }
 
-                    // Source directory
                     div { class: "space-y-2",
                         label { class: "text-sm font-semibold text-slate-700 dark:text-slate-300",
                             "{texts.source_dir_label}"
@@ -201,7 +306,6 @@ pub fn CreateProfileScreen() -> Element {
                         }
                     }
 
-                    // Destination directory
                     div { class: "space-y-2",
                         label { class: "text-sm font-semibold text-slate-700 dark:text-slate-300",
                             "{texts.dest_dir_label}"
@@ -210,7 +314,7 @@ pub fn CreateProfileScreen() -> Element {
                             input {
                                 class: "flex-1 px-4 py-2 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 cursor-not-allowed",
                                 r#type: "text",
-                                placeholder: "Select folder",
+                                placeholder: "Select folder (optional with S3)",
                                 value: "{dest_path.read().to_string_lossy()}",
                                 readonly: true
                             }
@@ -227,17 +331,15 @@ pub fn CreateProfileScreen() -> Element {
                         }
                     }
 
-                    // Exclude patterns (textarea)
                     div { class: "space-y-2",
                         label { class: "text-sm font-semibold text-slate-700 dark:text-slate-300",
                             "{texts.exclude_patterns_label}"
                         }
                         textarea {
                             class: "w-full px-3 py-2.5 text-sm rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all duration-150 resize-none",
-                            placeholder: "*.tmp\nnode_modules\n.git\n.DS_Store\n__pycache__",
                             value: "{exclude_patterns}",
                             oninput: move |evt: Event<FormData>| exclude_patterns.set(evt.value()),
-                            rows: "8"
+                            rows: "6"
                         }
                         p { class: "text-xs text-slate-600 dark:text-slate-400",
                             "One pattern per line. Wildcards: *.ext, Hidden: .folder, Folders: node_modules"
@@ -246,7 +348,34 @@ pub fn CreateProfileScreen() -> Element {
                 }
             }
 
-            // S3 Configuration (collapsible)
+            Card { variant: CardVariant::Outlined,
+                div { class: "space-y-4",
+                    label { class: "flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100",
+                        input {
+                            r#type: "checkbox",
+                            checked: encrypt(),
+                            onchange: move |_| encrypt.toggle()
+                        }
+                        "🔐 Encrypt backups (rsb create-profile --encrypt)"
+                    }
+                    if encrypt() {
+                        Input {
+                            variant: InputVariant::Password,
+                            label: "Encryption password".to_string(),
+                            value: "{password}",
+                            helper_text: "Stored in the OS keyring for this profile, never in the TOML. Without it you cannot restore: keep a copy.".to_string(),
+                            oninput: Some(EventHandler::new(move |evt: FormEvent| password.set(evt.value()))),
+                        }
+                        Input {
+                            variant: InputVariant::Password,
+                            label: "Confirm password".to_string(),
+                            value: "{password_confirm}",
+                            oninput: Some(EventHandler::new(move |evt: FormEvent| password_confirm.set(evt.value()))),
+                        }
+                    }
+                }
+            }
+
             Card { variant: CardVariant::Outlined,
                 div { class: "space-y-4",
                     div {
@@ -295,7 +424,7 @@ pub fn CreateProfileScreen() -> Element {
                                 label: "Secret Access Key".to_string(),
                                 placeholder: "••••••••".to_string(),
                                 value: "{s3_secret_key}",
-                                helper_text: "⚠️ Credentials saved in config. Use environment variables for better security.".to_string(),
+                                helper_text: "Optional. Saved encrypted in ~/.rs-shield/s3_credentials.enc (never in the profile). AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY take precedence.".to_string(),
                                 oninput: Some(EventHandler::new(move |evt: FormEvent| s3_secret_key.set(evt.value()))),
                             }
                         }
@@ -307,7 +436,6 @@ pub fn CreateProfileScreen() -> Element {
                 }
             }
 
-            // Status message
             if !message().is_empty() {
                 div {
                     class: if is_success() {
@@ -316,150 +444,85 @@ pub fn CreateProfileScreen() -> Element {
                         "flex items-start gap-3 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500"
                     },
                     span { class: "text-xl flex-shrink-0 mt-0.5", if is_success() { "✅" } else { "❌" } }
-                    p { class: "text-sm", "{message}" }
+                    p { class: "text-sm whitespace-pre-wrap", "{message}" }
                 }
             }
 
-            // Action buttons
             div { class: "flex flex-col sm:flex-row gap-3",
                 Button {
                     variant: ButtonVariant::Primary,
                     size: ButtonSize::MD,
                     loading: is_loading(),
-                    disabled: is_loading() || profile_name().is_empty() || source_path().as_os_str().is_empty(),
+                    disabled: is_loading() || profile_name().trim().is_empty() || source_path().as_os_str().is_empty(),
                     class: "flex-1".to_string(),
                     onclick: handle_create,
                     "✨ Create Profile"
-                }
-            }
-
-            // Helper text
-            Card { variant: CardVariant::Filled,
-                div { class: "space-y-2",
-                    h3 { class: "font-semibold text-slate-900 dark:text-slate-100", "📝 Next Steps" }
-                    p { class: "text-sm text-slate-600 dark:text-slate-400",
-                        "After creating this profile, you'll be able to:"
-                    }
-                    ul { class: "list-disc list-inside text-sm text-slate-600 dark:text-slate-400 space-y-1",
-                        li { "Run backups manually or on schedule" }
-                        li { "Monitor real-time synchronization" }
-                        li { "Manage snapshots and recovery" }
-                        li { "Configure advanced settings" }
-                    }
                 }
             }
         }
     }
 }
 
-async fn create_profile_async(
-    name: &str,
-    source: &std::path::Path,
-    dest: &std::path::Path,
-    excludes_str: &str,
-    s3_config: Option<S3Config>,
-    access_key: String,
-    secret_key: String,
-) -> Result<(), String> {
-    // Parse exclude patterns from textarea (one per line)
-    let exclude_patterns: Vec<String> = excludes_str
-        .lines()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let config = Config {
-        source_path: source.to_string_lossy().into_owned(),
-        destination_path: dest.to_string_lossy().into_owned(),
-        exclude_patterns,
-        encryption_key: None,
-        backup_mode: "incremental".to_string(),
-        s3: s3_config.clone(),
-        encrypt_patterns: None,
-        pause_on_low_battery: Some(20),
-        pause_on_high_cpu: Some(20),
-        compression_level: Some(3),
-        //max_threads: None,
-        // channel_buffer_size: 8192,  // ⚡ Default buffer size
-    };
-
-    let toml_str =
-        toml::to_string(&config).map_err(|e| format!("Error serializing TOML: {}", e))?;
-
-    let filename = format!("{}.toml", name);
-
-    // Try to save in the configuration directory (~/.rsb-desktop/)
-    if let Some(home) = dirs::home_dir() {
-        let home_str = home.to_string_lossy();
-        let config_dir_path = format!("{}/.rsb-desktop", home_str);
-
-        // Use centralized function to create directory
-        let config_dir = ensure_directory_exists(&config_dir_path)
-            .map_err(|e| format!("Error creating configuration directory: {}", e))?;
-
-        let config_path = config_dir.join(&filename);
-
-        match fs::write(&config_path, &toml_str) {
-            Ok(_) => {
-                tracing::info!("Profile saved at: {:?}", config_path);
-
-                // Debug: check values
-                tracing::debug!("=== Debug: Salvando credenciais S3 ===");
-                tracing::debug!("s3_config.is_some(): {}", s3_config.is_some());
-
-                // Save S3 credentials securely if provided
-                if s3_config.is_some() && !access_key.is_empty() && !secret_key.is_empty() {
-                    tracing::info!("🔐 Starting S3 credential save...");
-
-                    let credentials = S3Credentials {
-                        access_key: SecureString::new(access_key.clone()),
-                        secret_key: SecureString::new(secret_key.clone()),
-                        session_token: None,
-                    };
-
-                    let cred_dir_path = format!("{}/.rs-shield", home_str);
-                    // Ensure credentials directory exists
-                    let _ = ensure_directory_exists(&cred_dir_path);
-
-                    let cred_file = home.join(".rs-shield").join("s3_credentials.enc");
-                    let cred_file_str = cred_file.to_string_lossy().to_string();
-                    tracing::info!("Caminho das credenciais: {}", cred_file_str);
-
-                    match CredentialsManager::save_encrypted(&cred_file_str, &credentials, false) {
-                        Ok(_) => {
-                            tracing::info!(
-                                "✅ S3 credentials saved securely at: {}",
-                                cred_file_str
-                            );
-                        }
-                        Err(e) => {
-                            tracing::error!("❌ Failed to save credentials: {}", e);
-                        }
-                    }
-                } else {
-                    tracing::warn!("⚠️  S3 credentials NOT saved - conditions not met:");
-                    if s3_config.is_none() {
-                        tracing::warn!("   - S3 config not provided");
-                    }
-                    if access_key.is_empty() {
-                        tracing::warn!("   - Access key is empty");
-                    }
-                    if secret_key.is_empty() {
-                        tracing::warn!("   - Secret key is empty");
-                    }
-                }
-
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!("❌ Error saving to ~/.rsb-desktop/: {}", e);
-                Err(format!("Error writing TOML file: {}", e))
-            }
+    fn form() -> ProfileForm {
+        ProfileForm {
+            name: "docs".into(),
+            source: PathBuf::from("/src"),
+            destination: PathBuf::from("/repo"),
+            exclude_patterns: "*.tmp\n".into(),
+            encrypt: true,
+            ..Default::default()
         }
-    } else {
-        // If it can't get home, fail clearly
-        let error_msg = "❌ CRITICAL ERROR: Could not determine the user's HOME directory. Check environment variables (HOME/USERPROFILE).";
-        tracing::error!("{}", error_msg);
-        Err(error_msg.to_string())
+    }
+
+    #[test]
+    fn names_cannot_escape_the_profiles_folder() {
+        for bad in ["", "../x", "a/b", "a\\b", ".hidden", "with space"] {
+            assert!(validate_profile_name(bad).is_err(), "{bad}");
+        }
+        for good in ["docs", "my-backup_2.v1"] {
+            assert!(validate_profile_name(good).is_ok(), "{good}");
+        }
+    }
+
+    #[test]
+    fn profile_matches_the_cli_and_has_no_secrets() {
+        let cfg = build_profile(&form()).unwrap();
+        assert_eq!(cfg.encrypt_patterns, Some(vec!["*".to_string()]));
+        assert_eq!(cfg.exclude_patterns, ["*.tmp"]);
+        assert_eq!(cfg.pause_on_high_cpu, Some(65));
+        assert!(cfg.encryption_key.is_none() && cfg.s3.is_none());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_profile(dir.path(), "docs", &cfg).unwrap();
+        let loaded = crate::ui::profile_loader::load_profile(&path).unwrap();
+        assert!(loaded.config.encryption_required());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // Never overwrite an existing profile.
+        assert!(write_profile(dir.path(), "docs", &cfg).is_err());
+    }
+
+    #[test]
+    fn s3_profile_needs_no_local_destination() {
+        let mut f = form();
+        f.destination = PathBuf::new();
+        assert!(build_profile(&f).is_err());
+        f.s3_bucket = Some(" my-bucket ".into());
+        f.s3_region = Some("eu-west-1".into());
+        f.s3_endpoint = Some(String::new());
+        let cfg = build_profile(&f).unwrap();
+        assert_eq!(cfg.destination_path, "s3://my-bucket");
+        assert_eq!(cfg.s3_bucket.as_deref(), Some("my-bucket"));
+        let s3 = cfg.s3.unwrap();
+        assert_eq!(s3.region.as_deref(), Some("eu-west-1"));
+        assert!(s3.endpoint.is_none() && s3.secret_key.is_none());
     }
 }

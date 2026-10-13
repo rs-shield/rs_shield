@@ -1,9 +1,41 @@
-use rsb_sdk::operation::operations_helpers::record_schedule_operation;
-
 use dioxus::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::ui::{app::AppConfig, error_handler::format_user_error, i18n::get_texts};
+use crate::ui::{app::AppConfig, i18n::get_texts, profile_loader::load_profile};
+
+/// The CLI the scheduled job runs: `rsb-cli` installed next to the desktop
+/// app if present, otherwise `rsb-cli` from the PATH.
+pub fn cli_executable() -> PathBuf {
+    let name = format!("rsb-cli{}", std::env::consts::EXE_SUFFIX);
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join(&name)))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from(name))
+}
+
+/// The job for `profile`, generated exactly like `rsb schedule`: the
+/// profile must load, the key is read from a 0600 env file (never put on
+/// the command line), and `--storage` matches the profile.
+pub fn schedule_text(profile: &Path, format: &str, exe: &Path) -> Result<String, String> {
+    let loaded = load_profile(profile)?;
+    let abs = std::fs::canonicalize(profile)
+        .map_err(|e| format!("Cannot resolve {}: {}", profile.display(), e))?;
+    // Relative (portable) paths: run from the profile's folder (cron and
+    // systemd do not start in any particular directory).
+    let workdir = rsb_sdk::schedule::profile_uses_relative_paths(&loaded.config)
+        .then(|| abs.parent().map(Path::to_path_buf))
+        .flatten();
+    rsb_sdk::schedule::render_schedule(
+        format,
+        exe,
+        &abs,
+        &loaded.config,
+        &rsb_sdk::schedule::default_env_file(),
+        workdir.as_deref(),
+    )
+    .map_err(|e| e.to_string())
+}
 
 #[component]
 pub fn ScheduleScreen() -> Element {
@@ -13,71 +45,27 @@ pub fn ScheduleScreen() -> Element {
     let mut config_path = use_signal(PathBuf::new);
     let mut format = use_signal(|| "cron".to_string());
     let mut output_command = use_signal(String::new);
-    let mut key = use_signal(String::new);
-    let mut is_loading = use_signal(|| false);
     let mut status_message = use_signal(String::new);
 
     let handle_generate = move |_| {
         let cfg_path = config_path();
         if cfg_path.as_os_str().is_empty() {
-            output_command.set(texts.please_select_config_file.to_string());
+            status_message.set(texts.please_select_config_file.to_string());
             return;
         }
-
-        let abs_config = std::fs::canonicalize(&cfg_path).unwrap_or(cfg_path.clone());
-        let exe = std::env::current_exe()
-            .map(|p| p.parent().unwrap().join("rsb-cli"))
-            .unwrap_or_else(|_| PathBuf::from("rsb-cli"));
-
-        let key_part = if !key().is_empty() {
-            format!(" --key \"{}\"", key())
-        } else {
-            String::new()
-        };
-
-        if format() == "cron" {
-            output_command.set(format!(
-                "0 3 * * * {} backup {}{}",
-                exe.display(),
-                abs_config.display(),
-                key_part
-            ));
-        } else {
-            output_command.set(format!(
-                "[Service]\nType=oneshot\nExecStart={} backup {}{}",
-                exe.display(),
-                abs_config.display(),
-                key_part
-            ));
-        }
-    };
-
-    let handle_execute_schedule = move |_| {
-        let cfg_path = config_path();
-        if cfg_path.as_os_str().is_empty() {
-            status_message.set(texts.select_config_file.to_string());
-            return;
-        }
-
-        is_loading.set(true);
-        status_message.set("⏳ Scheduling backup...".to_string());
-
-        spawn(async move {
-            match execute_schedule(&cfg_path).await {
-                Ok(_) => {
-                    status_message.set("✅ Schedule created successfully!".to_string());
-                    record_schedule_operation(true, None, None).await.ok();
-                }
-                Err(e) => {
-                    let user_msg = format_user_error(&e, "schedule");
-                    status_message.set(user_msg.clone());
-                    record_schedule_operation(false, Some(user_msg), None)
-                        .await
-                        .ok();
-                }
+        match schedule_text(&cfg_path, &format(), &cli_executable()) {
+            Ok(text) => {
+                output_command.set(text);
+                status_message.set(
+                    "✅ Job generated. Install it as described below (nothing is scheduled automatically)."
+                        .to_string(),
+                );
             }
-            is_loading.set(false);
-        });
+            Err(e) => {
+                output_command.set(String::new());
+                status_message.set(format!("❌ {}", e));
+            }
+        }
     };
 
     rsx! {
@@ -92,36 +80,26 @@ pub fn ScheduleScreen() -> Element {
                         r#type: "text",
                         placeholder: "{texts.select_config_file_hint}",
                         value: "{config_path.read().to_string_lossy()}",
-                        oninput: move |evt| config_path.set(PathBuf::from(evt.value())),
                         readonly: true
                     }
                     button {
                         class: "btn-icon",
                         onclick: move |_| {
                             spawn(async move {
-                                if let Some(h) = rfd::AsyncFileDialog::new().pick_file().await {
+                                if let Some(h) = rfd::AsyncFileDialog::new()
+                                    .add_filter("TOML", &["toml"])
+                                    .pick_file()
+                                    .await
+                                {
                                     config_path.set(h.path().to_path_buf());
                                     status_message.set(String::new());
+                                    output_command.set(String::new());
                                 }
                             });
                         },
-                        disabled: is_loading(),
                         "📂"
                     }
                 }
-            }
-
-            div { class: "form-group",
-                label { class: "label-text", "{texts.key_label_opt}" }
-                input {
-                    class: "input-field",
-                    r#type: "password",
-                    placeholder: "{texts.key_label_opt}",
-                    value: "{key}",
-                    oninput: move |evt| key.set(evt.value()),
-                    disabled: is_loading()
-                }
-                p { class: "hint", "Leave blank if backup is not encrypted" }
             }
 
             div { class: "form-group",
@@ -129,16 +107,16 @@ pub fn ScheduleScreen() -> Element {
                 select {
                     class: "select-field",
                     value: "{format}",
-                    onchange: move |evt| format.set(evt.value()),
-                    disabled: is_loading(),
+                    onchange: move |evt| {
+                        format.set(evt.value());
+                        output_command.set(String::new());
+                    },
                     option { value: "cron", "⏰ Cron (Linux/macOS)" }
                     option { value: "systemd", "🐧 Systemd Service (Linux)" }
                 }
-                p { class: "hint", if format() == "cron" {
-                    "Execute this command in your crontab to schedule the backup"
-                } else {
-                    "Copy this content to a .service file"
-                }}
+                p { class: "hint",
+                    "Same output as `rsb schedule <profile> --format <cron|systemd>`. The encryption key is read from ~/.rs-shield/rsb-backup.env (mode 0600), never written into the job."
+                }
             }
 
             if !status_message().is_empty() {
@@ -153,42 +131,32 @@ pub fn ScheduleScreen() -> Element {
                 button {
                     class: "btn-primary flex-1",
                     onclick: handle_generate,
-                    disabled: is_loading() || config_path().as_os_str().is_empty(),
-                    "🔧 Generate Command"
-                }
-                button {
-                    class: "btn-secondary flex-1",
-                    onclick: handle_execute_schedule,
-                    disabled: is_loading() || config_path().as_os_str().is_empty(),
-                    if is_loading() {
-                        "⏳ Scheduling..."
-                    } else {
-                        "⏰ Schedule Now"
-                    }
+                    disabled: config_path().as_os_str().is_empty(),
+                    "🔧 Generate Job"
                 }
             }
 
             div { class: "form-group",
-                label { class: "label-text", "📝 Scheduled Commands" }
+                label { class: "label-text", "📝 Scheduled Job" }
                 textarea {
                     class: "textarea-field",
                     readonly: true,
                     value: "{output_command}",
-                    style: "height: 120px; font-family: monospace; font-size: 0.85rem;"
+                    style: "height: 160px; font-family: monospace; font-size: 0.85rem;"
                 }
             }
 
             div { class: "info-box",
                 h4 { class: "font-semibold mb-2", if format() == "cron" { "Cron Instructions:" } else { "Systemd Instructions:" }}
                 if format() == "cron" {
-                    p { class: "text-xs mb-2", "1. Open your crontab: crontab -e" }
-                    p { class: "text-xs mb-2", "2. Paste the command above into the last line" }
-                    p { class: "text-xs", "3. Save and exit (Ctrl+X, Y, Enter in nano)" }
+                    p { class: "text-xs mb-2", "1. Create the key file as shown in the first comment line" }
+                    p { class: "text-xs mb-2", "2. Open your crontab: crontab -e" }
+                    p { class: "text-xs", "3. Paste the last line and save" }
                 } else {
-                    p { class: "text-xs mb-2", "1. Create a file at /etc/systemd/system/rsb-backup.service" }
-                    p { class: "text-xs mb-2", "2. Paste the content above into the file" }
-                    p { class: "text-xs mb-2", "3. Run: sudo systemctl enable rsb-backup.timer" }
-                    p { class: "text-xs", "4. Start with: sudo systemctl start rsb-backup.timer" }
+                    p { class: "text-xs mb-2", "1. Create the key file as shown in the comment" }
+                    p { class: "text-xs mb-2", "2. Save the service as ~/.config/systemd/user/rsb-backup.service (or /etc/systemd/system/)" }
+                    p { class: "text-xs mb-2", "3. Add an rsb-backup.timer with OnCalendar=daily" }
+                    p { class: "text-xs", "4. Run: systemctl --user enable --now rsb-backup.timer" }
                 }
                 p { class: "text-xs mt-3 text-slate-600 dark:text-slate-400",
                     "ℹ️ {texts.schedule_hint}"
@@ -198,9 +166,54 @@ pub fn ScheduleScreen() -> Element {
     }
 }
 
-async fn execute_schedule(config_path: &std::path::Path) -> Result<(), String> {
-    // This function would be implemented with system calls to rsb-cli
-    // For now, it only logs the execution
-    tracing::info!("Scheduling backup with config: {:?}", config_path);
-    Ok(())
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_matches_the_cli_and_never_contains_a_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = dir.path().join("docs.toml");
+        // Absolute on every platform ("/src" has no drive letter on
+        // Windows); TOML literal strings keep backslashes as they are.
+        let src = dir.path().join("src");
+        let repo = dir.path().join("repo");
+        std::fs::write(
+            &profile,
+            format!(
+                "source_path = '{}'\ndestination_path = '{}'\nencrypt_patterns = [\"*\"]\n",
+                src.display(),
+                repo.display()
+            ),
+        )
+        .unwrap();
+        let exe = Path::new("/opt/rsb/rsb-cli");
+        let cron = schedule_text(&profile, "cron", exe).unwrap();
+        assert!(cron.contains("--storage local"));
+        assert!(cron.contains("\"/opt/rsb/rsb-cli\" backup"));
+        assert!(cron.contains("RSB_ENCRYPTION_KEY"));
+        assert!(!cron.contains("--key"));
+        assert!(!cron.contains("cd \""), "absolute profile: no workdir");
+        let unit = schedule_text(&profile, "systemd", exe).unwrap();
+        assert!(unit.contains("EnvironmentFile="));
+        assert!(schedule_text(&profile, "launchd", exe).is_err());
+    }
+
+    #[test]
+    fn invalid_or_portable_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("bad.toml");
+        std::fs::write(&bad, "nope").unwrap();
+        assert!(schedule_text(&bad, "cron", Path::new("rsb-cli")).is_err());
+
+        let portable = dir.path().join("p.toml");
+        std::fs::write(
+            &portable,
+            "source_path = \"src\"\ndestination_path = \"s3://b\"\n[s3]\nbucket = \"b\"\n",
+        )
+        .unwrap();
+        let cron = schedule_text(&portable, "cron", Path::new("rsb-cli")).unwrap();
+        assert!(cron.contains("--storage s3"));
+        assert!(cron.contains("cd \""), "relative paths need the workdir");
+    }
 }

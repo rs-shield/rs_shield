@@ -11,6 +11,19 @@ use rsb_sdk::credentials::Fido2Manager;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Message when the identifier has no FIDO2 credential. Keys are
+/// registered with the CLI, so a first-time user is told how.
+pub fn login_not_found_message(id: &str, no_credentials: bool) -> String {
+    if no_credentials {
+        "❌ No FIDO2 security key is registered on this computer. Register one first with `rsb auth register`, then sign in with its identifier.".to_string()
+    } else {
+        format!(
+            "❌ Identifier '{}' not found. Use the identifier you registered (`rsb auth list` shows them).",
+            id
+        )
+    }
+}
+
 #[component]
 pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
     let app_config = use_context::<AppConfig>();
@@ -36,18 +49,27 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
 
         let fido2_manager_arc_clone = fido2_for_login.clone();
         spawn(async move {
-            let has_cred = {
+            let (has_cred, no_credentials, load_error) = {
                 let mut mgr = fido2_manager_arc_clone.lock().await;
-
-                if let Ok(path) = Fido2Manager::default_storage_path() {
-                    let _ = mgr.load_from_file(&path);
-                }
-
-                mgr.has_credential(&id)
+                // A credentials file that cannot be read must not look like
+                // "identifier not found".
+                let load_error = Fido2Manager::default_storage_path()
+                    .and_then(|path| mgr.load_from_file(&path).map_err(|e| e.to_string()))
+                    .err();
+                (
+                    mgr.has_credential(&id),
+                    mgr.list_credentials().is_empty(),
+                    load_error,
+                )
             };
 
+            if let Some(e) = load_error {
+                error_msg.set(format!("❌ Could not read the FIDO2 credentials: {}", e));
+                is_authenticating.set(false);
+                return;
+            }
             if !has_cred {
-                error_msg.set(format!("❌ Identifier '{}' not found.", id));
+                error_msg.set(login_not_found_message(&id, no_credentials));
                 is_authenticating.set(false);
                 return;
             }
@@ -204,5 +226,16 @@ pub fn LoginScreen(on_login: EventHandler<String>) -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::login_not_found_message;
+
+    #[test]
+    fn first_run_message_explains_registration() {
+        assert!(login_not_found_message("me", true).contains("rsb auth register"));
+        assert!(login_not_found_message("me", false).contains("'me'"));
     }
 }
