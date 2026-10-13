@@ -232,6 +232,13 @@ pub fn App() -> Element {
 
     let texts = get_texts(*app_config.language.read());
 
+    // The SDK reports "Nunca" when there is no operation in the history yet.
+    let last_op_display = if last_operation_time() == "Nunca" {
+        texts.app_never.to_string()
+    } else {
+        last_operation_time()
+    };
+
     let window = use_window();
     let mut started = use_signal(|| false);
 
@@ -286,7 +293,7 @@ pub fn App() -> Element {
                     span { class: "text-lg filter drop-shadow-sm flex-shrink-0", "🛡️" }
                     div { class: "flex flex-col min-w-0",
                         span { class: "text-sm font-semibold tracking-tight text-slate-900 dark:text-white truncate", "RSB Shield" }
-                        span { class: "text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate", "Secure Backup Solutions" }
+                        span { class: "text-[10px] text-slate-400 dark:text-slate-500 font-medium truncate", "{texts.app_tagline}" }
                     }
                 }
 
@@ -295,25 +302,25 @@ pub fn App() -> Element {
 
                         nav { class: "space-y-1 flex-1 overflow-y-auto pt-4 pr-1 -mr-2 custom-scrollbar",
 
-                            h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2", "Gestão" }
-                            TabButton { label: "Criar Perfil".to_string(), icon: "📝", active: *active_tab.read() == ActiveTab::CreateProfile, onclick: move |_| active_tab.set(ActiveTab::CreateProfile) }
-                            TabButton { label: "Gerenciar Perfis".to_string(), icon: "📋", active: *active_tab.read() == ActiveTab::ProfileManager, onclick: move |_| active_tab.set(ActiveTab::ProfileManager) }
+                            h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mb-2", "{texts.app_section_management}" }
+                            TabButton { label: texts.app_nav_create_profile.to_string(), icon: "📝", active: *active_tab.read() == ActiveTab::CreateProfile, onclick: move |_| active_tab.set(ActiveTab::CreateProfile) }
+                            TabButton { label: texts.app_nav_manage_profiles.to_string(), icon: "📋", active: *active_tab.read() == ActiveTab::ProfileManager, onclick: move |_| active_tab.set(ActiveTab::ProfileManager) }
 
-                            h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Operações" }
+                            h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "{texts.app_section_operations}" }
                             TabButton { label: texts.nav_backup.to_string(), icon: "📦", active: *active_tab.read() == ActiveTab::Backup, onclick: move |_| active_tab.set(ActiveTab::Backup) }
                             TabButton { label: texts.nav_restore.to_string(), icon: "🔄", active: *active_tab.read() == ActiveTab::Restore, onclick: move |_| active_tab.set(ActiveTab::Restore) }
-                            TabButton { label: "Integridade".to_string(), icon: "🔐", active: *active_tab.read() == ActiveTab::BackupIntegrity, onclick: move |_| active_tab.set(ActiveTab::BackupIntegrity) }
+                            TabButton { label: texts.app_nav_integrity.to_string(), icon: "🔐", active: *active_tab.read() == ActiveTab::BackupIntegrity, onclick: move |_| active_tab.set(ActiveTab::BackupIntegrity) }
                             TabButton { label: texts.nav_verify.to_string(), icon: "🔍", active: *active_tab.read() == ActiveTab::Verify, onclick: move |_| active_tab.set(ActiveTab::Verify) }
                             TabButton { label: texts.nav_prune.to_string(), icon: "✂️", active: *active_tab.read() == ActiveTab::Prune, onclick: move |_| active_tab.set(ActiveTab::Prune) }
-                            TabButton { label: "Real-Time Sync".to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
-                            TabButton { label: "Snapshots".to_string(), icon: "📸", active: *active_tab.read() == ActiveTab::Snapshots, onclick: move |_| active_tab.set(ActiveTab::Snapshots) }
+                            TabButton { label: texts.app_nav_realtime_sync.to_string(), icon: "💾", active: *active_tab.read() == ActiveTab::RealtimeSync, onclick: move |_| active_tab.set(ActiveTab::RealtimeSync) }
+                            TabButton { label: texts.nav_snapshots.to_string(), icon: "📸", active: *active_tab.read() == ActiveTab::Snapshots, onclick: move |_| active_tab.set(ActiveTab::Snapshots) }
 
-                            h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "Sistema" }
+                            h5 { class: "text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-3 mt-6 mb-2", "{texts.app_section_system}" }
                             TabButton { label: texts.nav_schedule.to_string(), icon: "🕒", active: *active_tab.read() == ActiveTab::Schedule, onclick: move |_| active_tab.set(ActiveTab::Schedule) }
                             TabButton { label: texts.nav_fido2.to_string(), icon: "🔑", active: *active_tab.read() == ActiveTab::Fido2Manager, onclick: move |_| active_tab.set(ActiveTab::Fido2Manager) }
-                            TabButton { label: "Chave do repositório".to_string(), icon: "🗝️", active: *active_tab.read() == ActiveTab::Keys, onclick: move |_| active_tab.set(ActiveTab::Keys) }
-                            TabButton { label: "Integrações".to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
-                            TabButton { label: "Diagnósticos".to_string(), icon: "🔧", active: *active_tab.read() == ActiveTab::Diagnostics, onclick: move |_| active_tab.set(ActiveTab::Diagnostics) }
+                            TabButton { label: texts.app_nav_repo_key.to_string(), icon: "🗝️", active: *active_tab.read() == ActiveTab::Keys, onclick: move |_| active_tab.set(ActiveTab::Keys) }
+                            TabButton { label: texts.app_nav_integrations.to_string(), icon: "🔗", active: *active_tab.read() == ActiveTab::Integrations, onclick: move |_| active_tab.set(ActiveTab::Integrations) }
+                            TabButton { label: texts.app_nav_diagnostics.to_string(), icon: "🔧", active: *active_tab.read() == ActiveTab::Diagnostics, onclick: move |_| active_tab.set(ActiveTab::Diagnostics) }
                             TabButton { label: texts.nav_config.to_string(), icon: "⚙️", active: *active_tab.read() == ActiveTab::Config, onclick: move |_| active_tab.set(ActiveTab::Config) }
                         }
 
@@ -326,7 +333,7 @@ pub fn App() -> Element {
                                         p { class: "text-xs font-semibold text-slate-900 dark:text-slate-200 truncate", "{user}" }
                                         p { class: "text-[10px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1",
                                             span { class: "w-1 h-1 rounded-full bg-emerald-500 inline-block animate-pulse" }
-                                            "Sessão Ativa"
+                                            "{texts.app_session_active}"
                                         }
                                     }
                                 }
@@ -411,7 +418,7 @@ pub fn App() -> Element {
                             // Utilização CPU
                             div { class: "mb-4",
                                 div { class: "flex justify-between items-baseline mb-1.5",
-                                    span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "Utilização CPU" }
+                                    span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "{texts.app_cpu_usage}" }
                                     span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().cpu_usage)}", "{system_metrics().cpu_usage:.0}%" }
                                 }
                                 div { class: "w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden",
@@ -427,7 +434,7 @@ pub fn App() -> Element {
                                 title: "{texts.used_label}: {format_bytes_gb(system_metrics().memory_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().memory_total_gb)}",
                                 div { class: "flex justify-between items-baseline mb-1.5",
                                     div { class: "flex flex-col",
-                                        span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "Memória RAM" }
+                                        span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "{texts.app_memory_ram}" }
                                         span { class: "text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5", "{system_metrics().memory_used_gb:.1} / {system_metrics().memory_total_gb:.1} GB" }
                                     }
                                     span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().memory_usage)}", "{system_metrics().memory_usage:.0}%" }
@@ -445,7 +452,7 @@ pub fn App() -> Element {
                                 title: "{texts.used_label}: {format_bytes_gb(system_metrics().disk_used_gb)} / {texts.total_label}: {format_bytes_gb(system_metrics().disk_total_gb)}",
                                 div { class: "flex justify-between items-baseline mb-1.5",
                                     div { class: "flex flex-col",
-                                        span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "Disco Local" }
+                                        span { class: "text-xs font-semibold text-slate-700 dark:text-slate-300", "{texts.app_local_disk}" }
                                         span { class: "text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5", "{system_metrics().disk_used_gb:.1} / {system_metrics().disk_total_gb:.1} GB" }
                                     }
                                     span { class: "text-xs font-bold font-mono {format_percentage_color(system_metrics().disk_usage)}", "{system_metrics().disk_usage:.0}%" }
@@ -472,7 +479,7 @@ pub fn App() -> Element {
                                 }
                                 div { class: "flex justify-between items-center px-1",
                                     span { class: "text-xs font-medium text-emerald-800/70 dark:text-emerald-400/70", "{texts.last_op_label}" }
-                                    span { class: "text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono tracking-wide", "{last_operation_time}" }
+                                    span { class: "text-xs font-bold text-emerald-600 dark:text-emerald-400 font-mono tracking-wide", "{last_op_display}" }
                                 }
                             }
                         }

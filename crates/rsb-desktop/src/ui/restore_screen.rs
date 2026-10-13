@@ -9,7 +9,7 @@ use rsb_sdk::{CancellationToken, RestoreOptions, VerifyOptions, perform_verify};
 use crate::ui::s3_settings::S3Settings;
 use crate::ui::{
     app::AppConfig,
-    i18n::get_texts,
+    i18n::{Translations, get_texts, tr},
     loading_state::{LoadingOverlay, LoadingStyle},
     ops,
     profile_loader::{
@@ -32,6 +32,7 @@ pub fn restore_selection(
     snapshot: &str,
     date: &str,
     files: &str,
+    t: &Translations,
 ) -> Result<RestoreSelection, String> {
     let snapshot_id = Some(snapshot.trim().to_string()).filter(|s| !s.is_empty());
     let at_or_before = if date.trim().is_empty() {
@@ -40,7 +41,7 @@ pub fn restore_selection(
         Some(rsb_sdk::core::parse_restore_date(date).map_err(|e| e.to_string())?)
     };
     if at_or_before.is_some() && snapshot_id.is_some() {
-        return Err("Give either a snapshot ID or a date, not both.".to_string());
+        return Err(t.rs_snapshot_or_date.to_string());
     }
     let include = include_patterns(files);
     rsb_sdk::core::FileSelector::new(&include).map_err(|e| e.to_string())?;
@@ -80,10 +81,10 @@ pub fn RestoreScreen() -> Element {
                 .pick_file()
                 .await
             {
-                match load_profile(h.path()) {
+                match load_profile(h.path(), texts) {
                     Ok(p) => {
                         source_path.set(PathBuf::from(repository_label(&p.config)));
-                        status_msg.set(format!("✅ Profile loaded: {}", p.path.display()));
+                        status_msg.set(tr(texts.bk_profile_loaded, &[&p.path.display()]));
                         profile.set(Some(p));
                     }
                     Err(e) => status_msg.set(format!("❌ {}", e)),
@@ -101,7 +102,7 @@ pub fn RestoreScreen() -> Element {
                     tokio::task::spawn_blocking(move || rsb_sdk::validate_backup_structure(&path))
                         .await;
                 let Ok(validation) = validation else {
-                    status_msg.set("❌ Could not read the backup folder".to_string());
+                    status_msg.set(texts.rs_backup_folder_unreadable.to_string());
                     return;
                 };
 
@@ -146,7 +147,7 @@ pub fn RestoreScreen() -> Element {
         let loaded = profile();
         let bkp = source_path();
         let rst = restore_to();
-        let selection = restore_selection(&snapshot_id(), &date_text(), &include_text());
+        let selection = restore_selection(&snapshot_id(), &date_text(), &include_text(), texts);
         let typed_key = key();
         let force = overwrite();
         let versioned_mode = versioned();
@@ -166,14 +167,14 @@ pub fn RestoreScreen() -> Element {
                 }
             });
 
-            let cfg = repository_config(loaded.as_ref(), &bkp, &s3);
+            let cfg = repository_config(loaded.as_ref(), &bkp, &s3, texts);
             let source_label = cfg.as_ref().map(repository_label).unwrap_or_default();
             let target_label = rst.to_string_lossy().to_string();
 
             let res: Result<(rsb_sdk::report::ReportData, Vec<String>), String> = async {
                 let sel = selection?;
                 if rst.as_os_str().is_empty() {
-                    return Err("Please select a restore target.".to_string());
+                    return Err(texts.rs_select_target.to_string());
                 }
                 let cfg = cfg?;
                 let key = resolve_key_blocking(typed_key, loaded.clone()).await;
@@ -185,7 +186,7 @@ pub fn RestoreScreen() -> Element {
                         let id = rsb_sdk::core::find_snapshot_at_or_before_in(&cfg, None, when)
                             .await
                             .map_err(|e| e.to_string())?;
-                        notes.push(format!("📅 Latest snapshot at or before that date: {}", id));
+                        notes.push(tr(texts.rs_date_snapshot_note, &[&id]));
                         Some(id)
                     }
                     None => sel.snapshot_id,
@@ -207,7 +208,7 @@ pub fn RestoreScreen() -> Element {
                 .map_err(|e| e.to_string())?;
 
                 if verify_mode {
-                    status_msg.set("🔍 Verifying the restored snapshot...".to_string());
+                    status_msg.set(texts.rs_verifying.to_string());
                     let v = perform_verify(
                         &cfg,
                         VerifyOptions {
@@ -217,15 +218,17 @@ pub fn RestoreScreen() -> Element {
                         .with_encryption_key(key.as_deref()),
                     )
                     .await
-                    .map_err(|e| format!("Restore verification failed: {}", e))?;
+                    .map_err(|e| tr(texts.rs_verify_failed, &[&e]))?;
                     if v.files_with_errors > 0 || !v.errors.is_empty() {
-                        return Err(format!(
-                            "Restore verification found problems ({} file(s) with errors): {}",
-                            v.files_with_errors,
-                            v.errors.first().cloned().unwrap_or_default()
+                        return Err(tr(
+                            texts.rs_verify_problems,
+                            &[
+                                &v.files_with_errors,
+                                &v.errors.first().cloned().unwrap_or_default(),
+                            ],
                         ));
                     }
-                    notes.push(format!("🔍 Verification passed: {} files", v.total_files));
+                    notes.push(tr(texts.bk_verify_passed, &[&v.total_files]));
                 }
                 Ok((report, notes))
             }
@@ -252,12 +255,14 @@ pub fn RestoreScreen() -> Element {
                     )
                     .await;
 
-                    let mut msg = format!(
-                        "{}: {} file(s) restored, {} skipped, {} with errors",
-                        report.status,
-                        report.files_processed,
-                        report.files_skipped,
-                        report.files_with_errors
+                    let mut msg = tr(
+                        texts.rs_summary,
+                        &[
+                            &report.status,
+                            &report.files_processed,
+                            &report.files_skipped,
+                            &report.files_with_errors,
+                        ],
                     );
                     for e in report.errors.iter().take(5) {
                         msg.push_str(&format!("\n  ❌ {}", e));
@@ -273,7 +278,8 @@ pub fn RestoreScreen() -> Element {
                             .unwrap_or_else(|| format!("Backup: {}", source_label));
                         match ops::write_report("restore", &report) {
                             Ok(path) => {
-                                msg.push_str(&format!("\n📄 Report: {}", path.display()));
+                                msg.push('\n');
+                                msg.push_str(&tr(texts.bk_report_path, &[&path.display()]));
                                 last_report_path.set(Some(path));
                             }
                             Err(e) => msg.push_str(&format!("\n❌ {}", e)),
@@ -308,7 +314,7 @@ pub fn RestoreScreen() -> Element {
     // until it has.
     let handle_cancel = move |_| {
         cancellation_token().cancel();
-        status_msg.set("⏹️ Cancelling — waiting for the files in progress...".to_string());
+        status_msg.set(texts.bk_cancelling.to_string());
     };
 
     let profile_label = profile()
@@ -330,12 +336,12 @@ pub fn RestoreScreen() -> Element {
             h2 { class: "page-title", "{texts.restore_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "📋 Load Profile (Optional)" }
+                label { class: "label-text", "{texts.bk_load_profile_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select a profile",
+                        placeholder: "{texts.bk_select_profile}",
                         value: "{profile_label}",
                         readonly: true
                     }
@@ -346,7 +352,7 @@ pub fn RestoreScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "Restores from the profile's repository (local or S3), like `rsb restore <profile>`." }
+                p { class: "hint", "{texts.rs_profile_hint}" }
             }
 
             div { class: "form-group",
@@ -375,7 +381,7 @@ pub fn RestoreScreen() -> Element {
                         "📂"
                     }
                 }
-                p { class: "hint", "The repository folder (`rsb restore --backup <dir>`). Empty: the S3 bucket configured in Settings." }
+                p { class: "hint", "{texts.rs_backup_folder_hint}" }
             }
 
             div { class: "form-group",
@@ -411,7 +417,7 @@ pub fn RestoreScreen() -> Element {
                     value: "{snapshot_id}",
                     oninput: move |evt| snapshot_id.set(evt.value())
                 }
-                p { class: "hint", "Snapshot ID to restore (optional, default: the latest)" }
+                p { class: "hint", "{texts.rs_snapshot_hint}" }
             }
 
             div { class: "form-group",
@@ -419,12 +425,12 @@ pub fn RestoreScreen() -> Element {
                 input {
                     class: "input-field",
                     r#type: "text",
-                    placeholder: "2026-10-01 or 2026-10-01 12:00",
+                    placeholder: "{texts.rs_date_placeholder}",
                     value: "{date_text}",
                     oninput: move |evt| date_text.set(evt.value())
                 }
                 p { class: "hint",
-                    "YYYY-MM-DD (end of that day), YYYY-MM-DD HH:MM (local time) or RFC 3339. Leave the snapshot ID empty."
+                    "{texts.rs_date_hint}"
                 }
             }
 
@@ -438,7 +444,7 @@ pub fn RestoreScreen() -> Element {
                     rows: "3"
                 }
                 p { class: "hint",
-                    "Exact path, folder (docs/) or glob (**/*.pdf), relative to the backup source. Empty restores everything."
+                    "{texts.rs_files_hint}"
                 }
             }
 
@@ -451,7 +457,7 @@ pub fn RestoreScreen() -> Element {
                     value: "{key}",
                     oninput: move |evt| key.set(evt.value())
                 }
-                p { class: "hint", "Blank: RSB_ENCRYPTION_KEY or the profile's key in the OS keyring is used." }
+                p { class: "hint", "{texts.rs_key_hint}" }
             }
 
             div { class: "form-group space-y-2",
@@ -461,7 +467,7 @@ pub fn RestoreScreen() -> Element {
                         checked: overwrite(),
                         onchange: move |_| overwrite.toggle()
                     }
-                    "Overwrite existing files in the target (--force)"
+                    "{texts.rs_overwrite_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -469,7 +475,7 @@ pub fn RestoreScreen() -> Element {
                         checked: versioned(),
                         onchange: move |_| versioned.toggle()
                     }
-                    "Restore into a new restore_<timestamp> folder (--versioned)"
+                    "{texts.rs_versioned_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -477,7 +483,7 @@ pub fn RestoreScreen() -> Element {
                         checked: verify_after(),
                         onchange: move |_| verify_after.toggle()
                     }
-                    "Verify the snapshot afterwards (--verify)"
+                    "{texts.rs_verify_after_label}"
                 }
                 label { class: "label-text flex items-center gap-2",
                     input {
@@ -494,7 +500,7 @@ pub fn RestoreScreen() -> Element {
                     button {
                         class: "flex-1 px-4 py-3 bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 text-white font-semibold rounded-lg transition-colors",
                         onclick: handle_cancel,
-                        "⏹️  Cancel Restore"
+                        "{texts.rs_cancel_button}"
                     }
                 }
             } else {
@@ -524,12 +530,12 @@ pub fn RestoreScreen() -> Element {
                     onclick: move |_| {
                         let _ = open::that(&path);
                     },
-                    "📄 Open Report"
+                    "{texts.bk_open_report}"
                 }
             }
 
             div { class: "status-box mt-6",
-                p { class: "font-semibold mb-2", "Status:" }
+                p { class: "font-semibold mb-2", "{texts.status_label}" }
                 p { class: "whitespace-pre-wrap", "{status_msg}" }
             }
         }
@@ -548,6 +554,15 @@ fn include_patterns(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::i18n::Language;
+
+    fn restore_selection(
+        snapshot: &str,
+        date: &str,
+        files: &str,
+    ) -> Result<RestoreSelection, String> {
+        super::restore_selection(snapshot, date, files, get_texts(Language::En))
+    }
 
     #[test]
     fn include_patterns_one_per_line() {

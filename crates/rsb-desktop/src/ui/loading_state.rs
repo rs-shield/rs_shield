@@ -1,3 +1,5 @@
+use crate::ui::app::AppConfig;
+use crate::ui::i18n::{get_texts, tr};
 use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -17,6 +19,11 @@ pub fn LoadingState(
     #[props(default = Option::None)] elapsed_time: Option<String>,
     #[props(default = Option::None)] estimated_time: Option<String>,
 ) -> Element {
+    let texts = get_texts(
+        try_use_context::<AppConfig>()
+            .map(|c| c.language())
+            .unwrap_or_default(),
+    );
     rsx! {
         div { class: "loading-state-container",
             // Spinner/Animation based on style
@@ -70,7 +77,7 @@ pub fn LoadingState(
 
             if let Some(estimated) = estimated_time {
                 div { class: "time-info",
-                    p { "⏱️  Estimated: {estimated}" }
+                    p { "⏱️  {tr(texts.ui_estimated, &[&estimated])}" }
                 }
             }
 

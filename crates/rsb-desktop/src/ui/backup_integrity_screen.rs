@@ -55,7 +55,7 @@ pub fn BackupIntegrityScreen() -> Element {
     let app_config = use_context::<AppConfig>();
     let texts = get_texts(app_config.language());
     let mut backup_path = use_signal(PathBuf::new);
-    let mut status_msg = use_signal(|| "🔍 Select a backup folder".to_string());
+    let mut status_msg = use_signal(|| texts.bi_select_folder_prompt.to_string());
     let mut is_checking = use_signal(|| false);
     let mut progress = use_signal(|| 0.0);
     let mut integrity_result = use_signal(|| Option::<IntegrityStatus>::None);
@@ -64,7 +64,7 @@ pub fn BackupIntegrityScreen() -> Element {
         spawn(async move {
             if let Some(handle) = rfd::AsyncFileDialog::new().pick_folder().await {
                 backup_path.set(handle.path().to_path_buf());
-                status_msg.set("✅ Folder selected. Click 'Verify Integrity'".to_string());
+                status_msg.set(texts.bi_folder_selected.to_string());
                 integrity_result.set(None);
             }
         });
@@ -77,17 +77,17 @@ pub fn BackupIntegrityScreen() -> Element {
 
         let path = backup_path();
         if path.as_os_str().is_empty() {
-            status_msg.set("❌ Select a backup folder".to_string());
+            status_msg.set(texts.select_backup_folder.to_string());
             return;
         }
 
         is_checking.set(true);
         progress.set(0.0);
-        status_msg.set("🔍 Checking backup structure...".to_string());
+        status_msg.set(texts.bi_checking.to_string());
 
         spawn(async move {
             progress.set(0.3);
-            status_msg.set("🔍 Checking backup structure...".to_string());
+            status_msg.set(texts.bi_checking.to_string());
             let p = path.clone();
             let validation =
                 tokio::task::spawn_blocking(move || rsb_sdk::validate_backup_structure(&p))
@@ -100,9 +100,9 @@ pub fn BackupIntegrityScreen() -> Element {
                 Ok(v) => {
                     let result = integrity_status(&path, &v, diagnostics.ok().as_ref());
                     status_msg.set(if result.is_valid {
-                        "✅ Verification completed successfully!".to_string()
+                        texts.bi_check_ok.to_string()
                     } else {
-                        "❌ Verification completed with issues".to_string()
+                        texts.bi_check_issues.to_string()
                     });
                     integrity_result.set(Some(result));
                 }
@@ -125,12 +125,12 @@ pub fn BackupIntegrityScreen() -> Element {
             h2 { class: "tab-title", "{texts.integrity_report_title}" }
 
             div { class: "form-group",
-                label { class: "label-text", "Backup Folder" }
+                label { class: "label-text", "{texts.backup_folder_simple_label}" }
                 div { class: "flex gap-3",
                     input {
                         class: "input-field",
                         r#type: "text",
-                        placeholder: "Select the backup folder",
+                        placeholder: "{texts.select_backup_directly}",
                         value: "{backup_path.read().to_string_lossy()}",
                         disabled: true
                     }
@@ -156,13 +156,13 @@ pub fn BackupIntegrityScreen() -> Element {
                 class: "w-full btn-primary mb-4",
                 onclick: handle_check_integrity,
                 disabled: is_checking() || backup_path.read().as_os_str().is_empty(),
-                "🔍 Verify Integrity"
+                "{texts.bi_verify_button}"
             }
 
             if let Some(result) = integrity_result() {
                 div { class: "integrity-report",
                     h3 { class: "report-title",
-                        if result.is_valid { "{texts.integrity_report_title}" } else { "❌ Issues Detected" }
+                        if result.is_valid { "{texts.integrity_report_title}" } else { "{texts.bi_issues_detected}" }
                     }
 
                     div { class: "report-path",
@@ -186,7 +186,7 @@ pub fn BackupIntegrityScreen() -> Element {
 
                     if !result.issues.is_empty() {
                         div { class: "issues-section",
-                            h4 { class: "issues-title", "🔴 Issues:" }
+                            h4 { class: "issues-title", "{texts.bi_issues_title}" }
                             ul { class: "issues-list",
                                 for issue in result.issues.iter() {
                                     li { "{issue}" }
@@ -197,7 +197,7 @@ pub fn BackupIntegrityScreen() -> Element {
 
                     if !result.suggestions.is_empty() {
                         div { class: "suggestions-section",
-                            h4 { class: "suggestions-title", "💡 Suggestions:" }
+                            h4 { class: "suggestions-title", "{texts.bi_suggestions_title}" }
                             ul { class: "suggestions-list",
                                 for suggestion in result.suggestions.iter() {
                                     li { "• {suggestion}" }
@@ -212,7 +212,7 @@ pub fn BackupIntegrityScreen() -> Element {
                         }
                     } else {
                         div { class: "warning-message",
-                            "⚠️ Resolve the issues above before attempting to restore"
+                            "{texts.bi_resolve_issues}"
                         }
                     }
                 }
